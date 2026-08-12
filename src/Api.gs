@@ -422,6 +422,12 @@ function saveItemType(token, itemType) {
 
 // --- TV-табло (spec §5.3): по ключу, только чтение, только агрегаты дня ---
 
+// Полные справочники для экрана владельца (включая архивные).
+function getRefs(token) {
+  if (!requireRole_(token, ['owner'])) return err_('Нет доступа');
+  return ok_({ clients: getClients_(), itemTypes: getItemTypes_() });
+}
+
 function getTvData(key) {
   if (String(key) !== PropertiesService.getScriptProperties().getProperty('TV_KEY')) {
     return err_('Нет доступа');

@@ -237,6 +237,19 @@ test('getDayReport: сводка, детализация с позициями, 
   assert.strictEqual(rep.shift.status, 'closed');
 });
 
+test('getRefs: только owner, отдаёт всех клиентов включая архивных', () => {
+  const { ctx } = makeApiCtx();
+  const owner = loginOwner(ctx);
+  const worker = loginWorker(ctx);
+  const clientId = seedClient(ctx);
+  ctx.deleteClient(owner, clientId);
+  assert.ok(!ctx.getRefs(worker).ok);
+  const refs = ctx.getRefs(owner);
+  assert.strictEqual(refs.clients.length, 1);
+  assert.strictEqual(refs.clients[0].active, 'нет');
+  assert.strictEqual(refs.itemTypes.length, 11);
+});
+
 test('справочники: архивация клиента, сброс кэша после записи', () => {
   const { ctx } = makeApiCtx();
   const owner = loginOwner(ctx);

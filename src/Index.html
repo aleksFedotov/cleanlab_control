@@ -64,6 +64,17 @@
     .toast.show { display: block; }
     .empty { text-align: center; color: #777; padding: 40px 0; }
     .spinner { font-weight: 600; }
+
+    .tabs { display: flex; background: #fff; border-bottom: 1px solid #dde2e8; }
+    .tabs button { flex: 1; padding: 14px 4px; background: none; border-radius: 0; font-weight: 600; color: #555; border-bottom: 3px solid transparent; }
+    .tabs button.active { color: #1e3a5f; border-bottom-color: #2f6fed; }
+    h2 { margin: 18px 0 10px; font-size: 20px; }
+    table.report { width: 100%; border-collapse: collapse; background: #fff; border-radius: 12px; overflow: hidden; font-size: 15px; }
+    table.report th, table.report td { padding: 8px 10px; text-align: left; border-bottom: 1px solid #eee; vertical-align: top; }
+    table.report th { background: #1e3a5f; color: #fff; }
+    .overdue { border-left: 6px solid #d64545; }
+    .summary { display: flex; flex-wrap: wrap; gap: 8px; }
+    .summary .chip { font-size: 16px; padding: 8px 14px; }
   </style>
 </head>
 <body>
@@ -167,6 +178,7 @@ function loadDay(date) {
   // Сервер вернёт date; при пустой дате берём «сегодня» с сервера (TZ скрипта)
   call.then(function (res) {
     state.date = res.date;
+    if (!state.today) state.today = res.date; // «сегодня» сервера — опора для развоза/склада
     state.day = res;
     renderDay();
   }).catch(function () {});
@@ -190,6 +202,7 @@ function renderDay() {
       ? '<span class="chip chip-done">Смена закрыта в ' + esc(day.shift.closed_at) + '</span>'
       : '<button class="btn btn-danger" id="closeShiftBtn">Закрыть смену</button>') +
     '<button class="btn btn-ghost" id="logoutBtn">Выход</button></div>' +
+    ownerTabs('day') +
     '<div class="container">' +
     '<div class="filters">' +
     '<button data-f="all">Все</button><button data-f="todo">К выполнению</button><button data-f="done">Готово</button></div>' +
@@ -205,6 +218,7 @@ function renderDay() {
   var closeBtn = document.getElementById('closeShiftBtn');
   if (closeBtn) closeBtn.onclick = openShiftClose;
   document.getElementById('addWashBtn').onclick = openAddWash;
+  bindTabs();
   Array.prototype.forEach.call(document.querySelectorAll('.filters button'), function (b) {
     if (b.dataset.f === state.filter) b.classList.add('active');
     b.onclick = function () { state.filter = b.dataset.f; renderDay(); };
@@ -482,6 +496,390 @@ function openShiftClose() {
       }).catch(function (e) { hideDialog(); toast(e.message); });
     };
   }).catch(function (e) { toast(e.message); });
+}
+
+// ===== Экран владельца: вкладки =====
+function ownerTabs(active) {
+  if (state.role !== 'owner') return '';
+  var tabs = [['day', 'Цех'], ['delivery', 'Развоз'], ['storage', 'Склад'], ['report', 'Отчёт'], ['refs', 'Справочники']];
+  return '<div class="tabs">' + tabs.map(function (t) {
+    return '<button data-view="' + t[0] + '"' + (t[0] === active ? ' class="active"' : '') + '>' + t[1] + '</button>';
+  }).join('') + '</div>';
+}
+function bindTabs() {
+  Array.prototype.forEach.call(document.querySelectorAll('.tabs button'), function (b) {
+    b.onclick = function () { navigate(b.dataset.view); };
+  });
+}
+function navigate(view) {
+  state.view = view;
+  if (view === 'day') renderDay();
+  else if (view === 'delivery') renderDelivery();
+  else if (view === 'storage') renderStorage();
+  else if (view === 'report') renderReport(state.today);
+  else if (view === 'refs') renderRefs();
+}
+
+function shiftDateStr(dateStr, days) {
+  var p = dateStr.split('-').map(Number);
+  var dt = new Date(Date.UTC(p[0], p[1] - 1, p[2]) + days * 86400000);
+  return dt.getUTCFullYear() + '-' + ('0' + (dt.getUTCMonth() + 1)).slice(-2) + '-' + ('0' + dt.getUTCDate()).slice(-2);
+}
+
+// Каркас экрана владельца: шапка + вкладки + контейнер
+function appShell(title, tab, containerHtml) {
+  document.getElementById('app').innerHTML =
+    '<div class="app-header"><h1>' + esc(title) + '</h1><div class="spacer"></div>' +
+    '<button class="btn btn-ghost" id="logoutBtn">Выход</button></div>' +
+    ownerTabs(tab) + '<div class="container">' + containerHtml + '</div>';
+  document.getElementById('logoutBtn').onclick = function () {
+    api('logout', state.token).finally(backToPin);
+  };
+  bindTabs();
+}
+function setContainer(html) { document.querySelector('.container').innerHTML = html; }
+
+// ===== Развоз на завтра =====
+function renderDelivery() {
+  var date = shiftDateStr(state.today, 1);
+  appShell('Развоз на ' + date, 'delivery', '<div class="empty">Загружаем…</div>');
+  api('getDeliveryPlan', state.token, date).then(function (res) {
+    var html = '';
+    if (res.overdueIssue.length) {
+      html += '<div class="blockers"><b>Просроченные выдачи:</b></div>' +
+        res.overdueIssue.map(function (w) { return issueCard(w, true); }).join('');
+    }
+    html += '<h2>Выдать завтра</h2>' +
+      (res.issueToday.length ? res.issueToday.map(function (w) { return issueCard(w, false); }).join('')
+        : '<div class="empty">Нечего выдавать</div>');
+    html += '<h2>Постирать завтра</h2>' +
+      (res.planned.length ? res.planned.map(function (w) {
+        return '<div class="card"><div class="client">' + esc(w.client_name) + '</div>' +
+          (w.comment ? '<div class="meta">💬 ' + esc(w.comment) + '</div>' : '') +
+          (w.status === 'planned'
+            ? '<div class="row"><button class="btn btn-danger" data-cancel="' + w.id + '">Отменить</button></div>'
+            : '<span class="chip chip-' + w.status + '">' + STATUS_LABELS[w.status] + '</span>') +
+          '</div>';
+      }).join('') : '<div class="empty">Развоз пуст</div>');
+    html += '<h2>Клиенты</h2>' + res.clients.map(function (c) {
+      return '<div class="card"><div class="client">' + esc(c.name) + '</div>' +
+        '<div class="meta">' + esc(c.type) + (c.storage === 'да' ? ' · складской клиент' : '') + '</div>' +
+        '<div class="row"><button class="btn btn-primary" data-add="' + c.id + '">+ В развоз</button></div></div>';
+    }).join('');
+    setContainer(html);
+
+    Array.prototype.forEach.call(document.querySelectorAll('[data-issue]'), function (b) {
+      b.onclick = function () {
+        busy(b, 'Сохраняем…');
+        api('markIssued', state.token, b.dataset.issue)
+          .then(function () { toast('Выдано ✓'); renderDelivery(); })
+          .catch(function (e) { unbusy(b); toast(e.message); });
+      };
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('[data-cancel]'), function (b) {
+      b.onclick = function () {
+        showDialog('<h2>Отменить стирку?</h2><div class="actions">' +
+          '<button class="btn btn-ghost" id="dlgCancel">Назад</button>' +
+          '<button class="btn btn-danger" id="dlgOk">Отменить стирку</button></div>');
+        document.getElementById('dlgCancel').onclick = hideDialog;
+        var okBtn = document.getElementById('dlgOk');
+        okBtn.onclick = function () {
+          busy(okBtn, 'Отменяем…');
+          api('cancelWash', state.token, b.dataset.cancel)
+            .then(function () { hideDialog(); toast('Стирка отменена'); renderDelivery(); })
+            .catch(function (e) { hideDialog(); toast(e.message); });
+        };
+      };
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('[data-add]'), function (b) {
+      b.onclick = function () { openAddToDelivery(b.dataset.add, date, res.clients); };
+    });
+  }).catch(function (e) { setContainer('<div class="empty">' + esc(e.message) + '</div>'); });
+}
+
+function issueCard(w, overdue) {
+  return '<div class="card' + (overdue ? ' overdue' : '') + '"><div class="client">' + esc(w.client_name) + '</div>' +
+    '<div class="meta">' + (w.dirty_weight_kg || 0) + ' кг · ' + (w.items_total || 0) + ' шт · выдача ' + esc(w.issue_date) + '</div>' +
+    (w.comment ? '<div class="meta">💬 ' + esc(w.comment) + '</div>' : '') +
+    '<div class="row"><button class="btn btn-primary" data-issue="' + w.id + '">Выдано</button></div></div>';
+}
+
+// Постановка в развоз: issue_date по умолчанию = день стирки + 1;
+// для складского клиента — подсказка и правка даты (spec §7.3).
+function openAddToDelivery(clientId, washDate, clients) {
+  var c = clients.find(function (x) { return x.id === clientId; });
+  var defIssue = shiftDateStr(washDate, 1);
+  showDialog('<h2>В развоз: ' + esc(c.name) + '</h2>' +
+    (c.storage === 'да' ? '<div class="meta" style="color:#1d4e9e;margin-bottom:8px">Складской клиент — проверьте дату выдачи</div>' : '') +
+    '<div class="row"><input type="date" id="dlIssue" value="' + defIssue + '"></div>' +
+    '<div class="row"><input type="text" id="dlComment" placeholder="Комментарий"></div>' +
+    '<div class="actions"><button class="btn btn-ghost" id="dlgCancel">Назад</button>' +
+    '<button class="btn btn-primary" id="dlgOk">Поставить</button></div>');
+  document.getElementById('dlgCancel').onclick = hideDialog;
+  var okBtn = document.getElementById('dlgOk');
+  okBtn.onclick = function () {
+    busy(okBtn, 'Сохраняем…');
+    api('addToDelivery', state.token, clientId, washDate,
+        document.getElementById('dlIssue').value, document.getElementById('dlComment').value)
+      .then(function () { hideDialog(); toast('Добавлено в развоз ✓'); renderDelivery(); })
+      .catch(function (e) { hideDialog(); toast(e.message); });
+  };
+}
+
+// ===== Склад =====
+function renderStorage() {
+  appShell('Склад', 'storage', '<div class="empty">Загружаем…</div>');
+  api('getStorage', state.token).then(function (res) {
+    if (!res.stored.length) { setContainer('<div class="empty">Склад пуст</div>'); return; }
+    var types = {};
+    (res.itemTypes || []).forEach(function (t) { types[t.id] = t.name; });
+    // Группировка по клиентам, внутри — сортировка по issue_date (уже отсортировано сервером)
+    var byClient = {};
+    res.stored.forEach(function (w) {
+      (byClient[w.client_name] = byClient[w.client_name] || []).push(w);
+    });
+    var html = Object.keys(byClient).map(function (name) {
+      return '<h2>' + esc(name) + '</h2>' + byClient[name].map(function (w) {
+        var overdue = w.issue_date < state.today;
+        var positions = (w.items || []).map(function (it) {
+          return esc(types[it.item_type_id] || it.item_type_id) + ' ×' + it.qty;
+        }).join(', ');
+        return '<div class="card' + (overdue ? ' overdue' : '') + '">' +
+          '<div class="meta">' + (w.dirty_weight_kg || 0) + ' кг · ' + (w.items_total || 0) + ' шт</div>' +
+          (positions ? '<div class="meta">' + positions + '</div>' : '') +
+          '<div class="meta">Выдача: <b>' + esc(w.issue_date) + '</b>' + (overdue ? ' — просрочена!' : '') + '</div>' +
+          '<div class="row"><button class="btn btn-primary" data-issue="' + w.id + '">Выдано</button>' +
+          '<button class="btn btn-ghost" data-editdate="' + w.id + '" data-cur="' + esc(w.issue_date) + '">Изменить дату</button></div></div>';
+      }).join('');
+    }).join('');
+    setContainer(html);
+
+    Array.prototype.forEach.call(document.querySelectorAll('[data-issue]'), function (b) {
+      b.onclick = function () {
+        busy(b, 'Сохраняем…');
+        api('markIssued', state.token, b.dataset.issue)
+          .then(function () { toast('Выдано ✓'); renderStorage(); })
+          .catch(function (e) { unbusy(b); toast(e.message); });
+      };
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('[data-editdate]'), function (b) {
+      b.onclick = function () {
+        showDialog('<h2>Дата выдачи</h2>' +
+          '<div class="row"><input type="date" id="newIssue" value="' + b.dataset.cur + '"></div>' +
+          '<div class="actions"><button class="btn btn-ghost" id="dlgCancel">Назад</button>' +
+          '<button class="btn btn-primary" id="dlgOk">Сохранить</button></div>');
+        document.getElementById('dlgCancel').onclick = hideDialog;
+        var okBtn = document.getElementById('dlgOk');
+        okBtn.onclick = function () {
+          busy(okBtn, 'Сохраняем…');
+          api('updateIssueDate', state.token, b.dataset.editdate, document.getElementById('newIssue').value)
+            .then(function () { hideDialog(); toast('Дата обновлена ✓'); renderStorage(); })
+            .catch(function (e) { hideDialog(); toast(e.message); });
+        };
+      };
+    });
+  }).catch(function (e) { setContainer('<div class="empty">' + esc(e.message) + '</div>'); });
+}
+
+// ===== Отчёт за день =====
+function renderReport(date) {
+  appShell('Отчёт за день', 'report', '<div class="empty">Загружаем…</div>');
+  api('getDayReport', state.token, date).then(function (res) {
+    var r = res.report;
+    var html = '<div class="card"><div class="row" style="margin-top:0">' +
+      '<button class="btn btn-ghost" id="repPrev">‹</button>' +
+      '<div style="text-align:center;font-weight:700;font-size:20px">' + esc(r.date) + '</div>' +
+      '<button class="btn btn-ghost" id="repNext">›</button></div>' +
+      '<div class="summary" style="margin-top:12px">' +
+      '<span class="chip chip-done">' + r.totalKg + ' кг</span>' +
+      '<span class="chip chip-done">Завершено: ' + r.washesDone + '</span>' +
+      '<span class="chip chip-deferred">Перенесено: ' + r.deferred + '</span>' +
+      '<span class="chip chip-planned">Отменено: ' + r.cancelled + '</span>' +
+      '<span class="chip chip-stored">На складе: ' + r.stored + '</span>' +
+      '<span class="chip chip-planned">Выдано: ' + r.issued + '</span>' +
+      (res.shift ? '<span class="chip ' + (res.shift.status === 'closed' ? 'chip-done' : 'chip-in_progress') + '">Смена: ' +
+        (res.shift.status === 'closed' ? 'закрыта в ' + esc(res.shift.closed_at) : 'открыта') + '</span>' : '') +
+      '</div></div>';
+
+    // Завершённые и прочие сверху, незавершённые — внизу (spec §7.3)
+    var rows = res.washes.slice().sort(function (a, b) {
+      var openA = a.status === 'planned' || a.status === 'in_progress' ? 1 : 0;
+      var openB = b.status === 'planned' || b.status === 'in_progress' ? 1 : 0;
+      return openA - openB;
+    });
+    html += rows.length ? '<table class="report"><tr><th>Клиент</th><th>Кг</th><th>Позиции</th><th>Шт</th><th>Статус</th><th></th></tr>' +
+      rows.map(function (w) {
+        var positions = (w.items || []).map(function (it) { return esc(it.item_name) + ' ×' + it.qty; }).join(', ');
+        var canEdit = w.status === 'done' || w.status === 'stored';
+        return '<tr><td>' + esc(w.client_name) +
+          (w.deferred_from ? '<br><span class="chip chip-deferred">с ' + esc(w.deferred_from) + '</span>' : '') + '</td>' +
+          '<td>' + (w.dirty_weight_kg || '—') + '</td><td>' + (positions || '—') + '</td>' +
+          '<td>' + (w.items_total || '—') + '</td>' +
+          '<td>' + (STATUS_LABELS[w.status] || w.status) + '</td>' +
+          '<td>' + (canEdit ? '<button class="btn btn-ghost" data-edit="' + w.id + '">Изменить</button>' : '') + '</td></tr>';
+      }).join('') + '</table>' : '<div class="empty">Стирок не было</div>';
+    setContainer(html);
+
+    document.getElementById('repPrev').onclick = function () { renderReport(shiftDateStr(date, -1)); };
+    document.getElementById('repNext').onclick = function () { renderReport(shiftDateStr(date, 1)); };
+    Array.prototype.forEach.call(document.querySelectorAll('[data-edit]'), function (b) {
+      b.onclick = function () {
+        var w = res.washes.find(function (x) { return x.id === b.dataset.edit; });
+        openEditDialog(w, function () { renderReport(date); });
+      };
+    });
+  }).catch(function (e) { setContainer('<div class="empty">' + esc(e.message) + '</div>'); });
+}
+
+// Правка веса/пересчёта завершённой из отчёта (spec §7.3)
+function openEditDialog(w, onSaved) {
+  var types = (state.day && state.day.itemTypes) || [];
+  var counts = {};
+  (w.items || []).forEach(function (it) { counts[it.item_type_id] = it.qty; });
+  showDialog('<h2>Изменить данные: ' + esc(w.client_name) + '</h2>' +
+    '<div class="row"><span>Вес, кг</span><input type="number" step="0.1" min="0" id="editWeight" value="' + (w.dirty_weight_kg || 0) + '"></div>' +
+    types.map(function (t) {
+      return '<div class="item-row"><span class="name">' + esc(t.name) + '</span>' +
+        '<div class="stepper"><button data-t="' + t.id + '" data-d="-1">−</button>' +
+        '<span class="val" id="eq_' + t.id + '">' + (counts[t.id] || 0) + '</span>' +
+        '<button data-t="' + t.id + '" data-d="1">+</button></div></div>';
+    }).join('') +
+    '<div class="actions"><button class="btn btn-ghost" id="dlgCancel">Назад</button>' +
+    '<button class="btn btn-primary" id="dlgOk">Сохранить</button></div>');
+  document.getElementById('dlgCancel').onclick = hideDialog;
+  Array.prototype.forEach.call(document.querySelectorAll('#dialog [data-t]'), function (b) {
+    b.onclick = function () {
+      var q = Math.max(0, (counts[b.dataset.t] || 0) + parseInt(b.dataset.d, 10));
+      counts[b.dataset.t] = q;
+      document.getElementById('eq_' + b.dataset.t).textContent = q;
+    };
+  });
+  var okBtn = document.getElementById('dlgOk');
+  okBtn.onclick = function () {
+    busy(okBtn, 'Сохраняем…');
+    var items = Object.keys(counts).filter(function (k) { return counts[k] > 0; })
+      .map(function (k) { return { item_type_id: k, qty: counts[k] }; });
+    var kg = parseFloat(document.getElementById('editWeight').value) || 0;
+    api('editWashData', state.token, w.id, kg, items)
+      .then(function () { hideDialog(); toast('Данные обновлены ✓'); onSaved(); })
+      .catch(function (e) { hideDialog(); toast(e.message); });
+  };
+}
+
+// ===== Справочники =====
+function renderRefs() {
+  appShell('Справочники', 'refs', '<div class="empty">Загружаем…</div>');
+  api('getRefs', state.token).then(function (res) {
+    var html = '<h2>Клиенты</h2>' + res.clients.map(function (c) {
+      var inactive = c.active !== 'да';
+      return '<div class="card"' + (inactive ? ' style="opacity:.55"' : '') + '>' +
+        '<div class="client">' + esc(c.name) + (inactive ? ' (архив)' : '') + '</div>' +
+        '<div class="meta">' + esc(c.type) + (c.storage === 'да' ? ' · склад' : '') +
+        (c.contact ? ' · ' + esc(c.contact) : '') + (c.address ? ' · ' + esc(c.address) : '') + '</div>' +
+        (c.comment ? '<div class="meta">💬 ' + esc(c.comment) + '</div>' : '') +
+        '<div class="row"><button class="btn btn-ghost" data-cedit="' + c.id + '">Изменить</button>' +
+        (!inactive ? '<button class="btn btn-danger" data-carch="' + c.id + '">В архив</button>' : '') +
+        '</div></div>';
+    }).join('') +
+    '<div class="row"><button class="btn btn-primary btn-big" id="addClientBtn">+ Добавить клиента</button></div>';
+
+    html += '<h2>Типы белья</h2>' + res.itemTypes.map(function (t) {
+      var inactive = t.active !== 'да';
+      return '<div class="item-row"' + (inactive ? ' style="opacity:.55"' : '') + '>' +
+        '<span class="name">' + esc(t.sort) + '. ' + esc(t.name) + (inactive ? ' (выкл)' : '') + '</span>' +
+        '<button class="btn btn-ghost" data-tedit="' + t.id + '">Переименовать</button>' +
+        '<button class="btn btn-ghost" data-ttoggle="' + t.id + '" data-active="' + esc(t.active) + '">' +
+        (inactive ? 'Включить' : 'Выключить') + '</button></div>';
+    }).join('') +
+    '<div class="row"><button class="btn btn-primary btn-big" id="addTypeBtn">+ Добавить тип</button></div>';
+    setContainer(html);
+
+    document.getElementById('addClientBtn').onclick = function () { openClientForm(null); };
+    Array.prototype.forEach.call(document.querySelectorAll('[data-cedit]'), function (b) {
+      b.onclick = function () {
+        openClientForm(res.clients.find(function (c) { return c.id === b.dataset.cedit; }));
+      };
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('[data-carch]'), function (b) {
+      b.onclick = function () {
+        busy(b, 'Архивируем…');
+        api('deleteClient', state.token, b.dataset.carch)
+          .then(function () { toast('Клиент в архиве'); renderRefs(); })
+          .catch(function (e) { unbusy(b); toast(e.message); });
+      };
+    });
+    document.getElementById('addTypeBtn').onclick = function () { openTypeForm(null); };
+    Array.prototype.forEach.call(document.querySelectorAll('[data-tedit]'), function (b) {
+      b.onclick = function () {
+        openTypeForm(res.itemTypes.find(function (t) { return t.id === b.dataset.tedit; }));
+      };
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('[data-ttoggle]'), function (b) {
+      b.onclick = function () {
+        busy(b, 'Сохраняем…');
+        api('saveItemType', state.token, { id: b.dataset.ttoggle, active: b.dataset.active === 'да' ? 'нет' : 'да' })
+          .then(function () { renderRefs(); })
+          .catch(function (e) { unbusy(b); toast(e.message); });
+      };
+    });
+  }).catch(function (e) { setContainer('<div class="empty">' + esc(e.message) + '</div>'); });
+}
+
+function openClientForm(c) {
+  c = c || {};
+  showDialog('<h2>' + (c.id ? 'Изменить клиента' : 'Новый клиент') + '</h2>' +
+    '<div class="row"><input type="text" id="cfName" placeholder="Название" value="' + esc(c.name || '') + '"></div>' +
+    '<div class="row"><input type="text" id="cfContact" placeholder="Контакт" value="' + esc(c.contact || '') + '"></div>' +
+    '<div class="row"><input type="text" id="cfAddress" placeholder="Адрес" value="' + esc(c.address || '') + '"></div>' +
+    '<div class="row"><select id="cfType">' +
+      ['отель', 'ресторан', 'спа', 'прочее'].map(function (t) {
+        return '<option' + (c.type === t ? ' selected' : '') + '>' + t + '</option>';
+      }).join('') + '</select>' +
+    '<select id="cfStorage">' +
+      '<option value="нет"' + (c.storage !== 'да' ? ' selected' : '') + '>без склада</option>' +
+      '<option value="да"' + (c.storage === 'да' ? ' selected' : '') + '>складской</option>' +
+    '</select></div>' +
+    '<div class="row"><input type="text" id="cfComment" placeholder="Комментарий" value="' + esc(c.comment || '') + '"></div>' +
+    '<div class="actions"><button class="btn btn-ghost" id="dlgCancel">Назад</button>' +
+    '<button class="btn btn-primary" id="dlgOk">Сохранить</button></div>');
+  document.getElementById('dlgCancel').onclick = hideDialog;
+  var okBtn = document.getElementById('dlgOk');
+  okBtn.onclick = function () {
+    var name = document.getElementById('cfName').value.trim();
+    if (!name) return toast('Укажите название');
+    busy(okBtn, 'Сохраняем…');
+    var payload = {
+      name: name,
+      contact: document.getElementById('cfContact').value,
+      address: document.getElementById('cfAddress').value,
+      type: document.getElementById('cfType').value,
+      storage: document.getElementById('cfStorage').value,
+      comment: document.getElementById('cfComment').value
+    };
+    if (c.id) payload.id = c.id;
+    api('saveClient', state.token, payload)
+      .then(function () { hideDialog(); toast('Сохранено ✓'); renderRefs(); })
+      .catch(function (e) { hideDialog(); toast(e.message); });
+  };
+}
+
+function openTypeForm(t) {
+  showDialog('<h2>' + (t ? 'Переименовать тип' : 'Новый тип белья') + '</h2>' +
+    '<div class="row"><input type="text" id="tfName" placeholder="Название" value="' + esc(t ? t.name : '') + '"></div>' +
+    '<div class="actions"><button class="btn btn-ghost" id="dlgCancel">Назад</button>' +
+    '<button class="btn btn-primary" id="dlgOk">Сохранить</button></div>');
+  document.getElementById('dlgCancel').onclick = hideDialog;
+  var okBtn = document.getElementById('dlgOk');
+  okBtn.onclick = function () {
+    var name = document.getElementById('tfName').value.trim();
+    if (!name) return toast('Укажите название');
+    busy(okBtn, 'Сохраняем…');
+    var payload = { name: name };
+    if (t) payload.id = t.id;
+    api('saveItemType', state.token, payload)
+      .then(function () { hideDialog(); toast('Сохранено ✓'); renderRefs(); })
+      .catch(function (e) { hideDialog(); toast(e.message); });
+  };
 }
 
 // ===== Диалог =====
