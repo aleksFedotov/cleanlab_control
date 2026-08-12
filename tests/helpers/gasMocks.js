@@ -1,0 +1,84 @@
+// Общие моки GAS-сервисов для Node-тестов API.
+const { loadGs } = require('./loadGs');
+
+class FakeSheet {
+  constructor(name) { this._name = name; this.data = []; }
+  getName() { return this._name; }
+  getLastRow() { return this.data.length; }
+  getLastColumn() { return this.data.length ? this.data[0].length : 0; }
+  getRange(row, col, numRows, numCols) {
+    const sheet = this;
+    const rows = numRows || 1;
+    const cols = numCols || 1;
+    return {
+      getValue() { return sheet.data[row - 1] ? sheet.data[row - 1][col - 1] : undefined; },
+      getValues() {
+        const out = [];
+        for (let r = 0; r < rows; r++) {
+          const src = sheet.data[row - 1 + r] || [];
+          const line = [];
+          for (let c = 0; c < cols; c++) line.push(src[col - 1 + c] !== undefined ? src[col - 1 + c] : '');
+          out.push(line);
+        }
+        return out;
+      },
+      setValues(values) {
+        values.forEach((vals, r) => {
+          sheet.data[row - 1 + r] = sheet.data[row - 1 + r] || [];
+          vals.forEach((v, c) => { sheet.data[row - 1 + r][col - 1 + c] = v; });
+        });
+      }
+    };
+  }
+  appendRow(row) { this.data.push(row.slice()); }
+  deleteRow(rowNumber) { this.data.splice(rowNumber - 1, 1); }
+}
+
+class FakeSpreadsheet {
+  constructor() { this.sheets = []; }
+  getSheetByName(name) { return this.sheets.find(s => s.getName() === name) || null; }
+  insertSheet(name) { const sh = new FakeSheet(name); this.sheets.push(sh); return sh; }
+}
+
+// Фиксированное «сейчас»: 2026-08-12 21:30 Europe/Moscow.
+function fakeFormatDate(date, tz, fmt) {
+  if (fmt === 'HH:mm') return '21:30';
+  if (fmt === 'yyyy-MM-dd') return '2026-08-12';
+  return '2026-08-12 21:30:00';
+}
+
+function makeApiCtx(props = {}) {
+  const ss = new FakeSpreadsheet();
+  const cacheStore = new Map();
+  const propsStore = Object.assign({
+    OWNER_PIN: '1111', WORKER_PIN: '2222', TV_KEY: 'tv-secret'
+  }, props);
+  let uuid = 0;
+  const sandbox = {
+    SpreadsheetApp: { getActiveSpreadsheet: () => ss },
+    CacheService: {
+      getScriptCache: () => ({
+        get: k => (cacheStore.has(k) ? cacheStore.get(k) : null),
+        put: (k, v) => cacheStore.set(k, v),
+        remove: k => cacheStore.delete(k)
+      })
+    },
+    PropertiesService: {
+      getScriptProperties: () => ({ getProperty: k => propsStore[k] || null })
+    },
+    LockService: {
+      getScriptLock: () => ({ waitLock: () => {}, releaseLock: () => {} })
+    },
+    Utilities: { getUuid: () => `token-${++uuid}`, formatDate: fakeFormatDate },
+    Session: { getScriptTimeZone: () => 'Europe/Moscow' }
+  };
+  ['Schema.gs', 'Db.gs', 'Core.gs', 'Setup.gs', 'Audit.gs', 'Auth.gs', 'Api.gs']
+    .forEach(f => loadGs(f, sandbox));
+  sandbox.setup();
+  return { ctx: sandbox, ss, cacheStore, propsStore };
+}
+
+function loginOwner(ctx) { return ctx.login('1111').token; }
+function loginWorker(ctx) { return ctx.login('2222').token; }
+
+module.exports = { makeApiCtx, loginOwner, loginWorker, FakeSheet, FakeSpreadsheet };

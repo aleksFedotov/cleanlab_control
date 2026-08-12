@@ -60,6 +60,42 @@ function nextId_(sheetName, prefix) {
   return prefix + '_' + (max + 1);
 }
 
+// Строки с номерами: выборка по предикату из хвоста журнального листа.
+function findRowsBy_(sheetName, pred, maxRows) {
+  var sh = getSheet_(sheetName);
+  var lastRow = sh.getLastRow();
+  if (lastRow < 2) return [];
+  var headers = getHeaders_(sh);
+  var n = Math.min(maxRows || TAIL_ROWS, lastRow - 1);
+  var firstRow = lastRow - n + 1;
+  var values = sh.getRange(firstRow, 1, n, headers.length).getValues();
+  var out = [];
+  values.forEach(function (row, i) {
+    if (row[0] === '' || row[0] === undefined) return;
+    var obj = {};
+    headers.forEach(function (h, c) { obj[h] = row[c]; });
+    if (pred(obj)) out.push({ rowNumber: firstRow + i, obj: obj });
+  });
+  return out;
+}
+
+function findById_(sheetName, id) {
+  var found = findRowsBy_(sheetName, function (row) { return row.id === id; }, 1000);
+  return found.length ? found[found.length - 1] : null;
+}
+
+function updateRow_(sheetName, rowNumber, obj) {
+  var sh = getSheet_(sheetName);
+  var headers = getHeaders_(sh);
+  sh.getRange(rowNumber, 1, 1, headers.length).setValues([headers.map(function (h) {
+    return obj[h] !== undefined ? obj[h] : '';
+  })]);
+}
+
+function deleteRow_(sheetName, rowNumber) {
+  getSheet_(sheetName).deleteRow(rowNumber);
+}
+
 // --- Кэш справочников (Settings/Clients/ItemTypes), TTL 5 мин, сброс при записи ---
 
 function cacheGet_(key) {
