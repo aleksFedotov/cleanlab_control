@@ -1,0 +1,9 @@
+{
+  "name": "cleanlab-control",
+  "version": "0.1.0",
+  "private": true,
+  "description": "CleanLab Control (Прачка360) — учёт стирок в прачечной. Google Apps Script + Google Sheets.",
+  "scripts": {
+    "test": "node --test"
+  }
+}
