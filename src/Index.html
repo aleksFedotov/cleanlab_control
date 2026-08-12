@@ -1,0 +1,507 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Прачка360</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, sans-serif; background: #f2f4f7; color: #1a1a1a; font-size: 18px; }
+    button { font: inherit; cursor: pointer; border: none; border-radius: 12px; }
+    button:disabled { opacity: .55; cursor: default; }
+    input, select { font: inherit; padding: 10px; border: 1px solid #c8cdd4; border-radius: 10px; width: 100%; }
+
+    .app-header { background: #1e3a5f; color: #fff; padding: 12px 16px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .app-header h1 { font-size: 22px; }
+    .app-header .date-nav { display: flex; align-items: center; gap: 10px; font-size: 20px; font-weight: 600; }
+    .app-header .date-nav button { background: #33517c; color: #fff; width: 44px; height: 44px; font-size: 22px; }
+    .app-header .spacer { flex: 1; }
+    .btn { padding: 12px 18px; font-size: 18px; font-weight: 600; }
+    .btn-primary { background: #2f6fed; color: #fff; }
+    .btn-danger { background: #d64545; color: #fff; }
+    .btn-ghost { background: #e3e8ef; color: #1a1a1a; }
+    .btn-big { width: 100%; padding: 18px; font-size: 22px; }
+
+    .offline-banner { display: none; background: #d64545; color: #fff; text-align: center; padding: 10px; font-weight: 700; position: sticky; top: 0; z-index: 10; }
+    .offline-banner.show { display: block; }
+
+    .container { max-width: 720px; margin: 0 auto; padding: 16px; }
+    .filters { display: flex; gap: 8px; margin-bottom: 14px; }
+    .filters button { flex: 1; padding: 10px; background: #e3e8ef; font-weight: 600; }
+    .filters button.active { background: #1e3a5f; color: #fff; }
+
+    .card { background: #fff; border-radius: 14px; padding: 16px; margin-bottom: 12px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+    .card .client { font-size: 22px; font-weight: 700; }
+    .card .meta { color: #555; margin-top: 4px; }
+    .chip { display: inline-block; padding: 3px 12px; border-radius: 20px; font-size: 15px; font-weight: 700; margin-top: 6px; }
+    .chip-planned { background: #e3e8ef; color: #333; }
+    .chip-in_progress { background: #ffe9a8; color: #7a5b00; }
+    .chip-done { background: #c9efd0; color: #1c6b2a; }
+    .chip-stored { background: #cfe3ff; color: #1d4e9e; }
+    .chip-deferred { background: #ffd9c2; color: #8a3c00; }
+
+    .row { display: flex; gap: 10px; align-items: center; margin-top: 12px; }
+    .row > * { flex: 1; }
+    .stepper { display: flex; align-items: center; gap: 8px; }
+    .stepper button { width: 56px; height: 56px; font-size: 26px; background: #e3e8ef; font-weight: 700; flex: none; }
+    .stepper .val { min-width: 60px; text-align: center; font-size: 22px; font-weight: 700; }
+    .item-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid #eee; }
+    .item-row .name { flex: 1; font-size: 19px; }
+
+    .pin-wrap { max-width: 340px; margin: 15vh auto 0; text-align: center; }
+    .pin-wrap h1 { margin-bottom: 20px; }
+    .pin-wrap input { text-align: center; font-size: 26px; letter-spacing: 8px; margin-bottom: 14px; }
+    .err { color: #d64545; margin-top: 10px; min-height: 24px; }
+
+    .overlay { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: none; align-items: center; justify-content: center; z-index: 20; }
+    .overlay.show { display: flex; }
+    .dialog { background: #fff; border-radius: 16px; padding: 22px; max-width: 480px; width: 92%; max-height: 85vh; overflow: auto; }
+    .dialog h2 { margin-bottom: 14px; }
+    .dialog .actions { display: flex; gap: 10px; margin-top: 18px; }
+
+    .blockers { background: #ffe1e1; border: 2px solid #d64545; border-radius: 14px; padding: 14px; margin-bottom: 14px; }
+    .toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: #1c6b2a; color: #fff; padding: 12px 24px; border-radius: 12px; font-weight: 700; display: none; z-index: 30; }
+    .toast.show { display: block; }
+    .empty { text-align: center; color: #777; padding: 40px 0; }
+    .spinner { font-weight: 600; }
+  </style>
+</head>
+<body>
+  <div class="offline-banner" id="offlineBanner">Нет связи — данные НЕ сохранены</div>
+  <div id="app"></div>
+  <div class="overlay" id="overlay"><div class="dialog" id="dialog"></div></div>
+  <div class="toast" id="toast"></div>
+
+<script>
+// ===== Состояние =====
+var state = {
+  token: localStorage.getItem('cl_token') || null,
+  role: localStorage.getItem('cl_role') || null,
+  date: null,            // 'yyyy-MM-dd' — всегда с сервера
+  day: null,             // ответ getDayList
+  filter: 'all',
+  counts: {},            // washId -> {itemTypeId: qty} несохранённый пересчёт
+  weights: {}            // washId -> введённый вес (не терять при потере связи)
+};
+
+// ===== Связь с сервером =====
+function api(fnName) {
+  var args = Array.prototype.slice.call(arguments, 1);
+  return new Promise(function (resolve, reject) {
+    google.script.run
+      .withSuccessHandler(function (res) {
+        hideOffline();
+        if (res && res.ok === false) {
+          if (res.error === 'Нет доступа') { backToPin(); }
+          reject(new Error(res.error));
+        } else resolve(res);
+      })
+      .withFailureHandler(function (e) {
+        showOffline();
+        reject(e);
+      })[fnName].apply(null, args);
+  });
+}
+function showOffline() { document.getElementById('offlineBanner').classList.add('show'); }
+function hideOffline() { document.getElementById('offlineBanner').classList.remove('show'); }
+function toast(msg) {
+  var t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  setTimeout(function () { t.classList.remove('show'); }, 2500);
+}
+function backToPin() {
+  // Несохранённые данные на экране (state.counts/weights) не сбрасываем
+  state.token = null; state.role = null;
+  localStorage.removeItem('cl_token'); localStorage.removeItem('cl_role');
+  renderPin();
+}
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
+  });
+}
+
+// Блокировка кнопки на время запроса со спиннером
+function busy(btn, text) {
+  btn.disabled = true;
+  btn.dataset.label = btn.textContent;
+  btn.innerHTML = '<span class="spinner">' + esc(text) + '</span>';
+}
+function unbusy(btn) {
+  btn.disabled = false;
+  btn.textContent = btn.dataset.label || btn.textContent;
+}
+
+// ===== Вход =====
+function renderPin() {
+  document.getElementById('app').innerHTML =
+    '<div class="pin-wrap"><h1>Прачка360</h1>' +
+    '<input type="password" inputmode="numeric" id="pinInput" placeholder="PIN" autofocus>' +
+    '<button class="btn btn-primary btn-big" id="pinBtn">Войти</button>' +
+    '<div class="err" id="pinErr"></div></div>';
+  var btn = document.getElementById('pinBtn');
+  var input = document.getElementById('pinInput');
+  function doLogin() {
+    busy(btn, 'Входим…');
+    api('login', input.value).then(function (res) {
+      state.token = res.token; state.role = res.role;
+      localStorage.setItem('cl_token', res.token);
+      localStorage.setItem('cl_role', res.role);
+      loadDay();
+    }).catch(function (e) {
+      unbusy(btn);
+      document.getElementById('pinErr').textContent = e.message || 'Ошибка входа';
+    });
+  }
+  btn.onclick = doLogin;
+  input.onkeydown = function (e) { if (e.key === 'Enter') doLogin(); };
+}
+
+// ===== Список дня =====
+var STATUS_LABELS = { planned: 'К стирке', in_progress: 'В работе', done: 'Готово', stored: 'На складе' };
+
+function loadDay(date) {
+  if (date) state.date = date;
+  var d = state.date;
+  var call = d ? api('getDayList', state.token, d) : api('getDayList', state.token, '');
+  // Сервер вернёт date; при пустой дате берём «сегодня» с сервера (TZ скрипта)
+  call.then(function (res) {
+    state.date = res.date;
+    state.day = res;
+    renderDay();
+  }).catch(function () {});
+}
+
+function shiftDate(days) {
+  var p = state.date.split('-').map(Number);
+  var t = Date.UTC(p[0], p[1] - 1, p[2]) + days * 86400000;
+  var dt = new Date(t);
+  var s = dt.getUTCFullYear() + '-' + ('0' + (dt.getUTCMonth() + 1)).slice(-2) + '-' + ('0' + dt.getUTCDate()).slice(-2);
+  loadDay(s);
+}
+
+function renderDay() {
+  var day = state.day;
+  var shiftClosed = day.shift && day.shift.status === 'closed';
+  var html = '<div class="app-header"><h1>' + esc(day.laundryName || 'Прачка360') + '</h1>' +
+    '<div class="date-nav"><button id="prevDay">‹</button><span>' + esc(state.date) + '</span><button id="nextDay">›</button></div>' +
+    '<div class="spacer"></div>' +
+    (shiftClosed
+      ? '<span class="chip chip-done">Смена закрыта в ' + esc(day.shift.closed_at) + '</span>'
+      : '<button class="btn btn-danger" id="closeShiftBtn">Закрыть смену</button>') +
+    '<button class="btn btn-ghost" id="logoutBtn">Выход</button></div>' +
+    '<div class="container">' +
+    '<div class="filters">' +
+    '<button data-f="all">Все</button><button data-f="todo">К выполнению</button><button data-f="done">Готово</button></div>' +
+    '<div id="washList"></div>' +
+    '<button class="btn btn-primary btn-big" id="addWashBtn">+ Добавить стирку</button></div>';
+  document.getElementById('app').innerHTML = html;
+
+  document.getElementById('prevDay').onclick = function () { shiftDate(-1); };
+  document.getElementById('nextDay').onclick = function () { shiftDate(1); };
+  document.getElementById('logoutBtn').onclick = function () {
+    api('logout', state.token).finally(backToPin);
+  };
+  var closeBtn = document.getElementById('closeShiftBtn');
+  if (closeBtn) closeBtn.onclick = openShiftClose;
+  document.getElementById('addWashBtn').onclick = openAddWash;
+  Array.prototype.forEach.call(document.querySelectorAll('.filters button'), function (b) {
+    if (b.dataset.f === state.filter) b.classList.add('active');
+    b.onclick = function () { state.filter = b.dataset.f; renderDay(); };
+  });
+  renderWashList();
+}
+
+function renderWashList() {
+  var washes = (state.day.washes || []).filter(function (w) {
+    if (state.filter === 'todo') return w.status === 'planned' || w.status === 'in_progress';
+    if (state.filter === 'done') return w.status === 'done' || w.status === 'stored';
+    return true;
+  });
+  var el = document.getElementById('washList');
+  if (!washes.length) { el.innerHTML = '<div class="empty">Стирок нет</div>'; return; }
+  el.innerHTML = washes.map(function (w) {
+    var chips = '<span class="chip chip-' + w.status + '">' + STATUS_LABELS[w.status] + '</span>';
+    if (w.deferred_from) chips += ' <span class="chip chip-deferred">Перенесена с ' + esc(w.deferred_from) + '</span>';
+    var meta = [];
+    if (w.dirty_weight_kg !== '' && w.dirty_weight_kg != null) meta.push(w.dirty_weight_kg + ' кг');
+    if (w.items_total !== '' && w.items_total != null) meta.push(w.items_total + ' шт');
+    if (w.status === 'stored') meta.push('выдача ' + esc(w.issue_date));
+    return '<div class="card" data-id="' + w.id + '">' +
+      '<div class="client">' + esc(w.client_name) + '</div>' + chips +
+      (meta.length ? '<div class="meta">' + meta.join(' · ') + '</div>' : '') +
+      (w.comment ? '<div class="meta">💬 ' + esc(w.comment) + '</div>' : '') +
+      '</div>';
+  }).join('');
+  Array.prototype.forEach.call(el.querySelectorAll('.card'), function (c) {
+    c.onclick = function () { renderWashCard(c.dataset.id); };
+  });
+}
+
+// ===== Карточка стирки =====
+function findWash(id) {
+  return (state.day.washes || []).find(function (w) { return w.id === id; });
+}
+
+function renderWashCard(id) {
+  var w = findWash(id);
+  if (!w) return loadDay();
+  var types = state.day.itemTypes || [];
+  var counts = state.counts[id] || {};
+  var weight = state.weights[id] != null ? state.weights[id] : (w.dirty_weight_kg || '');
+  var canEdit = w.status === 'done' || w.status === 'stored';
+
+  var html = '<div class="app-header"><button class="btn btn-ghost" id="backBtn">← Список</button>' +
+    '<h1>' + esc(w.client_name) + '</h1><div class="spacer"></div>' +
+    '<span class="chip chip-' + w.status + '">' + STATUS_LABELS[w.status] + '</span></div>' +
+    '<div class="container">' +
+    (w.comment ? '<div class="card"><div class="meta">💬 ' + esc(w.comment) + '</div></div>' : '') +
+    '<div class="card"><div class="meta">Выдача: <b>' + esc(w.issue_date) + '</b></div>';
+
+  // Шаг 1: в работу / вес
+  if (w.status === 'planned') {
+    html += '<div class="row"><div class="stepper">' +
+      '<button data-w="-1">−1</button><button data-w="-0.1">−0.1</button>' +
+      '<div class="val" id="weightVal">' + (weight || 0) + '</div>' +
+      '<button data-w="0.1">+0.1</button><button data-w="1">+1</button><button data-w="5">+5</button></div></div>' +
+      '<button class="btn btn-primary btn-big" id="startBtn">В работу — сохранить вес</button>';
+  } else {
+    html += '<div class="meta">Вес грязного: <b>' + esc(w.dirty_weight_kg) + ' кг</b></div>';
+  }
+
+  // Шаг 2: пересчёт (в работе или правка завершённой)
+  if (w.status === 'in_progress' || canEdit) {
+    html += '</div><div class="card"><h2>Пересчёт чистого</h2><div id="countList">' +
+      types.map(function (t) {
+        var q = counts[t.id] || 0;
+        return '<div class="item-row"><span class="name">' + esc(t.name) + '</span>' +
+          '<div class="stepper"><button data-t="' + t.id + '" data-d="-1">−</button>' +
+          '<span class="val" id="q_' + t.id + '">' + q + '</span>' +
+          '<button data-t="' + t.id + '" data-d="1">+</button></div></div>';
+      }).join('') + '</div>' +
+      '<div class="meta" style="margin-top:10px;font-size:20px">Всего: <b id="totalQty">' + totalQty(counts) + '</b> шт</div>';
+    if (w.status === 'in_progress') {
+      html += '<div class="row"><button class="btn btn-primary btn-big" id="completeBtn">Завершить стирку</button></div>';
+    }
+    if (canEdit) {
+      html += '<div class="row"><button class="btn btn-ghost btn-big" id="editBtn">Изменить данные</button></div>';
+    }
+  }
+
+  // Перенос (planned/in_progress)
+  if (w.status === 'planned' || w.status === 'in_progress') {
+    html += '<div class="row"><button class="btn btn-ghost btn-big" id="deferBtn">Перенести</button></div>';
+  }
+  html += '</div></div>';
+  document.getElementById('app').innerHTML = html;
+
+  document.getElementById('backBtn').onclick = renderDay;
+
+  // Вес
+  if (w.status === 'planned') {
+    Array.prototype.forEach.call(document.querySelectorAll('[data-w]'), function (b) {
+      b.onclick = function () {
+        var cur = parseFloat(document.getElementById('weightVal').textContent) || 0;
+        var next = Math.max(0, Math.round((cur + parseFloat(b.dataset.w)) * 10) / 10);
+        document.getElementById('weightVal').textContent = next;
+        state.weights[id] = next;
+      };
+    });
+    var startBtn = document.getElementById('startBtn');
+    startBtn.onclick = function () {
+      var kg = parseFloat(document.getElementById('weightVal').textContent) || 0;
+      if (kg <= 0) return toast('Укажите вес');
+      busy(startBtn, 'Сохраняем…');
+      api('startWash', state.token, id, kg).then(function () {
+        delete state.weights[id];
+        toast('Вес сохранён ✓');
+        loadDayAndCard(id);
+      }).catch(function (e) { unbusy(startBtn); toast(e.message); });
+    };
+  }
+
+  // Пересчёт
+  Array.prototype.forEach.call(document.querySelectorAll('[data-t]'), function (b) {
+    b.onclick = function () {
+      var tid = b.dataset.t;
+      state.counts[id] = state.counts[id] || {};
+      var q = Math.max(0, (state.counts[id][tid] || 0) + parseInt(b.dataset.d, 10));
+      state.counts[id][tid] = q;
+      document.getElementById('q_' + tid).textContent = q;
+      document.getElementById('totalQty').textContent = totalQty(state.counts[id]);
+    };
+  });
+
+  var completeBtn = document.getElementById('completeBtn');
+  if (completeBtn) completeBtn.onclick = function () { confirmComplete(w); };
+
+  var editBtn = document.getElementById('editBtn');
+  if (editBtn) editBtn.onclick = function () { confirmEdit(w); };
+
+  var deferBtn = document.getElementById('deferBtn');
+  if (deferBtn) deferBtn.onclick = function () { openDefer(w); };
+}
+
+function totalQty(counts) {
+  return Object.keys(counts || {}).reduce(function (s, k) { return s + (counts[k] || 0); }, 0);
+}
+function countsToItems(counts) {
+  return Object.keys(counts || {}).filter(function (k) { return counts[k] > 0; })
+    .map(function (k) { return { item_type_id: k, qty: counts[k] }; });
+}
+function loadDayAndCard(id) {
+  api('getDayList', state.token, state.date).then(function (res) {
+    state.day = res;
+    renderWashCard(id);
+  }).catch(function () {});
+}
+
+// Подтверждение завершения: клиент, вес, позиции, итог
+function confirmComplete(w) {
+  var counts = state.counts[w.id] || {};
+  var types = {};
+  (state.day.itemTypes || []).forEach(function (t) { types[t.id] = t.name; });
+  var lines = countsToItems(counts).map(function (it) {
+    return '<div>' + esc(types[it.item_type_id] || it.item_type_id) + ' ×' + it.qty + '</div>';
+  }).join('');
+  showDialog('<h2>Завершить стирку?</h2>' +
+    '<div class="meta"><b>' + esc(w.client_name) + '</b> · ' + esc(w.dirty_weight_kg) + ' кг</div>' +
+    (lines || '<div class="meta">Позиций нет</div>') +
+    '<div class="meta" style="margin-top:8px">Итого: <b>' + totalQty(counts) + ' шт</b></div>' +
+    '<div class="actions"><button class="btn btn-ghost" id="dlgCancel">Назад</button>' +
+    '<button class="btn btn-primary" id="dlgOk">Подтвердить</button></div>');
+  document.getElementById('dlgCancel').onclick = hideDialog;
+  var okBtn = document.getElementById('dlgOk');
+  okBtn.onclick = function () {
+    busy(okBtn, 'Завершаем…');
+    api('completeWash', state.token, w.id, countsToItems(counts)).then(function (res) {
+      delete state.counts[w.id];
+      hideDialog();
+      toast(res.wash.status === 'stored' ? 'Стирка завершена ✓ бельё на склад' : 'Стирка завершена ✓');
+      loadDay();
+    }).catch(function (e) { hideDialog(); toast(e.message); });
+  };
+}
+
+function confirmEdit(w) {
+  var counts = state.counts[w.id] || {};
+  showDialog('<h2>Сохранить изменённые данные?</h2>' +
+    '<div class="meta">Новый пересчёт: <b>' + totalQty(counts) + ' шт</b></div>' +
+    '<div class="actions"><button class="btn btn-ghost" id="dlgCancel">Назад</button>' +
+    '<button class="btn btn-primary" id="dlgOk">Сохранить</button></div>');
+  document.getElementById('dlgCancel').onclick = hideDialog;
+  var okBtn = document.getElementById('dlgOk');
+  okBtn.onclick = function () {
+    busy(okBtn, 'Сохраняем…');
+    api('editWashData', state.token, w.id, w.dirty_weight_kg, countsToItems(counts))
+      .then(function () {
+        delete state.counts[w.id];
+        hideDialog(); toast('Данные обновлены ✓'); loadDayAndCard(w.id);
+      }).catch(function (e) { hideDialog(); toast(e.message); });
+  };
+}
+
+// ===== Перенос =====
+function openDefer(w) {
+  showDialog('<h2>Перенести стирку</h2>' +
+    '<div class="row"><button class="btn btn-ghost" data-shift="1">Завтра</button>' +
+    '<button class="btn btn-ghost" data-shift="2">Послезавтра</button></div>' +
+    '<div class="row"><input type="date" id="deferDate"></div>' +
+    '<div class="row"><input type="text" id="deferReason" placeholder="Причина (необязательно)"></div>' +
+    '<div class="actions"><button class="btn btn-ghost" id="dlgCancel">Назад</button>' +
+    '<button class="btn btn-primary" id="dlgOk">Перенести</button></div>');
+  var p = w.wash_date.split('-').map(Number);
+  function fmt(t) { var d = new Date(t); return d.getUTCFullYear() + '-' + ('0' + (d.getUTCMonth() + 1)).slice(-2) + '-' + ('0' + d.getUTCDate()).slice(-2); }
+  var base = Date.UTC(p[0], p[1] - 1, p[2]);
+  document.getElementById('deferDate').value = fmt(base + 86400000);
+  Array.prototype.forEach.call(document.querySelectorAll('[data-shift]'), function (b) {
+    b.onclick = function () {
+      document.getElementById('deferDate').value = fmt(base + parseInt(b.dataset.shift, 10) * 86400000);
+    };
+  });
+  document.getElementById('dlgCancel').onclick = hideDialog;
+  var okBtn = document.getElementById('dlgOk');
+  okBtn.onclick = function () {
+    var newDate = document.getElementById('deferDate').value;
+    if (!newDate) return;
+    busy(okBtn, 'Переносим…');
+    api('deferWash', state.token, w.id, newDate, document.getElementById('deferReason').value)
+      .then(function () { hideDialog(); toast('Стирка перенесена ✓'); loadDay(); })
+      .catch(function (e) { hideDialog(); toast(e.message); });
+  };
+}
+
+// ===== Внеплановая стирка =====
+function openAddWash() {
+  var clients = (state.day.clients || []);
+  showDialog('<h2>Новая стирка (сегодня)</h2>' +
+    '<div class="row"><select id="addClient">' + clients.map(function (c) {
+      return '<option value="' + c.id + '">' + esc(c.name) + '</option>';
+    }).join('') + '</select></div>' +
+    '<div class="row"><input type="text" id="addComment" placeholder="Комментарий"></div>' +
+    '<div class="actions"><button class="btn btn-ghost" id="dlgCancel">Назад</button>' +
+    '<button class="btn btn-primary" id="dlgOk">Добавить</button></div>');
+  document.getElementById('dlgCancel').onclick = hideDialog;
+  var okBtn = document.getElementById('dlgOk');
+  okBtn.onclick = function () {
+    busy(okBtn, 'Сохраняем…');
+    api('addUnplannedWash', state.token, document.getElementById('addClient').value,
+        document.getElementById('addComment').value)
+      .then(function () { hideDialog(); toast('Стирка добавлена ✓'); loadDay(); })
+      .catch(function (e) { hideDialog(); toast(e.message); });
+  };
+}
+
+// ===== Закрытие смены =====
+function openShiftClose() {
+  api('getShiftCloseState', state.token).then(function (res) {
+    var html = '<h2>Закрытие смены ' + esc(res.date) + '</h2>';
+    if (res.blockers.length) {
+      html += '<div class="blockers"><b>Незавершённые стирки:</b>' + res.blockers.map(function (w) {
+        return '<div class="row"><span>' + esc(w.client_name) + '</span>' +
+          '<button class="btn btn-ghost" data-open="' + w.id + '">Открыть</button></div>';
+      }).join('') + '</div>' +
+      '<div class="actions"><button class="btn btn-ghost" id="dlgCancel">Назад</button></div>';
+    } else {
+      var r = res.report;
+      html += '<div class="meta">Постирано <b>' + r.totalKg + ' кг</b> · Завершено <b>' + r.washesDone +
+        '</b> · Перенесено <b>' + r.deferred + '</b></div>' +
+        '<div class="actions"><button class="btn btn-ghost" id="dlgCancel">Назад</button>' +
+        '<button class="btn btn-danger" id="dlgOk">Закрыть смену</button></div>';
+    }
+    showDialog(html);
+    document.getElementById('dlgCancel').onclick = hideDialog;
+    Array.prototype.forEach.call(document.querySelectorAll('[data-open]'), function (b) {
+      b.onclick = function () { hideDialog(); renderWashCard(b.dataset.open); };
+    });
+    var okBtn = document.getElementById('dlgOk');
+    if (okBtn) okBtn.onclick = function () {
+      busy(okBtn, 'Закрываем…');
+      api('closeShift', state.token).then(function () {
+        hideDialog(); toast('Смена закрыта ✓'); loadDay();
+      }).catch(function (e) { hideDialog(); toast(e.message); });
+    };
+  }).catch(function (e) { toast(e.message); });
+}
+
+// ===== Диалог =====
+function showDialog(html) {
+  document.getElementById('dialog').innerHTML = html;
+  document.getElementById('overlay').classList.add('show');
+}
+function hideDialog() { document.getElementById('overlay').classList.remove('show'); }
+
+// ===== Старт =====
+if (state.token) {
+  // Восстановление сессии: дата всегда с сервера
+  api('getDayList', state.token, '').then(function (res) {
+    state.date = res.date; state.day = res; renderDay();
+  }).catch(function () {
+    if (state.token) renderPin(); else renderPin();
+  });
+} else {
+  renderPin();
+}
+</script>
+</body>
+</html>

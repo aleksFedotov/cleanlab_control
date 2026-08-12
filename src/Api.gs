@@ -44,6 +44,7 @@ function clientName_(clientId, clientsById) {
 
 function getDayList(token, date) {
   if (!requireRole_(token, ['owner', 'worker'])) return err_('Нет доступа');
+  date = date || todayStr_();
   var clients = {};
   getClients_().forEach(function (c) { clients[c.id] = c; });
   var washes = findRowsBy_(SHEETS.WASHES, function (w) {
@@ -52,11 +53,13 @@ function getDayList(token, date) {
   var shift = getShiftByDate_(date);
   return ok_({
     date: date,
+    laundryName: getSettings_().LAUNDRY_NAME || 'Прачка360',
     washes: sortDayList_(washes).map(function (w) {
       w.client_name = clientName_(w.client_id, clients);
       return w;
     }),
     shift: shift ? shift.obj : null,
+    clients: getClients_().filter(function (c) { return c.active === 'да'; }),
     itemTypes: getItemTypes_().filter(function (t) { return t.active === 'да'; })
   });
 }
