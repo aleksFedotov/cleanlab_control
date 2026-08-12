@@ -204,7 +204,6 @@ function getShiftCloseState(token) {
 }
 
 // Закрытие смены (spec §4.4): блокируют незавершённые планы сегодняшнего дня.
-// Отправка дайджеста добавляется в T7.
 function closeShift(token) {
   var role = requireRole_(token, ['owner', 'worker']);
   if (!role) return err_('Нет доступа');
@@ -231,6 +230,13 @@ function closeShift(token) {
     s.washes_deferred = report.deferred;
     updateRow_(SHEETS.SHIFTS, shift.rowNumber, s);
     logEvent(role, 'shift_close', s.id, { total_kg: s.total_kg, washes_done: s.washes_done });
+    // Дайджест (spec §8.3): fallback уже отправил → только короткое подтверждение;
+    // иначе — полный дайджест под тем же локом.
+    if (String(s.digest_sent) === 'да') {
+      sendTelegram_(null, 'Смена закрыта в ' + s.closed_at + ' ✓');
+    } else {
+      sendDigestLocked_(today);
+    }
     return ok_({ shift: s, report: report });
   });
 }

@@ -51,8 +51,11 @@ function makeApiCtx(props = {}) {
   const ss = new FakeSpreadsheet();
   const cacheStore = new Map();
   const propsStore = Object.assign({
-    OWNER_PIN: '1111', WORKER_PIN: '2222', TV_KEY: 'tv-secret'
+    OWNER_PIN: '1111', WORKER_PIN: '2222', TV_KEY: 'tv-secret',
+    BOT_TOKEN: 'bot-token', WEBHOOK_SECRET: 'hook-secret', OWNER_CHAT_ID: '998877'
   }, props);
+  const fetches = [];
+  let fetchStatus = 200;
   let uuid = 0;
   const sandbox = {
     SpreadsheetApp: { getActiveSpreadsheet: () => ss },
@@ -64,18 +67,31 @@ function makeApiCtx(props = {}) {
       })
     },
     PropertiesService: {
-      getScriptProperties: () => ({ getProperty: k => propsStore[k] || null })
+      getScriptProperties: () => ({
+        getProperty: k => (k in propsStore ? propsStore[k] : null),
+        setProperty: (k, v) => { propsStore[k] = v; }
+      })
     },
     LockService: {
       getScriptLock: () => ({ waitLock: () => {}, releaseLock: () => {} })
     },
+    UrlFetchApp: {
+      fetch: (url, opts) => {
+        fetches.push({ url, payload: JSON.parse(opts.payload || '{}') });
+        return { getResponseCode: () => fetchStatus };
+      }
+    },
+    ContentService: { createTextOutput: t => ({ text: t }) },
     Utilities: { getUuid: () => `token-${++uuid}`, formatDate: fakeFormatDate },
     Session: { getScriptTimeZone: () => 'Europe/Moscow' }
   };
-  ['Schema.gs', 'Db.gs', 'Core.gs', 'Setup.gs', 'Audit.gs', 'Auth.gs', 'Api.gs']
+  ['Schema.gs', 'Db.gs', 'Core.gs', 'Setup.gs', 'Audit.gs', 'Auth.gs', 'Api.gs', 'Telegram.gs']
     .forEach(f => loadGs(f, sandbox));
   sandbox.setup();
-  return { ctx: sandbox, ss, cacheStore, propsStore };
+  return {
+    ctx: sandbox, ss, cacheStore, propsStore, fetches,
+    setFetchStatus: code => { fetchStatus = code; }
+  };
 }
 
 function loginOwner(ctx) { return ctx.login('1111').token; }
