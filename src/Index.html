@@ -79,8 +79,9 @@
 
     /* Доска недели: grid ужимает колонки в ширину экрана, без горизонтальной прокрутки */
     .week-board { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; align-items: start; }
-    .week-col { min-width: 0; background: #fff; border-radius: 12px; padding: 6px; }
+    .week-col { min-width: 0; background: #fff; border-radius: 12px; padding: 6px; border: 2px solid transparent; }
     .week-col h3 { font-size: 13px; margin-bottom: 6px; text-align: center; white-space: nowrap; overflow: hidden; }
+    .week-col.today { background: #e8f0fe; border-color: #2f6fed; }
     .week-col.today h3 { color: #2f6fed; }
     .wcard { background: #f2f4f7; border-radius: 10px; padding: 6px 8px; margin-bottom: 6px; cursor: pointer; overflow: hidden; }
     .wcard .nm { font-weight: 700; font-size: 14px; }
