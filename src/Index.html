@@ -75,6 +75,15 @@
     .overdue { border-left: 6px solid #d64545; }
     .summary { display: flex; flex-wrap: wrap; gap: 8px; }
     .summary .chip { font-size: 16px; padding: 8px 14px; }
+
+    .week-board { display: flex; gap: 8px; overflow-x: auto; align-items: flex-start; padding-bottom: 8px; }
+    .week-col { min-width: 150px; flex: 1; background: #fff; border-radius: 12px; padding: 8px; }
+    .week-col h3 { font-size: 15px; margin-bottom: 8px; text-align: center; }
+    .week-col.today h3 { color: #2f6fed; }
+    .wcard { background: #f2f4f7; border-radius: 10px; padding: 8px 10px; margin-bottom: 8px; cursor: pointer; }
+    .wcard .nm { font-weight: 700; font-size: 16px; }
+    .wcard .cm { font-size: 13px; color: #555; margin-top: 2px; }
+    .week-add { width: 100%; background: #e3e8ef; padding: 8px; font-size: 18px; }
   </style>
 </head>
 <body>
@@ -501,7 +510,7 @@ function openShiftClose() {
 // ===== Экран владельца: вкладки =====
 function ownerTabs(active) {
   if (state.role !== 'owner') return '';
-  var tabs = [['day', 'Цех'], ['delivery', 'Развоз'], ['storage', 'Склад'], ['report', 'Отчёт'], ['refs', 'Справочники']];
+  var tabs = [['day', 'Цех'], ['delivery', 'Развоз'], ['week', 'Неделя'], ['storage', 'Склад'], ['report', 'Отчёт'], ['refs', 'Справочники']];
   return '<div class="tabs">' + tabs.map(function (t) {
     return '<button data-view="' + t[0] + '"' + (t[0] === active ? ' class="active"' : '') + '>' + t[1] + '</button>';
   }).join('') + '</div>';
@@ -515,6 +524,7 @@ function navigate(view) {
   state.view = view;
   if (view === 'day') renderDay();
   else if (view === 'delivery') renderDelivery();
+  else if (view === 'week') renderWeek();
   else if (view === 'storage') renderStorage();
   else if (view === 'report') renderReport(state.today);
   else if (view === 'refs') renderRefs();
@@ -622,6 +632,106 @@ function openAddToDelivery(clientId, washDate, clients) {
     api('addToDelivery', state.token, clientId, washDate,
         document.getElementById('dlIssue').value, document.getElementById('dlComment').value)
       .then(function () { hideDialog(); toast('Добавлено в развоз ✓'); renderDelivery(); })
+      .catch(function (e) { hideDialog(); toast(e.message); });
+  };
+}
+
+// ===== Неделя (канбан выдачи) =====
+var WEEKDAYS = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
+function mondayOfStr(dateStr) {
+  var p = dateStr.split('-').map(Number);
+  var dow = new Date(Date.UTC(p[0], p[1] - 1, p[2])).getUTCDay(); // 0=вс..6=сб
+  return shiftDateStr(dateStr, -((dow + 6) % 7));
+}
+function renderWeek() {
+  if (!state.weekMonday) state.weekMonday = mondayOfStr(state.today);
+  appShell('Неделя', 'week', '<div class="empty">Загружаем…</div>');
+  api('getWeekPlan', state.token, state.weekMonday).then(function (res) {
+    state.weekMonday = res.monday;
+    var html = '<div class="row" style="margin-top:0">' +
+      '<button class="btn btn-ghost" id="wkPrev">‹</button>' +
+      '<div style="text-align:center;font-weight:700;font-size:18px">' +
+        res.days[0].date + ' — ' + res.days[6].date + '</div>' +
+      '<button class="btn btn-ghost" id="wkNext">›</button></div>' +
+      '<div class="week-board">' + res.days.map(function (d, i) {
+        var cards = d.cards.map(function (c) {
+          return '<div class="wcard" data-card="' + c.id + '">' +
+            '<div class="nm">' + esc(c.client_name) + '</div>' +
+            (c.comment ? '<div class="cm">💬 ' + esc(c.comment) + '</div>' : '') +
+            '<div class="cm">' + (STATUS_LABELS[c.status] || c.status) +
+              ' · стирка ' + c.wash_date.slice(5) + '</div></div>';
+        }).join('');
+        return '<div class="week-col' + (d.date === state.today ? ' today' : '') + '">' +
+          '<h3>' + WEEKDAYS[i] + ' ' + d.date.slice(5) + '</h3>' + cards +
+          '<button class="week-add" data-addday="' + d.date + '">+</button></div>';
+      }).join('') + '</div>';
+    setContainer(html);
+    document.getElementById('wkPrev').onclick = function () { state.weekMonday = shiftDateStr(res.monday, -7); renderWeek(); };
+    document.getElementById('wkNext').onclick = function () { state.weekMonday = shiftDateStr(res.monday, 7); renderWeek(); };
+    Array.prototype.forEach.call(document.querySelectorAll('[data-addday]'), function (b) {
+      b.onclick = function () { openWeekAdd(b.dataset.addday, res.clients); };
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('[data-card]'), function (el) {
+      el.onclick = function () {
+        var found = null;
+        res.days.forEach(function (d) {
+          d.cards.forEach(function (x) { if (x.id === el.dataset.card) found = x; });
+        });
+        if (found) openWeekCard(found, res.days);
+      };
+    });
+  }).catch(function (e) { setContainer('<div class="empty">' + esc(e.message) + '</div>'); });
+}
+
+function openWeekAdd(date, clients) {
+  if (!clients.length) return toast('Сначала добавьте клиента в Справочниках');
+  showDialog('<h2>Выдача ' + date + '</h2>' +
+    '<div class="row"><select id="wcClient">' + clients.map(function (c) {
+      return '<option value="' + c.id + '">' + esc(c.name) + '</option>';
+    }).join('') + '</select></div>' +
+    '<div class="row"><input type="text" id="wcComment" placeholder="Комментарий (необязательно)"></div>' +
+    '<div class="actions"><button class="btn btn-ghost" id="dlgCancel">Назад</button>' +
+    '<button class="btn btn-primary" id="dlgOk">Добавить</button></div>');
+  document.getElementById('dlgCancel').onclick = hideDialog;
+  var okBtn = document.getElementById('dlgOk');
+  okBtn.onclick = function () {
+    busy(okBtn, 'Сохраняем…');
+    api('addWeekCard', state.token, document.getElementById('wcClient').value, date,
+        document.getElementById('wcComment').value)
+      .then(function () { hideDialog(); toast('Добавлено ✓'); renderWeek(); })
+      .catch(function (e) { hideDialog(); toast(e.message); });
+  };
+}
+
+function openWeekCard(c, days) {
+  if (c.status !== 'planned') {
+    showDialog('<h2>' + esc(c.client_name) + '</h2>' +
+      '<div class="meta">Статус: ' + (STATUS_LABELS[c.status] || c.status) +
+      ' — перенос и удаление недоступны</div>' +
+      '<div class="actions"><button class="btn btn-ghost" id="dlgCancel">Назад</button></div>');
+    document.getElementById('dlgCancel').onclick = hideDialog;
+    return;
+  }
+  showDialog('<h2>' + esc(c.client_name) + '</h2>' +
+    '<div class="meta" style="margin-bottom:8px">Перенести выдачу на:</div>' +
+    '<div class="row" style="flex-wrap:wrap">' + days.map(function (d, i) {
+      return '<button class="btn btn-ghost" data-mv="' + d.date + '"' +
+        (d.date === c.issue_date ? ' disabled' : '') + '>' + WEEKDAYS[i] + ' ' + d.date.slice(5) + '</button>';
+    }).join('') + '</div>' +
+    '<div class="actions"><button class="btn btn-danger" id="wcDel">Убрать</button>' +
+    '<button class="btn btn-ghost" id="dlgCancel">Назад</button></div>');
+  document.getElementById('dlgCancel').onclick = hideDialog;
+  Array.prototype.forEach.call(document.querySelectorAll('[data-mv]'), function (b) {
+    b.onclick = function () {
+      busy(b, '…');
+      api('moveWeekCard', state.token, c.id, b.dataset.mv)
+        .then(function () { hideDialog(); toast('Перенесено ✓'); renderWeek(); })
+        .catch(function (e) { hideDialog(); toast(e.message); });
+    };
+  });
+  document.getElementById('wcDel').onclick = function () {
+    api('removeWeekCard', state.token, c.id)
+      .then(function () { hideDialog(); toast('Убрано'); renderWeek(); })
       .catch(function (e) { hideDialog(); toast(e.message); });
   };
 }

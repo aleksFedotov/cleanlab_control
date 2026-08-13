@@ -47,3 +47,9 @@
 - `src/Backup.gs`: ежедневная копия таблицы в `Прачка360/backups`, имя с датой, ротация до 30 копий.
 - Установка триггеров (функция `installTriggers()`).
 - `docs/deploy.md`: полный чек-лист (clasp, Script Properties, setup(), TZ, деплой, setWebhook, триггеры, TV-ссылка, железо табло по варианту A/B).
+
+## T10. Канбан «Неделя» (планирование выдачи)
+- `src/Api.gs`: `getWeekPlan` (нормализация к понедельнику, идемпотентная материализация прошлой недели +7 дней под локом, `week_copy` в `Log`), `addWeekCard` (`wash_date = issue_date − 1`), `moveWeekCard` (только planned), `removeWeekCard` (делегирует `cancelWash`); `mondayOf_` в `src/Core.gs`.
+- `src/Index.html`: вкладка «Неделя» — 7 колонок, карточки выдачи, перенос тап-диалогом, «+» добавление, не-planned только просмотр.
+- Node-тесты: копия прошлой недели один раз, непустая неделя не копирует, права (worker → «Нет доступа»), move/remove только planned, сдвиг дат.
+- spec §10.

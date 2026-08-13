@@ -20,6 +20,13 @@ function addDaysStr_(dateStr, days) {
   return dt.getUTCFullYear() + '-' + pad2_(dt.getUTCMonth() + 1) + '-' + pad2_(dt.getUTCDate());
 }
 
+// Понедельник недели, содержащей dateStr.
+function mondayOf_(dateStr) {
+  var p = parseDate_(dateStr);
+  var dow = new Date(Date.UTC(p.y, p.m - 1, p.d)).getUTCDay(); // 0=вс..6=сб
+  return addDaysStr_(dateStr, -((dow + 6) % 7));
+}
+
 // --- Переходы статусов (spec §4.1) ---
 
 function completionStatus_(washDate, issueDate) {

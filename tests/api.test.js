@@ -263,3 +263,72 @@ test('справочники: архивация клиента, сброс кэ
   const t = ctx.saveItemType(owner, { name: 'килт' });
   assert.strictEqual(t.itemType.sort, 12);
 });
+
+// --- Канбан «Неделя» (T10) ---
+test('getWeekPlan: пустая неделя копирует прошлую один раз, права', () => {
+  const { ctx } = makeApiCtx();
+  const clientId = seedClient(ctx);
+  const owner = loginOwner(ctx);
+  // Прошлая неделя (03–09.08): выдачи 04 и 06, одна отменённая
+  ctx.addToDelivery(owner, clientId, '2026-08-03', '2026-08-04');
+  ctx.addToDelivery(owner, clientId, '2026-08-05', '2026-08-06');
+  const cancelled = ctx.addToDelivery(owner, clientId, '2026-08-07', '2026-08-08').wash.id;
+  ctx.cancelWash(owner, cancelled);
+
+  const res = ctx.getWeekPlan(owner, '2026-08-12'); // нормализуется к понедельнику 08-10
+  assert.ok(res.ok);
+  assert.strictEqual(res.monday, '2026-08-10');
+  const cards = res.days.flatMap(d => d.cards);
+  assert.strictEqual(cards.length, 2);
+  const byIssue = Object.fromEntries(cards.map(c => [c.issue_date, c]));
+  assert.strictEqual(byIssue['2026-08-11'].wash_date, '2026-08-10'); // +7 дней
+  assert.strictEqual(byIssue['2026-08-13'].wash_date, '2026-08-12');
+  assert.strictEqual(byIssue['2026-08-11'].status, 'planned');
+  assert.strictEqual(byIssue['2026-08-11'].client_name, 'Отель А');
+
+  // Повторный вызов не дублирует (идемпотентность)
+  const again = ctx.getWeekPlan(owner, '2026-08-10');
+  assert.strictEqual(again.days.flatMap(d => d.cards).length, 2);
+  assert.strictEqual(ctx.readAll_('Log').filter(l => l.action === 'week_copy').length, 1);
+
+  // worker не имеет доступа
+  assert.ok(!ctx.getWeekPlan(loginWorker(ctx), '2026-08-10').ok);
+});
+
+test('getWeekPlan: непустая неделя не копирует прошлую', () => {
+  const { ctx } = makeApiCtx();
+  const clientId = seedClient(ctx);
+  const owner = loginOwner(ctx);
+  ctx.addToDelivery(owner, clientId, '2026-08-03', '2026-08-04');
+  const w = ctx.addWeekCard(owner, clientId, '2026-08-12'); // занимаем текущую неделю
+  assert.ok(w.ok);
+  assert.strictEqual(w.wash.wash_date, '2026-08-11'); // стирка за день до выдачи
+  const res = ctx.getWeekPlan(owner, '2026-08-10');
+  const cards = res.days.flatMap(d => d.cards);
+  assert.strictEqual(cards.length, 1);
+  assert.strictEqual(cards[0].issue_date, '2026-08-12');
+});
+
+test('moveWeekCard/removeWeekCard: только planned, даты сдвигаются', () => {
+  const { ctx } = makeApiCtx();
+  const clientId = seedClient(ctx);
+  const owner = loginOwner(ctx);
+  const id = ctx.addWeekCard(owner, clientId, '2026-08-12').wash.id;
+
+  const mv = ctx.moveWeekCard(owner, id, '2026-08-14');
+  assert.ok(mv.ok);
+  assert.strictEqual(mv.wash.issue_date, '2026-08-14');
+  assert.strictEqual(mv.wash.wash_date, '2026-08-13');
+  assert.ok(!ctx.moveWeekCard(loginWorker(ctx), id, '2026-08-15').ok);
+
+  // Не-planned не двигается и не удаляется
+  ctx.startWash(loginWorker(ctx), id, 5);
+  assert.ok(!ctx.moveWeekCard(owner, id, '2026-08-15').ok);
+  assert.ok(!ctx.removeWeekCard(owner, id).ok);
+
+  // planned удаляется и исчезает с доски
+  const id2 = ctx.addWeekCard(owner, clientId, '2026-08-13').wash.id;
+  assert.ok(ctx.removeWeekCard(owner, id2).ok);
+  const res = ctx.getWeekPlan(owner, '2026-08-10');
+  assert.ok(!res.days.flatMap(d => d.cards).some(c => c.id === id2));
+});
