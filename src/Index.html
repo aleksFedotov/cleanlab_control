@@ -90,6 +90,10 @@
     /* Узкие экраны: 4 и 2 колонки, доска уходит в вертикальную прокрутку страницы */
     @media (max-width: 900px) { .week-board { grid-template-columns: repeat(4, 1fr); } }
     @media (max-width: 520px) { .week-board { grid-template-columns: repeat(2, 1fr); } }
+
+    /* Дневная доска цеха: К стирке / В работе / Готово */
+    .day-board { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; align-items: start; margin-bottom: 12px; }
+    @media (max-width: 520px) { .day-board { grid-template-columns: 1fr; } }
   </style>
 </head>
 <body>
@@ -105,7 +109,6 @@ var state = {
   role: localStorage.getItem('cl_role') || null,
   date: null,            // 'yyyy-MM-dd' — всегда с сервера
   day: null,             // ответ getDayList
-  filter: 'all',
   counts: {},            // washId -> {itemTypeId: qty} несохранённый пересчёт
   weights: {}            // washId -> введённый вес (не терять при потере связи)
 };
@@ -233,8 +236,6 @@ function renderDay() {
     '<button class="btn btn-ghost" id="logoutBtn">Выход</button></div>' +
     ownerTabs('day') +
     '<div class="container">' +
-    '<div class="filters">' +
-    '<button data-f="all">Все</button><button data-f="todo">К выполнению</button><button data-f="done">Готово</button></div>' +
     '<div id="washList"></div>' +
     '<button class="btn btn-primary btn-big" id="addWashBtn">+ Добавить стирку</button></div>';
   document.getElementById('app').innerHTML = html;
@@ -248,35 +249,37 @@ function renderDay() {
   if (closeBtn) closeBtn.onclick = openShiftClose;
   document.getElementById('addWashBtn').onclick = openAddWash;
   bindTabs();
-  Array.prototype.forEach.call(document.querySelectorAll('.filters button'), function (b) {
-    if (b.dataset.f === state.filter) b.classList.add('active');
-    b.onclick = function () { state.filter = b.dataset.f; renderDay(); };
-  });
   renderWashList();
 }
 
 function renderWashList() {
-  var washes = (state.day.washes || []).filter(function (w) {
-    if (state.filter === 'todo') return w.status === 'planned' || w.status === 'in_progress';
-    if (state.filter === 'done') return w.status === 'done' || w.status === 'stored';
-    return true;
-  });
-  var el = document.getElementById('washList');
-  if (!washes.length) { el.innerHTML = '<div class="empty">Стирок нет</div>'; return; }
-  el.innerHTML = washes.map(function (w) {
-    var chips = '<span class="chip chip-' + w.status + '">' + STATUS_LABELS[w.status] + '</span>';
-    if (w.deferred_from) chips += ' <span class="chip chip-deferred">Перенесена с ' + esc(w.deferred_from) + '</span>';
+  var washes = state.day.washes || [];
+  var cols = [
+    { key: 'todo', title: 'К стирке', match: function (w) { return w.status === 'planned'; } },
+    { key: 'doing', title: 'В работе', match: function (w) { return w.status === 'in_progress'; } },
+    { key: 'done', title: 'Готово', match: function (w) { return w.status === 'done' || w.status === 'stored'; } }
+  ];
+  var cardHtml = function (w) {
     var meta = [];
     if (w.dirty_weight_kg !== '' && w.dirty_weight_kg != null) meta.push(w.dirty_weight_kg + ' кг');
     if (w.items_total !== '' && w.items_total != null) meta.push(w.items_total + ' шт');
     if (w.status === 'stored') meta.push('выдача ' + esc(w.issue_date));
-    return '<div class="card" data-id="' + w.id + '">' +
-      '<div class="client">' + esc(w.client_name) + '</div>' + chips +
-      (meta.length ? '<div class="meta">' + meta.join(' · ') + '</div>' : '') +
-      (w.comment ? '<div class="meta">💬 ' + esc(w.comment) + '</div>' : '') +
+    return '<div class="wcard" data-id="' + w.id + '">' +
+      '<div class="nm">' + esc(w.client_name) + '</div>' +
+      (w.deferred_from ? '<div class="cm">⤷ с ' + esc(w.deferred_from) + '</div>' : '') +
+      (meta.length ? '<div class="cm">' + meta.join(' · ') + '</div>' : '') +
+      (w.comment ? '<div class="cm">💬 ' + esc(w.comment) + '</div>' : '') +
+      (w.status === 'stored' ? '<div class="cm">На складе</div>' : '') +
       '</div>';
-  }).join('');
-  Array.prototype.forEach.call(el.querySelectorAll('.card'), function (c) {
+  };
+  document.getElementById('washList').innerHTML =
+    '<div class="day-board">' + cols.map(function (col) {
+      var list = washes.filter(col.match);
+      return '<div class="week-col"><h3>' + col.title + ' (' + list.length + ')</h3>' +
+        (list.length ? list.map(cardHtml).join('') : '<div class="cm" style="text-align:center;padding:6px">—</div>') +
+        '</div>';
+    }).join('') + '</div>';
+  Array.prototype.forEach.call(document.querySelectorAll('#washList .wcard'), function (c) {
     c.onclick = function () { renderWashCard(c.dataset.id); };
   });
 }
