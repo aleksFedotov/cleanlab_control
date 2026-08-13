@@ -108,18 +108,25 @@ var state = {
 function api(fnName) {
   var args = Array.prototype.slice.call(arguments, 1);
   return new Promise(function (resolve, reject) {
-    google.script.run
-      .withSuccessHandler(function (res) {
-        hideOffline();
-        if (res && res.ok === false) {
-          if (res.error === 'Нет доступа') { backToPin(); }
-          reject(new Error(res.error));
-        } else resolve(res);
-      })
-      .withFailureHandler(function (e) {
-        showOffline();
-        reject(e);
-      })[fnName].apply(null, args);
+    var attempts = 0;
+    function run() {
+      google.script.run
+        .withSuccessHandler(function (res) {
+          hideOffline();
+          if (res && res.ok === false) {
+            if (res.error === 'Нет доступа') { backToPin(); }
+            reject(new Error(res.error));
+          } else resolve(res);
+        })
+        .withFailureHandler(function (e) {
+          attempts++;
+          // Холодный старт GAS иногда роняет первый вызов — один повтор через 1.5 сек
+          if (attempts < 2) { setTimeout(run, 1500); return; }
+          showOffline();
+          reject(e);
+        })[fnName].apply(null, args);
+    }
+    run();
   });
 }
 function showOffline() { document.getElementById('offlineBanner').classList.add('show'); }
@@ -190,7 +197,14 @@ function loadDay(date) {
     if (!state.today) state.today = res.date; // «сегодня» сервера — опора для развоза/склада
     state.day = res;
     renderDay();
-  }).catch(function () {});
+  }).catch(function () {
+    // Не глотаем ошибку: экран с повтором вместо молчаливого зависания
+    document.getElementById('app').innerHTML =
+      '<div class="pin-wrap"><h1>Прачка360</h1>' +
+      '<div class="empty">Не удалось загрузить данные. Проверьте связь.</div>' +
+      '<button class="btn btn-primary btn-big" id="retryLoad">Повторить</button></div>';
+    document.getElementById('retryLoad').onclick = function () { loadDay(); };
+  });
 }
 
 function shiftDate(days) {
@@ -604,7 +618,11 @@ function renderDelivery() {
     Array.prototype.forEach.call(document.querySelectorAll('[data-add]'), function (b) {
       b.onclick = function () { openAddToDelivery(b.dataset.add, date, res.clients); };
     });
-  }).catch(function (e) { setContainer('<div class="empty">' + esc(e.message) + '</div>'); });
+  }).catch(function (e) {
+    setContainer('<div class="empty">Не удалось загрузить развоз: ' + esc(e.message) + '</div>' +
+      '<button class="btn btn-primary btn-big" id="dlRetry">Повторить</button>');
+    document.getElementById('dlRetry').onclick = renderDelivery;
+  });
 }
 
 function issueCard(w, overdue) {
