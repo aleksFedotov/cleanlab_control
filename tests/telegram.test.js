@@ -25,23 +25,37 @@ function dayWithDoneWash(ctx) {
   return { owner, worker, washId };
 }
 
-test('webhook: неверный секрет — молчаливо, /start с PIN фиксирует OWNER_CHAT_ID', () => {
+test('webhook: секрет, /start → запрос PIN, привязка по PIN, идемпотентность', () => {
   const { ctx, propsStore, fetches } = makeApiCtx({ OWNER_CHAT_ID: null });
-  ctx.doPost(hookEvent(startUpdate(1, '/start 1111'), 'wrong-secret'));
+  ctx.doPost(hookEvent(startUpdate(1, '/start'), 'wrong-secret'));
   assert.strictEqual(fetches.length, 0);
 
-  ctx.doPost(hookEvent(startUpdate(1, '/start 1111')));
-  assert.strictEqual(propsStore.OWNER_CHAT_ID, '555');
+  // /start → бот просит PIN
+  ctx.doPost(hookEvent(startUpdate(1, '/start')));
   assert.strictEqual(fetches.length, 1);
-  assert.strictEqual(fetches[0].payload.chat_id, 555);
-  assert.match(fetches[0].payload.text, /подключены/);
+  assert.match(fetches[0].payload.text, /введите PIN/);
+  assert.strictEqual(propsStore.OWNER_CHAT_ID, null);
 
   // Ретрай Telegram с тем же update_id — не обрабатывается повторно
-  ctx.doPost(hookEvent(startUpdate(1, '/start 1111')));
+  ctx.doPost(hookEvent(startUpdate(1, '/start')));
   assert.strictEqual(fetches.length, 1);
+
   // Чужой PIN игнорируется
-  ctx.doPost(hookEvent(startUpdate(2, '/start 0000')));
+  ctx.doPost(hookEvent(startUpdate(2, '0000')));
   assert.strictEqual(fetches.length, 1);
+  assert.strictEqual(propsStore.OWNER_CHAT_ID, null);
+
+  // Верный PIN обычным сообщением → фиксация OWNER_CHAT_ID
+  ctx.doPost(hookEvent(startUpdate(3, '1111')));
+  assert.strictEqual(propsStore.OWNER_CHAT_ID, '555');
+  assert.strictEqual(fetches.length, 2);
+  assert.strictEqual(fetches[1].payload.chat_id, 555);
+  assert.match(fetches[1].payload.text, /подключены/);
+
+  // Старый формат «/start <pin>» тоже работает
+  const ctx2 = makeApiCtx({ OWNER_CHAT_ID: null });
+  ctx2.ctx.doPost(hookEvent(startUpdate(1, '/start 1111')));
+  assert.strictEqual(ctx2.propsStore.OWNER_CHAT_ID, '555');
 });
 
 test('дайджест после shift_close: формат, digest_sent, без дубля', () => {

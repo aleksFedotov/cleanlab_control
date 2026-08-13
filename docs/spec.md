@@ -147,7 +147,7 @@ MVP-события: `wash_create`, `wash_start`, `wash_done`, `wash_issue`, `was
 ## 9. Telegram webhook
 
 - `doPost` — только webhook; идемпотентен по `update_id` (Telegram шлёт ретраи).
-- Использование: `/start` с `OWNER_PIN` → фиксация `OWNER_CHAT_ID`; исходящий дайджест.
+- Использование: `/start` → бот просит PIN; любое сообщение, равное `OWNER_PIN` → фиксация `OWNER_CHAT_ID` (формат `/start <PIN>` также поддерживается); исходящий дайджест.
 - Ответ 200 быстро, короткая обработка апдейта.
 
 ## 10. Надёжность и эксплуатация

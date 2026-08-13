@@ -18,14 +18,19 @@ function doPost(e) {
   return out;
 }
 
-// Использование MVP: /start <OWNER_PIN> → фиксация OWNER_CHAT_ID.
+// Использование MVP: /start → бот просит PIN; любое сообщение, равное
+// OWNER_PIN, фиксирует OWNER_CHAT_ID (spec §9).
 function handleUpdate_(update, props) {
   var msg = update.message;
   if (!msg || !msg.text) return;
-  var m = msg.text.match(/^\/start\s+(\S+)/);
-  if (m && m[1] === props.getProperty('OWNER_PIN')) {
+  var text = String(msg.text).trim();
+  // PIN принимается и отдельным сообщением, и в старом формате «/start <PIN>»
+  var candidate = text.indexOf('/start') === 0 ? text.slice(6).trim() : text;
+  if (candidate && candidate === props.getProperty('OWNER_PIN')) {
     props.setProperty('OWNER_CHAT_ID', String(msg.chat.id));
     sendTelegram_(msg.chat.id, 'Прачка360: дайджесты подключены ✓');
+  } else if (text.indexOf('/start') === 0) {
+    sendTelegram_(msg.chat.id, 'Прачка360: введите PIN владельца');
   }
 }
 

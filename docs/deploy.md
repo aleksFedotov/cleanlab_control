@@ -43,7 +43,7 @@
    ```bash
    curl "https://api.telegram.org/bot<BOT_TOKEN>/setWebhook?url=<WEB_APP_URL>?secret=<WEBHOOK_SECRET>"
    ```
-3. В Telegram написать боту: `/start <OWNER_PIN>` → ответ «дайджесты подключены ✓» (записывается `OWNER_CHAT_ID`).
+3. В Telegram написать боту `/start` → бот ответит «введите PIN владельца» → отправить `OWNER_PIN` обычным сообщением → ответ «дайджесты подключены ✓» (записывается `OWNER_CHAT_ID`).
 
 ## 6. Триггеры
 
