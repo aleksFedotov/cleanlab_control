@@ -5,5 +5,8 @@
   "description": "CleanLab Control (Прачка360) — учёт стирок в прачечной. Google Apps Script + Google Sheets.",
   "scripts": {
     "test": "node --test"
+  },
+  "devDependencies": {
+    "wrangler": "^4.122.0"
   }
 }

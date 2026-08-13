@@ -1,3 +1,5 @@
 node_modules/
 .clasprc.json
 *.log
+.wrangler/
+.dev.vars

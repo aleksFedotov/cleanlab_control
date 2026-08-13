@@ -39,11 +39,18 @@
 ## 5. Telegram
 
 1. Создать бота у @BotFather, токен → `BOT_TOKEN` (шаг 2).
-2. Установить webhook (подставить токен, URL и секрет):
+2. **Webhook идёт через Cloudflare Worker-прокси** (`cf-webhook-proxy/`): Google на POST отвечает 302-редиректом, который Telegram не проходит, — Worker принимает апдейт, мгновенно отвечает Telegram 200 и пересылает апдейт в GAS (fetch внутри Workers сам проходит редиректы).
    ```bash
-   curl "https://api.telegram.org/bot<BOT_TOKEN>/setWebhook?url=<WEB_APP_URL>?secret=<WEBHOOK_SECRET>"
+   cd cf-webhook-proxy
+   npx wrangler deploy
+   echo "<WEB_APP_URL>" | npx wrangler secret put GAS_URL
+   echo "<WEBHOOK_SECRET>" | npx wrangler secret put WEBHOOK_SECRET
    ```
-3. В Telegram написать боту `/start` → бот ответит «введите PIN владельца» → отправить `OWNER_PIN` обычным сообщением → ответ «дайджесты подключены ✓» (записывается `OWNER_CHAT_ID`).
+3. Установить webhook на адрес Worker'а:
+   ```bash
+   curl "https://api.telegram.org/bot<BOT_TOKEN>/setWebhook?url=https://<worker>.workers.dev/?secret=<WEBHOOK_SECRET>"
+   ```
+4. В Telegram написать боту `/start` → бот ответит «введите PIN владельца» → отправить `OWNER_PIN` обычным сообщением → ответ «дайджесты подключены ✓» (записывается `OWNER_CHAT_ID`).
 
 ## 6. Триггеры
 
