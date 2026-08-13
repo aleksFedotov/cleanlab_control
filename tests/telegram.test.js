@@ -21,7 +21,7 @@ function dayWithDoneWash(ctx) {
   const clientId = ctx.saveClient(owner, { name: 'Отель А' }).client.id;
   const washId = ctx.addToDelivery(owner, clientId, TODAY, TOMORROW).wash.id;
   ctx.startWash(worker, washId, 10);
-  ctx.completeWash(worker, washId, [{ item_type_id: 'itm_1', qty: 20 }]);
+  ctx.completeWash(worker, washId, [{ item_type_id: 'itm_1', qty: 20 }], 10);
   return { owner, worker, washId };
 }
 

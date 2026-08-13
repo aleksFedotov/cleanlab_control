@@ -50,7 +50,7 @@ test('полный цикл: постановка → в работу → зав
   const worker = loginWorker(ctx);
   const washId = ctx.addToDelivery(owner, clientId, TODAY, TOMORROW).wash.id;
 
-  // В работу с весом; повтор — отклонён, started_at не затёрт
+  // В работу (вес на старте необязателен, но принимается); повтор — отклонён
   const started = ctx.startWash(worker, washId, 12.34);
   assert.ok(started.ok);
   assert.strictEqual(started.wash.dirty_weight_kg, 12.3); // округление до 0,1
@@ -58,18 +58,22 @@ test('полный цикл: постановка → в работу → зав
   assert.ok(!ctx.startWash(worker, washId, 99).ok);
   assert.strictEqual(ctx.getDayList(worker, TODAY).washes[0].dirty_weight_kg, 12.3);
 
-  // Завершение: WashItems атомарно, qty=0 не пишется, статус done (выдача завтра)
+  // Без веса чистого завершение отклоняется
+  assert.ok(!ctx.completeWash(worker, washId, [{ item_type_id: 'itm_1', qty: 1 }]).ok);
+
+  // Завершение: вес чистого перезаписывает, WashItems атомарно, qty=0 не пишется
   const done = ctx.completeWash(worker, washId, [
     { item_type_id: 'itm_1', qty: 10 }, { item_type_id: 'itm_2', qty: 0 }, { item_type_id: 'itm_3', qty: 5 }
-  ]);
+  ], 11.5);
   assert.ok(done.ok);
   assert.strictEqual(done.wash.status, 'done');
   assert.strictEqual(done.wash.items_total, 15);
+  assert.strictEqual(done.wash.dirty_weight_kg, 11.5);
   const items = ctx.readAll_('WashItems');
   assert.strictEqual(items.length, 2);
 
   // Повторное завершение не дублирует WashItems
-  assert.ok(!ctx.completeWash(worker, washId, [{ item_type_id: 'itm_1', qty: 1 }]).ok);
+  assert.ok(!ctx.completeWash(worker, washId, [{ item_type_id: 'itm_1', qty: 1 }], 11.5).ok);
   assert.strictEqual(ctx.readAll_('WashItems').length, 2);
 
   // Смена создана автоматически первым действием
@@ -88,7 +92,7 @@ test('правило stored: дальняя дата выдачи при зав�
   const worker = loginWorker(ctx);
   const washId = ctx.addToDelivery(owner, clientId, TODAY, '2026-08-20').wash.id;
   ctx.startWash(worker, washId, 5);
-  const done = ctx.completeWash(worker, washId, [{ item_type_id: 'itm_1', qty: 3 }]);
+  const done = ctx.completeWash(worker, washId, [{ item_type_id: 'itm_1', qty: 3 }], 5);
   assert.strictEqual(done.wash.status, 'stored');
   // stored закрытие смены не блокирует
   assert.ok(ctx.closeShift(worker).ok);
@@ -130,7 +134,7 @@ test('editWashData: перезапись пересчёта, worker при за�
   const worker = loginWorker(ctx);
   const washId = ctx.addToDelivery(owner, clientId, TODAY, TOMORROW).wash.id;
   ctx.startWash(worker, washId, 10);
-  ctx.completeWash(worker, washId, [{ item_type_id: 'itm_1', qty: 4 }]);
+  ctx.completeWash(worker, washId, [{ item_type_id: 'itm_1', qty: 4 }], 10);
 
   // Worker правит при открытой смене: старые WashItems удалены, новые записаны
   const edited = ctx.editWashData(worker, washId, 11, [{ item_type_id: 'itm_2', qty: 7 }]);
@@ -157,7 +161,7 @@ test('updateIssueDate и markIssued: выдача со склада', () => {
   const worker = loginWorker(ctx);
   const washId = ctx.addToDelivery(owner, clientId, TODAY, '2026-08-20').wash.id;
   ctx.startWash(worker, washId, 3);
-  ctx.completeWash(worker, washId, [{ item_type_id: 'itm_7', qty: 2 }]);
+  ctx.completeWash(worker, washId, [{ item_type_id: 'itm_7', qty: 2 }], 3);
 
   assert.ok(!ctx.updateIssueDate(worker, washId, TOMORROW).ok); // worker не может
   const upd = ctx.updateIssueDate(owner, washId, TOMORROW);
@@ -190,7 +194,7 @@ test('внеплановая стирка сотрудника попадает 
   assert.strictEqual(day.washes[0].client_name, 'Отель А');
   // Сортировка: незавершённые впереди
   ctx.startWash(worker, res.wash.id, 1);
-  ctx.completeWash(worker, res.wash.id, []);
+  ctx.completeWash(worker, res.wash.id, [], 1);
   ctx.addUnplannedWash(worker, clientId, 'ещё');
   const ids = Array.from(ctx.getDayList(worker, TODAY).washes.map(w => w.comment));
   assert.deepStrictEqual(ids, ['ещё', 'срочно']);
@@ -206,7 +210,7 @@ test('getTvData: неверный ключ отклоняется, верный 
   const w1 = ctx.addToDelivery(owner, clientId, TODAY, TOMORROW).wash.id;
   const w2 = ctx.addToDelivery(owner, clientId, TODAY, TOMORROW).wash.id;
   ctx.startWash(worker, w1, 10);
-  ctx.completeWash(worker, w1, [{ item_type_id: 'itm_1', qty: 20 }]);
+  ctx.completeWash(worker, w1, [{ item_type_id: 'itm_1', qty: 20 }], 10);
   ctx.deferWash(worker, w2, TOMORROW, ''); // ушла из списка дня
 
   const tv = ctx.getTvData('tv-secret');
@@ -225,7 +229,7 @@ test('getDayReport: сводка, детализация с позициями, 
   const worker = loginWorker(ctx);
   const washId = ctx.addToDelivery(owner, clientId, TODAY, TOMORROW).wash.id;
   ctx.startWash(worker, washId, 9.5);
-  ctx.completeWash(worker, washId, [{ item_type_id: 'itm_1', qty: 10 }, { item_type_id: 'itm_2', qty: 5 }]);
+  ctx.completeWash(worker, washId, [{ item_type_id: 'itm_1', qty: 10 }, { item_type_id: 'itm_2', qty: 5 }], 9.5);
   ctx.closeShift(worker);
 
   const rep = ctx.getDayReport(owner, TODAY);

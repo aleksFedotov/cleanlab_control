@@ -77,7 +77,8 @@ function startWash(token, washId, weightKg) {
     // Повторное «В работу» не затирает started_at: переход из in_progress уже отклонён.
     w.status = 'in_progress';
     w.started_at = nowStr_();
-    w.dirty_weight_kg = round1_(weightKg);
+    // Вес необязателен на старте: основное взвешивание — при завершении (чистый вес)
+    if (Number(weightKg) > 0) w.dirty_weight_kg = round1_(weightKg);
     updateRow_(SHEETS.WASHES, found.rowNumber, w);
     ensureShift_(w.wash_date);
     logEvent(role, 'wash_start', washId, { weight: w.dirty_weight_kg });
@@ -85,7 +86,7 @@ function startWash(token, washId, weightKg) {
   });
 }
 
-function completeWash(token, washId, items) {
+function completeWash(token, washId, items, weightKg) {
   var role = requireRole_(token, ['owner', 'worker']);
   if (!role) return err_('Нет доступа');
   return withLock_(function () {
@@ -93,6 +94,8 @@ function completeWash(token, washId, items) {
     var check = checkTransition_('complete', found && found.obj);
     if (!check.ok) return err_(check.error); // повторное завершение не дублирует WashItems
     var w = found.obj;
+    // Вес чистого белья обязателен при завершении
+    if (!(Number(weightKg) > 0)) return err_('Укажите вес чистого белья');
     var valid = (items || []).filter(function (it) { return Number(it.qty) > 0; });
     var total = 0;
     valid.forEach(function (it) {
@@ -105,6 +108,7 @@ function completeWash(token, washId, items) {
     });
     w.status = completionStatus_(w.wash_date, w.issue_date);
     w.items_total = total;
+    w.dirty_weight_kg = round1_(weightKg);
     w.done_at = nowStr_();
     updateRow_(SHEETS.WASHES, found.rowNumber, w);
     ensureShift_(w.wash_date);
