@@ -83,7 +83,9 @@
     .week-col h3 { font-size: 13px; margin-bottom: 6px; text-align: center; white-space: nowrap; overflow: hidden; }
     .week-col.today { background: #e8f0fe; border-color: #2f6fed; }
     .week-col.today h3 { color: #2f6fed; }
-    .wcard { background: #f2f4f7; border-radius: 10px; padding: 6px 8px; margin-bottom: 6px; cursor: pointer; overflow: hidden; }
+    .wcard { background: #f2f4f7; border-radius: 10px; padding: 6px 8px; margin-bottom: 6px; cursor: pointer; overflow: hidden; border-left: 4px solid transparent; }
+    .wcard.doing { background: #fff3cd; border-left-color: #f0ad4e; }
+    .wcard.done { background: #d4edda; border-left-color: #28a745; }
     .wcard .nm { font-weight: 700; font-size: 14px; }
     .wcard .cm { font-size: 12px; color: #555; margin-top: 2px; }
     .week-add { width: 100%; background: #e3e8ef; padding: 6px; font-size: 16px; }
@@ -264,7 +266,8 @@ function renderWashList() {
     if (w.dirty_weight_kg !== '' && w.dirty_weight_kg != null) meta.push(w.dirty_weight_kg + ' кг');
     if (w.items_total !== '' && w.items_total != null) meta.push(w.items_total + ' шт');
     if (w.status === 'stored') meta.push('выдача ' + esc(w.issue_date));
-    return '<div class="wcard" data-id="' + w.id + '">' +
+    var cls = w.status === 'in_progress' ? ' doing' : ((w.status === 'done' || w.status === 'stored') ? ' done' : '');
+    return '<div class="wcard' + cls + '" data-id="' + w.id + '">' +
       '<div class="nm">' + esc(w.client_name) + '</div>' +
       (w.deferred_from ? '<div class="cm">⤷ с ' + esc(w.deferred_from) + '</div>' : '') +
       (meta.length ? '<div class="cm">' + meta.join(' · ') + '</div>' : '') +
@@ -353,7 +356,7 @@ function renderWashCard(id) {
       busy(startBtn, 'Сохраняем…');
       api('startWash', state.token, id).then(function () {
         toast('В работе ✓');
-        loadDayAndCard(id);
+        loadDay(); // возвращаемся на доску цеха
       }).catch(function (e) { unbusy(startBtn); toast(e.message); });
     };
   }
