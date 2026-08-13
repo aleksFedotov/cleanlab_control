@@ -205,7 +205,8 @@ function loadDay(date) {
   // Сервер вернёт date; при пустой дате берём «сегодня» с сервера (TZ скрипта)
   call.then(function (res) {
     state.date = res.date;
-    if (!state.today) state.today = res.date; // «сегодня» сервера — опора для развоза/склада
+    // today — только серверное «сегодня» (вызов без даты), не произвольная выбранная дата
+    if (!state.today && !d) state.today = res.date;
     state.day = res;
     renderDay();
   }).catch(function () {
@@ -1040,7 +1041,7 @@ function hideDialog() { document.getElementById('overlay').classList.remove('sho
 if (state.token) {
   // Восстановление сессии: дата всегда с сервера
   api('getDayList', state.token, '').then(function (res) {
-    state.date = res.date; state.day = res; renderDay();
+    state.date = res.date; state.today = res.date; state.day = res; renderDay();
   }).catch(function () {
     if (state.token) renderPin(); else renderPin();
   });
