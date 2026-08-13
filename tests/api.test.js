@@ -332,3 +332,22 @@ test('moveWeekCard/removeWeekCard: только planned, даты сдвигаю
   const res = ctx.getWeekPlan(owner, '2026-08-10');
   assert.ok(!res.days.flatMap(d => d.cards).some(c => c.id === id2));
 });
+
+test('нормализация: даты из ячеек Sheets как Date находятся днём и неделей', () => {
+  const { ctx, ss } = makeApiCtx();
+  const clientId = seedClient(ctx);
+  const owner = loginOwner(ctx);
+  // Sheets хранит 'yyyy-MM-dd' как Date (полночь в TZ таблицы = 21:00 UTC накануне)
+  const d = s => { const p = s.split('-').map(Number); return new Date(Date.UTC(p[0], p[1] - 1, p[2]) - 3 * 3600 * 1000); };
+  const dt = s => new Date(d(s.slice(0, 10)).getTime() + 9 * 3600 * 1000); // ~09:00 утра
+  ss.getSheetByName('Washes').appendRow([
+    'wash_d1', clientId, d(TOMORROW), d(TOMORROW), 'planned',
+    '', '', '', 'owner', dt(TODAY), '', '', '', '', ''
+  ]);
+  const day = ctx.getDayList(owner, TOMORROW);
+  assert.ok(day.washes.some(w => w.id === 'wash_d1'));
+  const week = ctx.getWeekPlan(owner, '2026-08-10');
+  assert.ok(week.days.flatMap(x => x.cards).some(c => c.id === 'wash_d1'));
+  const del = ctx.getDeliveryPlan(owner, TOMORROW);
+  assert.ok(del.planned.some(w => w.id === 'wash_d1'));
+});

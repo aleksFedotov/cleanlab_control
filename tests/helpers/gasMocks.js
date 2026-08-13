@@ -41,10 +41,21 @@ class FakeSpreadsheet {
 }
 
 // Фиксированное «сейчас»: 2026-08-12 21:30 Europe/Moscow.
+// Даты, отличные от «сейчас», форматируем по-настоящему (Europe/Moscow = UTC+3),
+// чтобы тестировать нормализацию Date из ячеек Sheets.
 function fakeFormatDate(date, tz, fmt) {
-  if (fmt === 'HH:mm') return '21:30';
-  if (fmt === 'yyyy-MM-dd') return '2026-08-12';
-  return '2026-08-12 21:30:00';
+  const isNow = Math.abs(Date.now() - date.getTime()) < 60000;
+  if (isNow) {
+    if (fmt === 'HH:mm') return '21:30';
+    if (fmt === 'yyyy-MM-dd') return '2026-08-12';
+    return '2026-08-12 21:30:00';
+  }
+  const m = new Date(date.getTime() + 3 * 3600 * 1000);
+  const p = n => (n < 10 ? '0' : '') + n;
+  const ymd = `${m.getUTCFullYear()}-${p(m.getUTCMonth() + 1)}-${p(m.getUTCDate())}`;
+  if (fmt === 'yyyy-MM-dd') return ymd;
+  if (fmt === 'HH:mm') return `${p(m.getUTCHours())}:${p(m.getUTCMinutes())}`;
+  return `${ymd} ${p(m.getUTCHours())}:${p(m.getUTCMinutes())}:${p(m.getUTCSeconds())}`;
 }
 
 function makeApiCtx(props = {}) {

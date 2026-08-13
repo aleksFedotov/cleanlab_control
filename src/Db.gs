@@ -12,12 +12,22 @@ function getHeaders_(sh) {
   return sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0];
 }
 
+// Sheets может хранить дату/время как Date (автоформат ячеек): при чтении
+// нормализуем обратно в строки схемы, иначе сравнения дат молча не срабатывают.
+function normVal_(header, v) {
+  if (Object.prototype.toString.call(v) !== '[object Date]') return v;
+  var tz = Session.getScriptTimeZone();
+  if (header === 'closed_at') return Utilities.formatDate(v, tz, 'HH:mm');
+  if (header === 'ts' || /_at$/.test(header)) return Utilities.formatDate(v, tz, 'yyyy-MM-dd HH:mm:ss');
+  return Utilities.formatDate(v, tz, 'yyyy-MM-dd');
+}
+
 function rowsToObjects_(headers, values) {
   return values
     .filter(function (row) { return row[0] !== '' && row[0] !== undefined; })
     .map(function (row) {
       var obj = {};
-      headers.forEach(function (h, i) { obj[h] = row[i]; });
+      headers.forEach(function (h, i) { obj[h] = normVal_(h, row[i]); });
       return obj;
     });
 }
@@ -73,7 +83,7 @@ function findRowsBy_(sheetName, pred, maxRows) {
   values.forEach(function (row, i) {
     if (row[0] === '' || row[0] === undefined) return;
     var obj = {};
-    headers.forEach(function (h, c) { obj[h] = row[c]; });
+    headers.forEach(function (h, c) { obj[h] = normVal_(h, row[c]); });
     if (pred(obj)) out.push({ rowNumber: firstRow + i, obj: obj });
   });
   return out;
