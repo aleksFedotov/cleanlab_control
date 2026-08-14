@@ -96,7 +96,7 @@ function makeApiCtx(props = {}) {
     Utilities: { getUuid: () => `token-${++uuid}`, formatDate: fakeFormatDate },
     Session: { getScriptTimeZone: () => 'Europe/Moscow' }
   };
-  ['Schema.gs', 'Db.gs', 'Core.gs', 'Setup.gs', 'Audit.gs', 'Auth.gs', 'Api.gs', 'Telegram.gs']
+  ['Schema.gs', 'Db.gs', 'Core.gs', 'Setup.gs', 'Audit.gs', 'Auth.gs', 'Storage.gs', 'Api.gs', 'Telegram.gs']
     .forEach(f => loadGs(f, sandbox));
   sandbox.setup();
   return {

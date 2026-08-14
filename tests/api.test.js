@@ -358,3 +358,51 @@ test('нормализация: даты из ячеек Sheets как Date на
   const del = ctx.getDeliveryPlan(owner, TOMORROW);
   assert.ok(del.planned.some(w => w.id === 'wash_d1'));
 });
+
+test('склад: dirty от водителя расходуется стиркой, clean — выдачей', () => {
+  const { ctx } = makeApiCtx();
+  const clientId = seedClient(ctx);
+  const owner = loginOwner(ctx);
+  const worker = loginWorker(ctx);
+
+  // Водитель привёз грязное (запись создаём напрямую — API водителя будет в T18)
+  ctx.addStorageEntry_(clientId, 'dirty', {});
+  let sum = ctx.storageSummaryByClient_();
+  assert.strictEqual(sum[clientId].dirty, 1);
+
+  // Стирка забирает грязное со склада
+  const washId = ctx.addToDelivery(owner, clientId, TODAY, TOMORROW).wash.id;
+  ctx.startWash(worker, washId);
+  sum = ctx.storageSummaryByClient_();
+  assert.strictEqual(sum[clientId] ? sum[clientId].dirty : 0, 0);
+
+  // Завершение кладёт чистое на склад
+  ctx.completeWash(worker, washId, [{ item_type_id: 'itm_1', qty: 10 }], 8.25);
+  sum = ctx.storageSummaryByClient_();
+  assert.strictEqual(sum[clientId].clean, 1);
+  assert.strictEqual(sum[clientId].cleanKg, 8.3);
+  assert.strictEqual(sum[clientId].cleanItems, 10);
+
+  // getStorage отдаёт и чистую запись
+  const st = ctx.getStorage(owner);
+  assert.ok(st.clean.some(s => s.wash_id === washId));
+
+  // Выдача расходует чистое
+  ctx.markIssued(owner, washId);
+  sum = ctx.storageSummaryByClient_();
+  assert.ok(!sum[clientId] || sum[clientId].clean === 0);
+});
+
+test('склад: правка стирки синхронно правит открытую clean-запись', () => {
+  const { ctx } = makeApiCtx();
+  const clientId = seedClient(ctx);
+  const owner = loginOwner(ctx);
+  const worker = loginWorker(ctx);
+  const washId = ctx.addToDelivery(owner, clientId, TODAY, TOMORROW).wash.id;
+  ctx.startWash(worker, washId);
+  ctx.completeWash(worker, washId, [{ item_type_id: 'itm_1', qty: 5 }], 5);
+  ctx.editWashData(owner, washId, 7.5, [{ item_type_id: 'itm_1', qty: 8 }]);
+  const sum = ctx.storageSummaryByClient_();
+  assert.strictEqual(sum[clientId].cleanKg, 7.5);
+  assert.strictEqual(sum[clientId].cleanItems, 8);
+});

@@ -80,6 +80,8 @@ function startWash(token, washId, weightKg) {
     // Вес необязателен на старте: основное взвешивание — при завершении (чистый вес)
     if (Number(weightKg) > 0) w.dirty_weight_kg = round1_(weightKg);
     updateRow_(SHEETS.WASHES, found.rowNumber, w);
+    // Грязное бельё клиента уходит со склада в стирку
+    consumeStorage_(w.client_id, 'dirty');
     ensureShift_(w.wash_date);
     logEvent(role, 'wash_start', washId, { weight: w.dirty_weight_kg });
     return ok_({ wash: w });
@@ -111,6 +113,10 @@ function completeWash(token, washId, items, weightKg) {
     w.dirty_weight_kg = round1_(weightKg);
     w.done_at = nowStr_();
     updateRow_(SHEETS.WASHES, found.rowNumber, w);
+    // Результат стирки — чистое бельё на складе
+    addStorageEntry_(w.client_id, 'clean', {
+      weight_kg: w.dirty_weight_kg, items_total: total, wash_id: washId
+    });
     ensureShift_(w.wash_date);
     logEvent(role, 'wash_done', washId, { status: w.status, items: valid, kg: w.dirty_weight_kg });
     return ok_({ wash: w });
@@ -146,6 +152,15 @@ function editWashData(token, washId, weightKg, items) {
     w.dirty_weight_kg = round1_(weightKg);
     w.items_total = total;
     updateRow_(SHEETS.WASHES, found.rowNumber, w);
+    // Синхронно правим clean-запись склада, если она ещё не выдана
+    var st = findRowsBy_(SHEETS.STORAGE, function (s) {
+      return s.wash_id === washId && s.kind === 'clean' && !s.consumed_at;
+    }, 1000);
+    if (st.length) {
+      st[0].obj.weight_kg = w.dirty_weight_kg;
+      st[0].obj.items_total = total;
+      updateRow_(SHEETS.STORAGE, st[0].rowNumber, st[0].obj);
+    }
     logEvent(role, 'wash_edit', washId, { old: old, now: { kg: w.dirty_weight_kg, items_total: total } });
     return ok_({ wash: w });
   });
@@ -306,6 +321,13 @@ function markIssued(token, washId) {
     found.obj.status = 'issued';
     found.obj.issued_at = nowStr_();
     updateRow_(SHEETS.WASHES, found.rowNumber, found.obj);
+    // Чистая запись этой стирки уходит со склада
+    findRowsBy_(SHEETS.STORAGE, function (s) {
+      return s.wash_id === washId && s.kind === 'clean' && !s.consumed_at;
+    }, 1000).forEach(function (r) {
+      r.obj.consumed_at = found.obj.issued_at;
+      updateRow_(SHEETS.STORAGE, r.rowNumber, r.obj);
+    });
     logEvent('owner', 'wash_issue', washId, {});
     return ok_({ wash: found.obj });
   });
@@ -426,7 +448,19 @@ function getStorage(token) {
       return w;
     });
   stored.sort(function (a, b) { return a.issue_date < b.issue_date ? -1 : 1; });
-  return ok_({ stored: stored, itemTypes: getItemTypes_() });
+  // Складские записи: грязное (от водителя) и чистое (результат стирок), не израсходованные
+  var open = findRowsBy_(SHEETS.STORAGE, function (s) { return !s.consumed_at; }, 2000)
+    .map(function (r) {
+      var s = r.obj;
+      s.client_name = clientName_(s.client_id, clients);
+      return s;
+    });
+  return ok_({
+    stored: stored,
+    dirty: open.filter(function (s) { return s.kind === 'dirty'; }),
+    clean: open.filter(function (s) { return s.kind === 'clean'; }),
+    itemTypes: getItemTypes_()
+  });
 }
 
 function getDayReport(token, date) {
