@@ -816,7 +816,10 @@ function renderWeek() {
     document.getElementById('wkPrev').onclick = function () { state.weekMonday = shiftDateStr(res.monday, -7); renderWeek(); };
     document.getElementById('wkNext').onclick = function () { state.weekMonday = shiftDateStr(res.monday, 7); renderWeek(); };
     Array.prototype.forEach.call(document.querySelectorAll('[data-addday]'), function (b) {
-      b.onclick = function () { openWeekAdd(b.dataset.addday, res.clients); };
+      b.onclick = function () {
+        var day = res.days.filter(function (d) { return d.date === b.dataset.addday; })[0];
+        openWeekAdd(b.dataset.addday, res.clients, day ? day.cards : []);
+      };
     });
     Array.prototype.forEach.call(document.querySelectorAll('[data-card]'), function (el) {
       el.onclick = function () {
@@ -830,21 +833,33 @@ function renderWeek() {
   }).catch(function (e) { setContainer('<div class="empty">' + esc(e.message) + '</div>'); });
 }
 
-function openWeekAdd(date, clients) {
+function openWeekAdd(date, clients, cards) {
   if (!clients.length) return toast('Сначала добавьте клиента в Справочниках');
+  var inDay = {};
+  (cards || []).forEach(function (c) { inDay[c.client_id] = true; });
   showDialog('<h2>Развоз ' + date + '</h2>' +
-    '<div class="row"><select id="wcClient">' + clients.map(function (c) {
-      return '<option value="' + c.id + '">' + esc(c.name) + '</option>';
-    }).join('') + '</select></div>' +
+    '<div class="meta" style="margin-bottom:6px">Отметьте клиентов (можно несколько):</div>' +
+    '<div style="max-height:50vh;overflow-y:auto">' + clients.map(function (c) {
+      var taken = inDay[c.id];
+      return '<div class="row"><label style="font-size:16px' + (taken ? ';color:#98a2b3' : '') + '">' +
+        '<input type="checkbox" class="wcPick" value="' + c.id + '"' + (taken ? ' disabled' : '') + '> ' +
+        esc(c.name) + (taken ? ' — уже в развозе' : '') + '</label></div>';
+    }).join('') + '</div>' +
     '<div class="actions"><button class="btn btn-ghost" id="dlgCancel">Назад</button>' +
-    '<button class="btn btn-primary" id="dlgOk">Добавить</button></div>');
+    '<button class="btn btn-primary" id="dlgOk">Добавить выбранных</button></div>');
   document.getElementById('dlgCancel').onclick = hideDialog;
   var okBtn = document.getElementById('dlgOk');
   okBtn.onclick = function () {
+    var ids = Array.prototype.map.call(document.querySelectorAll('.wcPick:checked'), function (b) { return b.value; });
+    if (!ids.length) return toast('Отметьте хотя бы одного клиента');
     busy(okBtn, 'Сохраняем…');
-    api('addWeekCard', state.token, document.getElementById('wcClient').value, date)
-      .then(function () { hideDialog(); toast('Добавлено ✓'); renderWeek(); })
-      .catch(function (e) { hideDialog(); toast(e.message); });
+    // Добавляем последовательно, чтобы не гонять запросы параллельно
+    var chain = Promise.resolve();
+    ids.forEach(function (cid) {
+      chain = chain.then(function () { return api('addWeekCard', state.token, cid, date); });
+    });
+    chain.then(function () { hideDialog(); toast('Добавлено: ' + ids.length + ' ✓'); renderWeek(); })
+      .catch(function (e) { hideDialog(); toast(e.message); renderWeek(); });
   };
 }
 
