@@ -48,8 +48,10 @@ function ensureWashesFromDelivery_(date) {
   var nextDay = addDaysStr_(date, 1);
   var visits = getVisitsByDate_(nextDay);
   if (!visits.length) return;
+  // Отменённые тоже считаем «существующими»: иначе стирка, снятая подтверждением
+  // «белья нет на складе» (или отмена владельца), будет пересоздана при следующем чтении.
   var dayWashes = findRowsBy_(SHEETS.WASHES, function (w) {
-    return w.wash_date === date && w.status !== 'cancelled';
+    return w.wash_date === date;
   }, 1000).map(function (r) { return r.obj; });
   visits.forEach(function (v) {
     var exists = dayWashes.some(function (w) { return w.client_id === v.client_id; });
@@ -78,11 +80,16 @@ function getDayList(token, date) {
       return isDayWash_(w, date);
     }, 1000).map(function (r) { return r.obj; });
     var shift = getShiftByDate_(date);
+    var storage = storageSummaryByClient_();
     return ok_({
       date: date,
       laundryName: getSettings_().LAUNDRY_NAME || 'Прачка360',
       washes: sortDayList_(washes).map(function (w) {
         w.client_name = clientName_(w.client_id, clients);
+        // Состояние склада для раскраски «К работе» (check-storage из спеки)
+        var s = storage[w.client_id] || { dirty: 0, clean: 0 };
+        w.has_dirty = s.dirty > 0;
+        w.has_clean = s.clean > 0;
         return w;
       }),
       shift: shift ? shift.obj : null,
@@ -384,6 +391,30 @@ function cancelWash(token, washId) {
     found.obj.status = 'cancelled';
     updateRow_(SHEETS.WASHES, found.rowNumber, found.obj);
     logEvent('owner', 'wash_cancel', washId, {});
+    return ok_({ wash: found.obj });
+  });
+}
+
+// Подтверждение проверки склада работником (спека «check storage»).
+// Применимо только к planned-стирке: грязного нет / бельё уже чистое →
+// стирка не нужна, отменяем с причиной. Клиент при этом остаётся в
+// предупреждении «не готов к развозу» (no_clean), если чистого нет.
+function confirmStorageCheck(token, washId, verdict) {
+  var role = requireRole_(token, ['owner', 'worker']);
+  if (!role) return err_('Нет доступа');
+  var REASONS = {
+    no_dirty: 'нет грязного белья на складе',
+    already_clean: 'бельё уже чистое на складе'
+  };
+  if (!REASONS[verdict]) return err_('Неизвестный verdict');
+  return withLock_(function () {
+    var found = findById_(SHEETS.WASHES, washId);
+    if (!found) return err_('Стирка не найдена');
+    if (found.obj.status !== 'planned') return err_('Подтверждение возможно только для стирки «К работе»');
+    found.obj.status = 'cancelled';
+    found.obj.deferred_reason = REASONS[verdict];
+    updateRow_(SHEETS.WASHES, found.rowNumber, found.obj);
+    logEvent(role, 'storage_check', washId, { verdict: verdict });
     return ok_({ wash: found.obj });
   });
 }
