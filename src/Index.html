@@ -885,15 +885,15 @@ function openWeekCard(c, days) {
 function renderStorage() {
   appShell('Склад', 'storage', '<div class="empty">Загружаем…</div>');
   api('getStorage', state.token).then(function (res) {
-    if (!res.stored.length) { setContainer('<div class="empty">Склад пуст</div>'); return; }
     var types = {};
     (res.itemTypes || []).forEach(function (t) { types[t.id] = t.name; });
-    // Группировка по клиентам, внутри — сортировка по issue_date (уже отсортировано сервером)
+
+    // Секция «Чистое бельё»: stored-стирки, группировка по клиентам (уже отсортировано сервером)
     var byClient = {};
     res.stored.forEach(function (w) {
       (byClient[w.client_name] = byClient[w.client_name] || []).push(w);
     });
-    var html = Object.keys(byClient).map(function (name) {
+    var cleanHtml = Object.keys(byClient).map(function (name) {
       return '<h2>' + esc(name) + '</h2>' + byClient[name].map(function (w) {
         var overdue = w.issue_date < state.today;
         var positions = (w.items || []).map(function (it) {
@@ -906,8 +906,31 @@ function renderStorage() {
           '<div class="row"><button class="btn btn-primary" data-issue="' + w.id + '">Выдано</button>' +
           '<button class="btn btn-ghost" data-editdate="' + w.id + '" data-cur="' + esc(w.issue_date) + '">Изменить дату</button></div></div>';
       }).join('');
-    }).join('');
-    setContainer(html);
+    }).join('') || '<div class="empty">Чистого белья нет</div>';
+
+    // Секция «Грязное бельё»: записи склада от водителя/подтверждения (без веса)
+    var dirtyByClient = {};
+    (res.dirty || []).forEach(function (s) {
+      (dirtyByClient[s.client_name] = dirtyByClient[s.client_name] || []).push(s);
+    });
+    var dirtyHtml = Object.keys(dirtyByClient).map(function (name) {
+      return '<h2>' + esc(name) + '</h2>' + dirtyByClient[name].map(function (s) {
+        return '<div class="card"><div class="meta">🧺 Принято: <b>' + esc((s.created_at || '').slice(0, 10)) + '</b>' +
+          ' · вес/количество после стирки</div></div>';
+      }).join('');
+    }).join('') || '<div class="empty">Грязного белья нет</div>';
+
+    // Остатки частичных стирок: clean-записи, чья стирка не в stored (чтобы не дублировать)
+    var storedIds = {};
+    res.stored.forEach(function (w) { storedIds[w.id] = true; });
+    var partialClean = (res.clean || []).filter(function (s) { return !storedIds[s.wash_id]; });
+    var partialHtml = partialClean.length ? '<h2>Остатки частичных стирок</h2>' + partialClean.map(function (s) {
+      return '<div class="card"><div class="meta"><b>' + esc(s.client_name) + '</b> · ' +
+        (s.weight_kg || 0) + ' кг · ' + (s.items_total || 0) + ' шт' +
+        ' · с ' + esc((s.created_at || '').slice(0, 10)) + '</div></div>';
+    }).join('') : '';
+
+    setContainer('<h1>Чистое бельё</h1>' + cleanHtml + partialHtml + '<h1 style="margin-top:16px">Грязное бельё</h1>' + dirtyHtml);
 
     Array.prototype.forEach.call(document.querySelectorAll('[data-issue]'), function (b) {
       b.onclick = function () {
