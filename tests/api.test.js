@@ -363,6 +363,43 @@ test('нормализация: даты из ячеек Sheets как Date на
   assert.ok(del.planned.some(w => w.id === 'wash_d1'));
 });
 
+test('seedDemoData: неделя заполнена, все состояния user flow, идемпотентно', () => {
+  const { ctx } = makeApiCtx();
+  const created = ctx.seedDemoData(); // клиентов добьёт сам
+  assert.strictEqual(created, 70); // 7 дней × 10 визитов
+  const owner = loginOwner(ctx);
+
+  // Неделя: по 10 карточек на день
+  const week = ctx.getWeekPlan(owner, '2026-08-10');
+  week.days.forEach(d => assert.strictEqual(d.cards.length, 10, d.date));
+
+  // Цех сегодня: стирки во всех ключевых статусах
+  const day = ctx.getDayList(loginWorker(ctx), TODAY);
+  const statuses = day.washes.map(w => w.status);
+  ['planned', 'in_progress', 'done', 'partial', 'stored'].forEach(s =>
+    assert.ok(statuses.includes(s), s));
+
+  // Маршрут водителя: есть чистое, грязное и пустые клиенты
+  const route = ctx.getDriverRoute(ctx.login('3333').token, TODAY);
+  assert.strictEqual(route.visits.length, 10);
+  assert.ok(route.visits.some(v => v.has_clean));
+  assert.ok(route.visits.some(v => v.has_dirty));
+  assert.ok(route.visits.some(v => !v.has_clean && !v.has_dirty));
+
+  // Завтрашний развоз: предупреждения «не готовы» всех причин
+  const del = ctx.getDeliveryVisits(owner, TOMORROW);
+  const reasons = del.notReady.map(x => x.reason);
+  assert.ok(reasons.includes('washing_incomplete'));
+  assert.ok(reasons.includes('partial'));
+
+  // Прошлые дни недели закрыты финальными статусами
+  const monday = ctx.getDeliveryVisits(owner, '2026-08-10');
+  assert.ok(monday.visits.length === 10 && monday.visits.every(v => v.status !== 'planned'));
+
+  // Повторный запуск ничего не создаёт
+  assert.strictEqual(ctx.seedDemoData(), 0);
+});
+
 test('миграция: стирки → визиты развоза с дедупом клиент+дата', () => {
   const { ctx } = makeApiCtx();
   const clientA = seedClient(ctx);
