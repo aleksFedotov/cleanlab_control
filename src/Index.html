@@ -952,10 +952,8 @@ function renderStorage() {
       }).join('');
     }).join('') || '<div class="empty">Грязного белья нет</div>';
 
-    // Остатки частичных стирок: clean-записи, чья стирка не в stored (чтобы не дублировать)
-    var storedIds = {};
-    res.stored.forEach(function (w) { storedIds[w.id] = true; });
-    var partialClean = (res.clean || []).filter(function (s) { return !storedIds[s.wash_id]; });
+    // Остатки частичных стирок (отбираются на сервере по статусу стирки)
+    var partialClean = res.partialClean || [];
     var partialHtml = partialClean.length ? '<h2>Остатки частичных стирок</h2>' + partialClean.map(function (s) {
       return '<div class="card"><div class="meta"><b>' + esc(s.client_name) + '</b> · ' +
         (s.weight_kg || 0) + ' кг · ' + (s.items_total || 0) + ' шт' +

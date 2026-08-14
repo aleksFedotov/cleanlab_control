@@ -545,10 +545,16 @@ function getStorage(token) {
       s.client_name = clientName_(s.client_id, clients);
       return s;
     });
+  // Остатки частичных стирок: clean-записи, чья стирка в статусе partial
+  // (у done/stored-стирок clean-записи тоже есть — их не считаем остатками).
+  var washStatus = {};
+  findRowsBy_(SHEETS.WASHES, function () { return true; }, 1000)
+    .forEach(function (r) { washStatus[r.obj.id] = r.obj.status; });
   return ok_({
     stored: stored,
     dirty: open.filter(function (s) { return s.kind === 'dirty'; }),
     clean: open.filter(function (s) { return s.kind === 'clean'; }),
+    partialClean: open.filter(function (s) { return s.kind === 'clean' && washStatus[s.wash_id] === 'partial'; }),
     itemTypes: getItemTypes_()
   });
 }
