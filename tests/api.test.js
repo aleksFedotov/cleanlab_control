@@ -446,11 +446,12 @@ test('check-storage: флаги склада в getDayList и confirmStorageChec
   ctx.startWash(worker, wA);
   assert.ok(!ctx.confirmStorageCheck(worker, wA, 'no_dirty').ok);
 
-  // has_dirty: стирка остаётся planned, только лог («изменить на грязное»)
+  // has_dirty: стирка остаётся planned, создаётся запись грязного («изменить на грязное»)
   assert.ok(ctx.confirmStorageCheck(worker, wB, 'has_dirty').ok);
   const still = ctx.getDayList(worker, TODAY);
-  assert.ok(still.washes.some(w => w.id === wB && w.status === 'planned'));
-  assert.ok(ctx.confirmStorageCheck(worker, wB, 'has_dirty').ok); // повтор ок — стирка на месте
+  assert.ok(still.washes.some(w => w.id === wB && w.status === 'planned' && w.has_dirty));
+  assert.ok(ctx.confirmStorageCheck(worker, wB, 'has_dirty').ok); // повтор ок, дублей записи нет
+  assert.strictEqual(ctx.getDayList(worker, TODAY).washes.filter(w => w.id === wB).length, 1);
 
   // Подтверждения снимают стирки с доски; повтор — ошибка
   assert.ok(ctx.confirmStorageCheck(worker, wB, 'no_dirty').ok);

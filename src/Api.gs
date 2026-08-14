@@ -399,7 +399,9 @@ function cancelWash(token, washId) {
 // Применимо только к planned-стирке. Три исхода:
 //  - no_dirty / already_clean → стирка не нужна, отменяем с причиной;
 //    клиент при этом остаётся в предупреждении «не готов к развозу» (no_clean), если чистого нет.
-//  - has_dirty → рабочий нашёл грязное бельё: стирка остаётся planned, только лог.
+//  - has_dirty → рабочий нашёл грязное бельё: если записи о грязном нет,
+//    создаём её (без веса — как приёмка водителем). Стирка остаётся planned,
+//    карточка становится янтарной везде. Запись израсходуется при startWash.
 function confirmStorageCheck(token, washId, verdict) {
   var role = requireRole_(token, ['owner', 'worker']);
   if (!role) return err_('Нет доступа');
@@ -413,6 +415,9 @@ function confirmStorageCheck(token, washId, verdict) {
     if (!found) return err_('Стирка не найдена');
     if (found.obj.status !== 'planned') return err_('Подтверждение возможно только для стирки «К работе»');
     if (verdict === 'has_dirty') {
+      if (openStorage_(found.obj.client_id, 'dirty').length === 0) {
+        addStorageEntry_(found.obj.client_id, 'dirty', {});
+      }
       logEvent(role, 'storage_check', washId, { verdict: verdict });
       return ok_({ wash: found.obj });
     }
