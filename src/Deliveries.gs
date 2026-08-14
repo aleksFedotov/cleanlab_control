@@ -95,3 +95,63 @@ function removeDeliveryVisit(token, visitId) {
     return ok_({ visit: found.obj });
   });
 }
+
+// --- Водитель ---
+
+// Маршрут на дату: визиты по ord + состояние склада клиента.
+function getDriverRoute(token, date) {
+  if (!requireRole_(token, ['driver', 'owner'])) return err_('Нет доступа');
+  date = date || todayStr_();
+  var clients = {};
+  getClients_().forEach(function (c) { clients[c.id] = c; });
+  var storage = storageSummaryByClient_();
+  return ok_({
+    date: date,
+    laundryName: getSettings_().LAUNDRY_NAME || 'Прачка360',
+    visits: getVisitsByDate_(date).map(function (v) {
+      var c = clients[v.client_id] || {};
+      v.address = c.address || '';
+      return decorateVisit_(v, clients, storage);
+    })
+  });
+}
+
+// Действие водителя у клиента: deliver (выдал чистое), pickup (забрал грязное),
+// both, empty (черновой статус «ничего нет» — открытый вопрос спеки).
+// Вес/количество водитель НЕ записывает.
+function driverVisit(token, visitId, action) {
+  var role = requireRole_(token, ['driver', 'owner']);
+  if (!role) return err_('Нет доступа');
+  var ACTIONS = { deliver: 'delivered', pickup: 'picked', both: 'both', empty: 'empty' };
+  if (!ACTIONS[action]) return err_('Неизвестное действие');
+  return withLock_(function () {
+    var found = findById_(SHEETS.DELIVERIES, visitId);
+    if (!found) return err_('Визит не найден');
+    if (!isOpenVisit_(found.obj)) return err_('Визит уже закрыт');
+    var v = found.obj;
+    if (action === 'deliver' || action === 'both') {
+      // Чистое уходит со склада; связанные стирки помечаются выданными
+      openStorage_(v.client_id, 'clean').forEach(function (r) {
+        r.obj.consumed_at = nowStr_();
+        updateRow_(SHEETS.STORAGE, r.rowNumber, r.obj);
+        if (r.obj.wash_id) {
+          var w = findById_(SHEETS.WASHES, r.obj.wash_id);
+          if (w && (w.obj.status === 'done' || w.obj.status === 'stored')) {
+            w.obj.status = 'issued';
+            w.obj.issued_at = nowStr_();
+            updateRow_(SHEETS.WASHES, w.rowNumber, w.obj);
+          }
+        }
+      });
+    }
+    if (action === 'pickup' || action === 'both') {
+      addStorageEntry_(v.client_id, 'dirty', {});
+      v.pickup = 'да';
+    }
+    v.status = ACTIONS[action];
+    v.delivered_at = nowStr_();
+    updateRow_(SHEETS.DELIVERIES, found.rowNumber, v);
+    logEvent(role, 'visit_' + action, visitId, { client_id: v.client_id, date: v.date });
+    return ok_({ visit: v });
+  });
+}

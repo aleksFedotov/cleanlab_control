@@ -186,7 +186,7 @@ function renderPin() {
       state.token = res.token; state.role = res.role;
       localStorage.setItem('cl_token', res.token);
       localStorage.setItem('cl_role', res.role);
-      loadDay();
+      if (res.role === 'driver') loadDriver(); else loadDay();
     }).catch(function (e) {
       unbusy(btn);
       document.getElementById('pinErr').textContent = e.message || 'Ошибка входа';
@@ -553,6 +553,72 @@ function openShiftClose() {
       }).catch(function (e) { hideDialog(); toast(e.message); });
     };
   }).catch(function (e) { toast(e.message); });
+}
+
+// ===== Экран водителя =====
+function loadDriver(date) {
+  if (date) state.date = date;
+  var d = state.date;
+  var call = d ? api('getDriverRoute', state.token, d) : api('getDriverRoute', state.token, '');
+  call.then(function (res) {
+    state.date = res.date;
+    if (!state.today && !d) state.today = res.date;
+    state.route = res;
+    renderDriver();
+  }).catch(function () {
+    document.getElementById('app').innerHTML =
+      '<div class="pin-wrap"><h1>Прачка360</h1>' +
+      '<div class="empty">Не удалось загрузить маршрут. Проверьте связь.</div>' +
+      '<button class="btn btn-primary btn-big" id="retryLoad">Повторить</button></div>';
+    document.getElementById('retryLoad').onclick = function () { loadDriver(); };
+  });
+}
+
+function renderDriver() {
+  var route = state.route;
+  var html = '<div class="app-header"><h1>' + esc(route.laundryName || 'Прачка360') + '</h1>' +
+    '<div class="date-nav"><button id="prevDay">‹</button><span>' + esc(state.date) + '</span><button id="nextDay">›</button></div>' +
+    '<div class="spacer"></div>' +
+    '<button class="btn btn-ghost" id="logoutBtn">Выход</button></div>' +
+    '<div class="container">';
+  if (!route.visits.length) {
+    html += '<div class="empty">На ' + esc(state.date) + ' развоза нет</div>';
+  } else {
+    html += route.visits.map(function (v) {
+      var done = v.status !== 'planned';
+      var meta = [];
+      if (v.address) meta.push(esc(v.address));
+      if (v.has_clean) meta.push('✨ чистое: ' + v.clean_kg + ' кг / ' + v.clean_items + ' шт');
+      if (v.has_dirty) meta.push('🧺 грязное в цеху');
+      return '<div class="wcard' + (done ? ' done' : '') + '">' +
+        '<div class="nm">' + esc(v.client_name) + '</div>' +
+        (meta.length ? '<div class="cm">' + meta.join(' · ') + '</div>' : '') +
+        (done
+          ? '<div class="cm">' + (STATUS_LABELS[v.status] || v.status) + ' ✓</div>'
+          : '<div class="actions" style="margin-top:6px">' +
+            (v.has_clean ? '<button class="btn btn-primary" data-act="deliver" data-v="' + v.id + '">Выдал чистое</button>' : '') +
+            '<button class="btn btn-ghost" data-act="pickup" data-v="' + v.id + '">Забрал грязное</button>' +
+            (v.has_clean ? '<button class="btn btn-ghost" data-act="both" data-v="' + v.id + '">И то и другое</button>' : '') +
+            '<button class="btn btn-ghost" data-act="empty" data-v="' + v.id + '">Ничего нет</button>' +
+            '</div>') +
+        '</div>';
+    }).join('');
+  }
+  html += '</div>';
+  document.getElementById('app').innerHTML = html;
+  document.getElementById('prevDay').onclick = function () { loadDriver(shiftDateStr(state.date, -1)); };
+  document.getElementById('nextDay').onclick = function () { loadDriver(shiftDateStr(state.date, 1)); };
+  document.getElementById('logoutBtn').onclick = function () {
+    api('logout', state.token).finally(backToPin);
+  };
+  Array.prototype.forEach.call(document.querySelectorAll('[data-act]'), function (b) {
+    b.onclick = function () {
+      busy(b, '…');
+      api('driverVisit', state.token, b.dataset.v, b.dataset.act)
+        .then(function () { toast('Отмечено ✓'); loadDriver(state.date); })
+        .catch(function (e) { toast(e.message); loadDriver(state.date); });
+    };
+  });
 }
 
 // ===== Экран владельца: вкладки =====
@@ -1050,12 +1116,18 @@ function hideDialog() { document.getElementById('overlay').classList.remove('sho
 
 // ===== Старт =====
 if (state.token) {
-  // Восстановление сессии: дата всегда с сервера
-  api('getDayList', state.token, '').then(function (res) {
-    state.date = res.date; state.today = res.date; state.day = res; renderDay();
-  }).catch(function () {
-    if (state.token) renderPin(); else renderPin();
-  });
+  // Восстановление сессии: дата всегда с сервера; у водителя свой экран
+  if (state.role === 'driver') {
+    api('getDriverRoute', state.token, '').then(function (res) {
+      state.date = res.date; state.today = res.date; state.route = res; renderDriver();
+    }).catch(function () { renderPin(); });
+  } else {
+    api('getDayList', state.token, '').then(function (res) {
+      state.date = res.date; state.today = res.date; state.day = res; renderDay();
+    }).catch(function () {
+      renderPin();
+    });
+  }
 } else {
   renderPin();
 }

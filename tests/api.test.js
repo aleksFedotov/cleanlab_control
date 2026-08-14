@@ -553,3 +553,60 @@ test('конец смены: список «не готовы к завтраш�
   assert.strictEqual(warn.length, 1);
   assert.ok(warn[0].payload.text.indexOf('Без белья') !== -1);
 });
+
+test('водитель: маршрут, deliver/pickup/both/empty, права', () => {
+  const { ctx, loginDriver } = (() => { const m = makeApiCtx(); return { ctx: m.ctx, loginDriver: () => m.ctx.login('3333').token }; })();
+  const c1 = seedClient(ctx);
+  const c2 = seedClient(ctx, { name: 'Ресторан Б' });
+  const c3 = seedClient(ctx, { name: 'Спа В' });
+  const c4 = seedClient(ctx, { name: 'Отель Г' });
+  const owner = loginOwner(ctx);
+  const driver = loginDriver();
+
+  // worker не водитель
+  assert.ok(!ctx.getDriverRoute(loginWorker(ctx), TODAY).ok);
+
+  const v1 = ctx.addDeliveryVisit(owner, c1, TODAY).visit.id; // deliver
+  const v2 = ctx.addDeliveryVisit(owner, c2, TODAY).visit.id; // pickup
+  const v3 = ctx.addDeliveryVisit(owner, c3, TODAY).visit.id; // both
+  const v4 = ctx.addDeliveryVisit(owner, c4, TODAY).visit.id; // empty
+
+  // У c1 и c3 есть чистое на складе (стирки завершены)
+  [c1, c3].forEach(c => {
+    const w = ctx.addToDelivery(owner, c, '2026-08-11', TODAY).wash.id;
+    ctx.startWash(owner, w);
+    ctx.completeWash(owner, w, [], 5);
+  });
+
+  const route = ctx.getDriverRoute(driver, TODAY);
+  assert.strictEqual(route.visits.length, 4);
+  assert.ok(route.visits.find(v => v.id === v1).has_clean);
+  assert.ok(!route.visits.find(v => v.id === v2).has_clean);
+
+  // deliver: чистое уходит со склада, стирка → issued
+  const d1 = ctx.driverVisit(driver, v1, 'deliver');
+  assert.ok(d1.ok && d1.visit.status === 'delivered');
+  assert.ok(!ctx.storageSummaryByClient_()[c1]);
+  const w1 = ctx.findRowsBy_('Washes', w => w.client_id === c1, 10)[0].obj;
+  assert.strictEqual(w1.status, 'issued');
+
+  // pickup: грязное появляется без веса
+  const d2 = ctx.driverVisit(driver, v2, 'pickup');
+  assert.strictEqual(d2.visit.status, 'picked');
+  assert.strictEqual(d2.visit.pickup, 'да');
+  assert.strictEqual(ctx.storageSummaryByClient_()[c2].dirty, 1);
+
+  // both
+  const d3 = ctx.driverVisit(driver, v3, 'both');
+  assert.strictEqual(d3.visit.status, 'both');
+  const s3 = ctx.storageSummaryByClient_()[c3];
+  assert.strictEqual(s3.dirty, 1);
+  assert.strictEqual(s3.clean, 0);
+
+  // empty (черновой статус)
+  assert.strictEqual(ctx.driverVisit(driver, v4, 'empty').visit.status, 'empty');
+
+  // Закрытый визит нельзя переоткрыть; worker не может действия водителя
+  assert.ok(!ctx.driverVisit(driver, v1, 'pickup').ok);
+  assert.ok(!ctx.driverVisit(loginWorker(ctx), v2, 'pickup').ok);
+});
