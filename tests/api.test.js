@@ -406,3 +406,41 @@ test('склад: правка стирки синхронно правит от
   assert.strictEqual(sum[clientId].cleanKg, 7.5);
   assert.strictEqual(sum[clientId].cleanItems, 8);
 });
+
+test('визиты развоза: добавить/перенести/убрать, дедуп, права', () => {
+  const { ctx } = makeApiCtx();
+  const clientId = seedClient(ctx);
+  const client2 = seedClient(ctx, { name: 'Ресторан Б' });
+  const owner = loginOwner(ctx);
+  const worker = loginWorker(ctx);
+
+  // Только owner
+  assert.ok(!ctx.addDeliveryVisit(worker, clientId, TOMORROW).ok);
+  assert.ok(!ctx.getDeliveryVisits(worker, TOMORROW).ok);
+
+  const v = ctx.addDeliveryVisit(owner, clientId, TOMORROW);
+  assert.ok(v.ok);
+  assert.strictEqual(v.visit.status, 'planned');
+  assert.strictEqual(v.visit.ord, 1);
+
+  // Дубль клиента на ту же дату отклоняется
+  assert.ok(!ctx.addDeliveryVisit(owner, clientId, TOMORROW).ok);
+  const v2 = ctx.addDeliveryVisit(owner, client2, TOMORROW);
+  assert.strictEqual(v2.visit.ord, 2);
+
+  // Список визитов со складскими флагами
+  ctx.addStorageEntry_(clientId, 'dirty', {});
+  const plan = ctx.getDeliveryVisits(owner, TOMORROW);
+  assert.strictEqual(plan.visits.length, 2);
+  const pv = plan.visits.find(x => x.client_id === clientId);
+  assert.ok(pv.has_dirty && !pv.has_clean);
+
+  // Перенос и удаление
+  const mv = ctx.moveDeliveryVisit(owner, v.visit.id, '2026-08-14');
+  assert.ok(mv.ok && mv.visit.date === '2026-08-14');
+  assert.ok(!ctx.getDeliveryVisits(owner, TOMORROW).visits.some(x => x.id === v.visit.id));
+  assert.ok(ctx.removeDeliveryVisit(owner, v2.visit.id).ok);
+  assert.strictEqual(ctx.getDeliveryVisits(owner, TOMORROW).visits.length, 0);
+  // Отменённый нельзя перенести
+  assert.ok(!ctx.moveDeliveryVisit(owner, v2.visit.id, TODAY).ok);
+});
