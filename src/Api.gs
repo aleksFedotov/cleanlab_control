@@ -396,9 +396,10 @@ function cancelWash(token, washId) {
 }
 
 // Подтверждение проверки склада работником (спека «check storage»).
-// Применимо только к planned-стирке: грязного нет / бельё уже чистое →
-// стирка не нужна, отменяем с причиной. Клиент при этом остаётся в
-// предупреждении «не готов к развозу» (no_clean), если чистого нет.
+// Применимо только к planned-стирке. Три исхода:
+//  - no_dirty / already_clean → стирка не нужна, отменяем с причиной;
+//    клиент при этом остаётся в предупреждении «не готов к развозу» (no_clean), если чистого нет.
+//  - has_dirty → рабочий нашёл грязное бельё: стирка остаётся planned, только лог.
 function confirmStorageCheck(token, washId, verdict) {
   var role = requireRole_(token, ['owner', 'worker']);
   if (!role) return err_('Нет доступа');
@@ -406,11 +407,15 @@ function confirmStorageCheck(token, washId, verdict) {
     no_dirty: 'нет грязного белья на складе',
     already_clean: 'бельё уже чистое на складе'
   };
-  if (!REASONS[verdict]) return err_('Неизвестный verdict');
+  if (verdict !== 'has_dirty' && !REASONS[verdict]) return err_('Неизвестный verdict');
   return withLock_(function () {
     var found = findById_(SHEETS.WASHES, washId);
     if (!found) return err_('Стирка не найдена');
     if (found.obj.status !== 'planned') return err_('Подтверждение возможно только для стирки «К работе»');
+    if (verdict === 'has_dirty') {
+      logEvent(role, 'storage_check', washId, { verdict: verdict });
+      return ok_({ wash: found.obj });
+    }
     found.obj.status = 'cancelled';
     found.obj.deferred_reason = REASONS[verdict];
     updateRow_(SHEETS.WASHES, found.rowNumber, found.obj);
