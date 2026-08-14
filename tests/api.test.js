@@ -512,3 +512,44 @@ test('partial-завершение: чистое на складе, клиент
   // Данные partial правятся как у завершённой
   assert.ok(ctx.editWashData(owner, washId, 3.5, [{ item_type_id: 'itm_1', qty: 5 }]).ok);
 });
+
+test('конец смены: список «не готовы к завтрашнему развозу» + телеграм-варнинг', () => {
+  const { ctx, fetches } = makeApiCtx();
+  const cReady = seedClient(ctx);
+  const cWashing = seedClient(ctx, { name: 'Стирка идёт' });
+  const cPartial = seedClient(ctx, { name: 'Частичка' });
+  const cNone = seedClient(ctx, { name: 'Без белья' });
+  const owner = loginOwner(ctx);
+  const worker = loginWorker(ctx);
+
+  // Развоз на завтра: 4 клиента
+  [cReady, cWashing, cPartial, cNone].forEach(c => ctx.addDeliveryVisit(owner, c, TOMORROW));
+
+  // cReady: стирка завершена полностью → готов
+  const w1 = ctx.addToDelivery(owner, cReady, TODAY, TOMORROW).wash.id;
+  ctx.startWash(worker, w1);
+  ctx.completeWash(worker, w1, [], 5);
+  // cWashing: стирка не завершена
+  const w2 = ctx.addToDelivery(owner, cWashing, TODAY, TOMORROW).wash.id;
+  // cPartial: частично
+  const w3 = ctx.addToDelivery(owner, cPartial, TODAY, TOMORROW).wash.id;
+  ctx.startWash(worker, w3);
+  ctx.completeWash(worker, w3, [], 2, 'partial');
+  // cNone: вообще ничего нет
+
+  const state = ctx.getShiftCloseState(worker);
+  const reasons = Object.fromEntries(state.notReady.map(n => [n.client_id, n.reason]));
+  assert.ok(!reasons[cReady]);
+  assert.strictEqual(reasons[cWashing], 'washing_incomplete');
+  assert.strictEqual(reasons[cPartial], 'partial');
+  assert.strictEqual(reasons[cNone], 'no_clean');
+
+  // Закрытие смены шлёт владельцу предупреждение (блокер — незавершённая стирка cWashing)
+  ctx.deferWash(worker, w2, TOMORROW, 'не успели');
+  const closed = ctx.closeShift(worker);
+  assert.ok(closed.ok);
+  assert.strictEqual(closed.notReady.length, 3);
+  const warn = fetches.filter(f => String(f.payload.text || '').indexOf('не готовы') !== -1);
+  assert.strictEqual(warn.length, 1);
+  assert.ok(warn[0].payload.text.indexOf('Без белья') !== -1);
+});

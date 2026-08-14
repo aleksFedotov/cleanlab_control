@@ -530,8 +530,14 @@ function openShiftClose() {
     } else {
       var r = res.report;
       html += '<div class="meta">Постирано <b>' + r.totalKg + ' кг</b> · Завершено <b>' + r.washesDone +
-        '</b> · Перенесено <b>' + r.deferred + '</b></div>' +
-        '<div class="actions"><button class="btn btn-ghost" id="dlgCancel">Назад</button>' +
+        '</b> · Перенесено <b>' + r.deferred + '</b></div>';
+      if (res.notReady && res.notReady.length) {
+        var REASONS = { washing_incomplete: 'стирка не завершена', partial: 'стирка частичная', no_clean: 'нет чистого белья' };
+        html += '<div class="blockers"><b>⚠ К завтрашнему развозу не готовы:</b>' + res.notReady.map(function (n) {
+          return '<div class="meta">' + esc(n.client_name) + ' — ' + (REASONS[n.reason] || n.reason) + '</div>';
+        }).join('') + '</div>';
+      }
+      html += '<div class="actions"><button class="btn btn-ghost" id="dlgCancel">Назад</button>' +
         '<button class="btn btn-danger" id="dlgOk">Закрыть смену</button></div>';
     }
     showDialog(html);

@@ -247,9 +247,48 @@ function getShiftCloseState(token) {
   return ok_({
     date: today,
     blockers: blockers,
+    notReady: notReadyForDelivery_(addDaysStr_(today, 1)),
     report: buildDayReport_(today, washes, log),
     shift: getShiftByDate_(today) ? getShiftByDate_(today).obj : null
   });
+}
+
+// Клиенты развоза на date без готового чистого белья.
+// Причины: washing_incomplete (стирка дня подготовки не завершена),
+// partial (завершена частично), no_clean (нет чистого на складе).
+function notReadyForDelivery_(date) {
+  var visits = getVisitsByDate_(date);
+  if (!visits.length) return [];
+  var clients = {};
+  getClients_().forEach(function (c) { clients[c.id] = c; });
+  var storage = storageSummaryByClient_();
+  var prepDay = addDaysStr_(date, -1);
+  var washes = findRowsBy_(SHEETS.WASHES, function (w) {
+    return w.status !== 'cancelled';
+  }, 2000).map(function (r) { return r.obj; });
+  var out = [];
+  visits.forEach(function (v) {
+    var prep = washes.filter(function (w) {
+      return w.client_id === v.client_id && w.wash_date === prepDay;
+    });
+    // Незавершённая или частичная стирка дня подготовки — клиент не готов в любом случае
+    var reason = null;
+    if (prep.some(function (w) { return w.status === 'planned' || w.status === 'in_progress'; })) {
+      reason = 'washing_incomplete';
+    } else if (prep.some(function (w) { return w.status === 'partial'; })) {
+      reason = 'partial';
+    } else {
+      var s = storage[v.client_id];
+      var hasClean = (s && s.clean > 0) || washes.some(function (w) {
+        return w.client_id === v.client_id && (w.status === 'done' || w.status === 'stored');
+      });
+      if (!hasClean) reason = 'no_clean';
+    }
+    if (reason) {
+      out.push({ client_id: v.client_id, client_name: clientName_(v.client_id, clients), reason: reason });
+    }
+  });
+  return out;
 }
 
 // Закрытие смены (spec §4.4): блокируют незавершённые планы сегодняшнего дня.
@@ -286,7 +325,14 @@ function closeShift(token) {
     } else {
       sendDigestLocked_(today);
     }
-    return ok_({ shift: s, report: report });
+    // Предупреждение владельцу: кто не готов к завтрашнему развозу
+    var notReady = notReadyForDelivery_(addDaysStr_(today, 1));
+    if (notReady.length) {
+      var REASONS = { washing_incomplete: 'стирка не завершена', partial: 'стирка частичная', no_clean: 'нет чистого белья' };
+      sendTelegram_(null, '⚠ К развозу на ' + addDaysStr_(today, 1) + ' не готовы:\n' +
+        notReady.map(function (n) { return '• ' + n.client_name + ' — ' + REASONS[n.reason]; }).join('\n'));
+    }
+    return ok_({ shift: s, report: report, notReady: notReady });
   });
 }
 
