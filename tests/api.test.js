@@ -610,3 +610,18 @@ test('водитель: маршрут, deliver/pickup/both/empty, права', 
   assert.ok(!ctx.driverVisit(driver, v1, 'pickup').ok);
   assert.ok(!ctx.driverVisit(loginWorker(ctx), v2, 'pickup').ok);
 });
+
+test('getDeliveryVisits: возвращает notReady для вкладки Развоз', () => {
+  const { ctx } = makeApiCtx();
+  const clientId = seedClient(ctx);
+  const owner = loginOwner(ctx);
+  ctx.addDeliveryVisit(owner, clientId, TOMORROW);
+  const res = ctx.getDeliveryVisits(owner, TOMORROW);
+  assert.strictEqual(res.notReady.length, 1);
+  assert.strictEqual(res.notReady[0].reason, 'no_clean');
+  // Готовый клиент (done-стирка) не попадает в notReady
+  const w = ctx.addToDelivery(owner, clientId, TODAY, TOMORROW).wash.id;
+  ctx.startWash(owner, w);
+  ctx.completeWash(owner, w, [], 5);
+  assert.strictEqual(ctx.getDeliveryVisits(owner, TOMORROW).notReady.length, 0);
+});

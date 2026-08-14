@@ -44,6 +44,7 @@ function getDeliveryVisits(token, date) {
   return ok_({
     date: date,
     visits: getVisitsByDate_(date).map(function (v) { return decorateVisit_(v, clients, storage); }),
+    notReady: notReadyForDelivery_(date),
     clients: getClients_().filter(function (c) { return c.active === 'да'; })
   });
 }

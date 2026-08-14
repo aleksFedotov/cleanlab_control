@@ -663,95 +663,62 @@ function appShell(title, tab, containerHtml, wide) {
 }
 function setContainer(html) { document.querySelector('.container').innerHTML = html; }
 
-// ===== Развоз на завтра =====
+// ===== Развоз на завтра (визиты) =====
 function renderDelivery() {
   var date = shiftDateStr(state.today, 1);
   appShell('Развоз на ' + date, 'delivery', '<div class="empty">Загружаем…</div>');
-  api('getDeliveryPlan', state.token, date).then(function (res) {
+  api('getDeliveryVisits', state.token, date).then(function (res) {
     var html = '';
-    if (res.overdueIssue.length) {
-      html += '<div class="blockers"><b>Просроченные выдачи:</b></div>' +
-        res.overdueIssue.map(function (w) { return issueCard(w, true); }).join('');
+    if (res.notReady && res.notReady.length) {
+      var REASONS = { washing_incomplete: 'стирка не завершена', partial: 'стирка частичная', no_clean: 'нет чистого белья' };
+      html += '<div class="blockers"><b>⚠ Не готовы к развозу:</b>' + res.notReady.map(function (n) {
+        return '<div class="meta">' + esc(n.client_name) + ' — ' + (REASONS[n.reason] || n.reason) + '</div>';
+      }).join('') + '</div>';
     }
-    html += '<h2>Выдать завтра</h2>' +
-      (res.issueToday.length ? res.issueToday.map(function (w) { return issueCard(w, false); }).join('')
-        : '<div class="empty">Нечего выдавать</div>');
-    html += '<h2>Постирать завтра</h2>' +
-      (res.planned.length ? res.planned.map(function (w) {
-        return '<div class="card"><div class="client">' + esc(w.client_name) + '</div>' +
-          (w.comment ? '<div class="meta">💬 ' + esc(w.comment) + '</div>' : '') +
-          (w.status === 'planned'
-            ? '<div class="row"><button class="btn btn-danger" data-cancel="' + w.id + '">Отменить</button></div>'
-            : '<span class="chip chip-' + w.status + '">' + STATUS_LABELS[w.status] + '</span>') +
-          '</div>';
-      }).join('') : '<div class="empty">Развоз пуст</div>');
-    html += '<h2>Клиенты</h2>' + res.clients.map(function (c) {
+    html += '<h2>Визиты (' + res.visits.length + ')</h2>' +
+      (res.visits.length ? res.visits.map(function (v) {
+        var meta = [];
+        if (v.has_clean) meta.push('✨ чистое: ' + v.clean_kg + ' кг / ' + v.clean_items + ' шт');
+        if (v.has_dirty) meta.push('🧺 грязное в цеху');
+        return '<div class="card"><div class="client">' + esc(v.client_name) + '</div>' +
+          (meta.length ? '<div class="meta">' + meta.join(' · ') + '</div>' : '') +
+          '<div class="row">' +
+          (v.status === 'planned'
+            ? '<button class="btn btn-danger" data-rm="' + v.id + '">Убрать</button>'
+            : '<span class="chip chip-' + v.status + '">' + (STATUS_LABELS[v.status] || v.status) + '</span>') +
+          '</div></div>';
+      }).join('') : '<div class="empty">Развоз пуст — добавьте клиентов ниже или на «Неделе»</div>');
+    var inDelivery = {};
+    res.visits.forEach(function (v) { inDelivery[v.client_id] = 1; });
+    var available = res.clients.filter(function (c) { return !inDelivery[c.id]; });
+    html += '<h2>Клиенты</h2>' + (available.length ? available.map(function (c) {
       return '<div class="card"><div class="client">' + esc(c.name) + '</div>' +
         '<div class="meta">' + esc(c.type) + (c.storage === 'да' ? ' · складской клиент' : '') + '</div>' +
         '<div class="row"><button class="btn btn-primary" data-add="' + c.id + '">+ В развоз</button></div></div>';
-    }).join('');
+    }).join('') : '<div class="empty">Все активные клиенты уже в развозе</div>');
     setContainer(html);
 
-    Array.prototype.forEach.call(document.querySelectorAll('[data-issue]'), function (b) {
+    Array.prototype.forEach.call(document.querySelectorAll('[data-rm]'), function (b) {
       b.onclick = function () {
-        busy(b, 'Сохраняем…');
-        api('markIssued', state.token, b.dataset.issue)
-          .then(function () { toast('Выдано ✓'); renderDelivery(); })
+        busy(b, '…');
+        api('removeDeliveryVisit', state.token, b.dataset.rm)
+          .then(function () { toast('Убрано'); renderDelivery(); })
           .catch(function (e) { unbusy(b); toast(e.message); });
       };
     });
-    Array.prototype.forEach.call(document.querySelectorAll('[data-cancel]'), function (b) {
-      b.onclick = function () {
-        showDialog('<h2>Отменить стирку?</h2><div class="actions">' +
-          '<button class="btn btn-ghost" id="dlgCancel">Назад</button>' +
-          '<button class="btn btn-danger" id="dlgOk">Отменить стирку</button></div>');
-        document.getElementById('dlgCancel').onclick = hideDialog;
-        var okBtn = document.getElementById('dlgOk');
-        okBtn.onclick = function () {
-          busy(okBtn, 'Отменяем…');
-          api('cancelWash', state.token, b.dataset.cancel)
-            .then(function () { hideDialog(); toast('Стирка отменена'); renderDelivery(); })
-            .catch(function (e) { hideDialog(); toast(e.message); });
-        };
-      };
-    });
     Array.prototype.forEach.call(document.querySelectorAll('[data-add]'), function (b) {
-      b.onclick = function () { openAddToDelivery(b.dataset.add, date, res.clients); };
+      b.onclick = function () {
+        busy(b, '…');
+        api('addDeliveryVisit', state.token, b.dataset.add, date)
+          .then(function () { toast('Добавлено в развоз ✓'); renderDelivery(); })
+          .catch(function (e) { unbusy(b); toast(e.message); });
+      };
     });
   }).catch(function (e) {
     setContainer('<div class="empty">Не удалось загрузить развоз: ' + esc(e.message) + '</div>' +
       '<button class="btn btn-primary btn-big" id="dlRetry">Повторить</button>');
     document.getElementById('dlRetry').onclick = renderDelivery;
   });
-}
-
-function issueCard(w, overdue) {
-  return '<div class="card' + (overdue ? ' overdue' : '') + '"><div class="client">' + esc(w.client_name) + '</div>' +
-    '<div class="meta">' + (w.dirty_weight_kg || 0) + ' кг · ' + (w.items_total || 0) + ' шт · выдача ' + esc(w.issue_date) + '</div>' +
-    (w.comment ? '<div class="meta">💬 ' + esc(w.comment) + '</div>' : '') +
-    '<div class="row"><button class="btn btn-primary" data-issue="' + w.id + '">Выдано</button></div></div>';
-}
-
-// Постановка в развоз: issue_date по умолчанию = день стирки + 1;
-// для складского клиента — подсказка и правка даты (spec §7.3).
-function openAddToDelivery(clientId, washDate, clients) {
-  var c = clients.find(function (x) { return x.id === clientId; });
-  var defIssue = shiftDateStr(washDate, 1);
-  showDialog('<h2>В развоз: ' + esc(c.name) + '</h2>' +
-    (c.storage === 'да' ? '<div class="meta" style="color:#1d4e9e;margin-bottom:8px">Складской клиент — проверьте дату выдачи</div>' : '') +
-    '<div class="row"><input type="date" id="dlIssue" value="' + defIssue + '"></div>' +
-    '<div class="row"><input type="text" id="dlComment" placeholder="Комментарий"></div>' +
-    '<div class="actions"><button class="btn btn-ghost" id="dlgCancel">Назад</button>' +
-    '<button class="btn btn-primary" id="dlgOk">Поставить</button></div>');
-  document.getElementById('dlgCancel').onclick = hideDialog;
-  var okBtn = document.getElementById('dlgOk');
-  okBtn.onclick = function () {
-    busy(okBtn, 'Сохраняем…');
-    api('addToDelivery', state.token, clientId, washDate,
-        document.getElementById('dlIssue').value, document.getElementById('dlComment').value)
-      .then(function () { hideDialog(); toast('Добавлено в развоз ✓'); renderDelivery(); })
-      .catch(function (e) { hideDialog(); toast(e.message); });
-  };
 }
 
 // ===== Неделя (канбан выдачи) =====
