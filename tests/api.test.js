@@ -421,6 +421,53 @@ test('миграция: стирки → визиты развоза с деду
   assert.strictEqual(ctx.migrateWashesToVisits(), 0);
 });
 
+test('check-storage: флаги склада в getDayList и confirmStorageCheck', () => {
+  const { ctx } = makeApiCtx();
+  const cA = seedClient(ctx);                         // грязное есть
+  const cB = seedClient(ctx, { name: 'Без белья' });  // пусто
+  const cC = seedClient(ctx, { name: 'Уже чистое' }); // чистое есть
+  const owner = loginOwner(ctx);
+  const worker = loginWorker(ctx);
+  const wA = ctx.addToDelivery(owner, cA, TODAY, TOMORROW).wash.id;
+  const wB = ctx.addToDelivery(owner, cB, TODAY, TOMORROW).wash.id;
+  const wC = ctx.addToDelivery(owner, cC, TODAY, TOMORROW).wash.id;
+  ctx.addStorageEntry_(cA, 'dirty', {});
+  ctx.addStorageEntry_(cC, 'clean', { weight_kg: 5, items_total: 10 });
+
+  // getDayList отдаёт флаги склада для раскраски
+  const day = ctx.getDayList(worker, TODAY);
+  const byId = Object.fromEntries(day.washes.map(w => [w.id, w]));
+  assert.ok(byId[wA].has_dirty && !byId[wA].has_clean);
+  assert.ok(!byId[wB].has_dirty && !byId[wB].has_clean);
+  assert.ok(!byId[wC].has_dirty && byId[wC].has_clean);
+
+  // verdict валидируется; не-planned подтвердить нельзя
+  assert.ok(!ctx.confirmStorageCheck(worker, wB, 'что-то').ok);
+  ctx.startWash(worker, wA);
+  assert.ok(!ctx.confirmStorageCheck(worker, wA, 'no_dirty').ok);
+
+  // Подтверждения снимают стирки с доски; повтор — ошибка
+  assert.ok(ctx.confirmStorageCheck(worker, wB, 'no_dirty').ok);
+  assert.ok(ctx.confirmStorageCheck(worker, wC, 'already_clean').ok);
+  assert.ok(!ctx.confirmStorageCheck(worker, wB, 'no_dirty').ok);
+  const after = ctx.getDayList(worker, TODAY);
+  assert.ok(!after.washes.some(w => w.id === wB));
+  assert.ok(!after.washes.some(w => w.id === wC));
+
+  // Автостирка НЕ пересоздаётся после подтверждения (клиент в развозе на завтра)
+  const cD = seedClient(ctx, { name: 'Авто' });
+  ctx.addDeliveryVisit(owner, cD, TOMORROW);
+  const auto = ctx.getDayList(worker, TODAY).washes.find(w => w.client_id === cD);
+  assert.ok(auto);
+  assert.ok(ctx.confirmStorageCheck(worker, auto.id, 'no_dirty').ok);
+  const again = ctx.getDayList(worker, TODAY);
+  assert.ok(!again.washes.some(w => w.client_id === cD));
+
+  // Клиент остаётся в «не готовы к развозу» (no_clean) на завтра
+  const del = ctx.getDeliveryVisits(owner, TOMORROW);
+  assert.ok(del.notReady.some(x => x.client_id === cD && x.reason === 'no_clean'));
+});
+
 test('склад: dirty от водителя расходуется стиркой, clean — выдачей', () => {
   const { ctx } = makeApiCtx();
   const clientId = seedClient(ctx);

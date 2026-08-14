@@ -85,8 +85,12 @@
     .week-col.today { background: #e8f0fe; border-color: #2f6fed; }
     .week-col.today h3 { color: #2f6fed; }
     .wcard { background: #f2f4f7; border-radius: 10px; padding: 6px 8px; margin-bottom: 6px; cursor: pointer; overflow: hidden; border-left: 4px solid transparent; }
-    .wcard.doing { background: #fff3cd; border-left-color: #f0ad4e; }
-    .wcard.done { background: #d4edda; border-left-color: #28a745; }
+    .wcard.todo-dirty { background: #ffe9c2; border-left-color: #e8a13a; }
+    .wcard.todo-nodirty { background: #f8d7da; border-left-color: #c0392b; }
+    .wcard.todo-clean { background: #d4edda; border-left-color: #28a745; }
+    .wcard.doing { background: #cfe3ff; border-left-color: #1d4e9e; }
+    .wcard.partial { background: #ffe9a8; border-left-color: #e8b400; }
+    .wcard.done { background: #a9d9b8; border-left-color: #1c6b2a; }
     .wcard .nm { font-weight: 700; font-size: 14px; }
     .wcard .cm { font-size: 12px; color: #555; margin-top: 2px; }
     .week-add { width: 100%; background: #e3e8ef; padding: 6px; font-size: 16px; }
@@ -269,9 +273,15 @@ function renderWashList() {
     if (w.dirty_weight_kg !== '' && w.dirty_weight_kg != null) meta.push(w.dirty_weight_kg + ' кг');
     if (w.items_total !== '' && w.items_total != null) meta.push(w.items_total + ' шт');
     if (w.status === 'stored') meta.push('выдача ' + esc(w.issue_date));
-    var cls = w.status === 'in_progress' ? ' doing' : ((w.status === 'done' || w.status === 'stored' || w.status === 'partial') ? ' done' : '');
+    var cls = '';
+    if (w.status === 'in_progress') cls = ' doing';
+    else if (w.status === 'partial') cls = ' partial';
+    else if (w.status === 'done' || w.status === 'stored') cls = ' done';
+    else if (w.status === 'planned') cls = w.has_dirty ? ' todo-dirty' : (w.has_clean ? ' todo-clean' : ' todo-nodirty');
     return '<div class="wcard' + cls + '" data-id="' + w.id + '">' +
       '<div class="nm">' + esc(w.client_name) + '</div>' +
+      (w.status === 'planned' ? '<div class="cm">' +
+        (w.has_dirty ? 'Есть грязное — можно в работу' : (w.has_clean ? 'Бельё уже чистое' : 'Нет белья на складе')) + '</div>' : '') +
       (w.deferred_from ? '<div class="cm">⤷ с ' + esc(w.deferred_from) + '</div>' : '') +
       (meta.length ? '<div class="cm">' + meta.join(' · ') + '</div>' : '') +
       (w.comment ? '<div class="cm">💬 ' + esc(w.comment) + '</div>' : '') +
@@ -311,9 +321,18 @@ function renderWashCard(id) {
     (w.comment ? '<div class="card"><div class="meta">💬 ' + esc(w.comment) + '</div></div>' : '') +
     '<div class="card"><div class="meta">Выдача: <b>' + esc(w.issue_date) + '</b></div>';
 
-  // Шаг 1: перевод в работу — просто кнопка, без веса
+  // Шаг 1: перевод в работу. Состояние склада определяет сценарий (спека «check storage»):
+  // есть грязное — обычный старт; грязного нет / уже чистое — подтверждение без стирки.
   if (w.status === 'planned') {
-    html += '<div class="row"><button class="btn btn-primary btn-big" id="startBtn">В работу</button></div>';
+    if (w.has_dirty) {
+      html += '<div class="row"><button class="btn btn-primary btn-big" id="startBtn">В работу</button></div>';
+    } else if (w.has_clean) {
+      html += '<div class="meta">Грязного нет. На складе уже есть чистое бельё этого клиента.</div>' +
+        '<div class="row"><button class="btn btn-primary btn-big" id="checkCleanBtn">Подтвердить: уже чистое</button></div>';
+    } else {
+      html += '<div class="meta">Грязного белья этого клиента на складе нет — стирать нечего.</div>' +
+        '<div class="row"><button class="btn btn-danger btn-big" id="checkNoDirtyBtn">Подтвердить: белья нет</button></div>';
+    }
   }
 
   // Шаг 2: вес чистого + пересчёт (в работе или правка завершённой)
@@ -353,8 +372,8 @@ function renderWashCard(id) {
 
   document.getElementById('backBtn').onclick = renderDay;
 
-  // В работу — без веса
-  if (w.status === 'planned') {
+  // В работу — без веса (только когда есть грязное на складе)
+  if (w.status === 'planned' && w.has_dirty) {
     var startBtn = document.getElementById('startBtn');
     startBtn.onclick = function () {
       busy(startBtn, 'Сохраняем…');
@@ -362,6 +381,19 @@ function renderWashCard(id) {
         toast('В работе ✓');
         loadDay(); // возвращаемся на доску цеха
       }).catch(function (e) { unbusy(startBtn); toast(e.message); });
+    };
+  }
+
+  // Подтверждение проверки склада: «белья нет» / «уже чистое» — стирка снимается
+  if (w.status === 'planned' && !w.has_dirty) {
+    var verdict = w.has_clean ? 'already_clean' : 'no_dirty';
+    var checkBtn = document.getElementById(w.has_clean ? 'checkCleanBtn' : 'checkNoDirtyBtn');
+    checkBtn.onclick = function () {
+      busy(checkBtn, 'Сохраняем…');
+      api('confirmStorageCheck', state.token, id, verdict).then(function () {
+        toast('Подтверждено ✓');
+        loadDay();
+      }).catch(function (e) { unbusy(checkBtn); toast(e.message); });
     };
   }
 
