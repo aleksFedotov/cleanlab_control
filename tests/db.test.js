@@ -61,11 +61,11 @@ function makeCtx() {
   return { ctx: sandbox, ss, cacheStore };
 }
 
-test('setup() создаёт все 7 листов, сидит ItemTypes и Settings', () => {
+test('setup() создаёт все 9 листов, сидит ItemTypes и Settings', () => {
   const { ctx, ss } = makeCtx();
   ctx.setup();
   assert.deepStrictEqual(ss.sheets.map(s => s.getName()),
-    ['Settings', 'Clients', 'ItemTypes', 'Washes', 'WashItems', 'Shifts', 'Log']);
+    ['Settings', 'Clients', 'ItemTypes', 'Washes', 'WashItems', 'Shifts', 'Deliveries', 'Storage', 'Log']);
   assert.strictEqual(ctx.readAll_('ItemTypes').length, 11);
   const settings = ctx.readAll_('Settings');
   const map = Object.fromEntries(settings.map(r => [r.key, r.value]));
@@ -77,7 +77,7 @@ test('setup() идемпотентна: повторный запуск не д�
   const { ctx, ss } = makeCtx();
   ctx.setup();
   ctx.setup();
-  assert.strictEqual(ss.sheets.length, 7);
+  assert.strictEqual(ss.sheets.length, 9);
   assert.strictEqual(ctx.readAll_('ItemTypes').length, 11);
   assert.strictEqual(ctx.readAll_('Settings').length, 3);
   // Заголовки не перезаписываются поверх существующих данных

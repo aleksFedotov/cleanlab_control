@@ -62,7 +62,7 @@ function makeApiCtx(props = {}) {
   const ss = new FakeSpreadsheet();
   const cacheStore = new Map();
   const propsStore = Object.assign({
-    OWNER_PIN: '1111', WORKER_PIN: '2222', TV_KEY: 'tv-secret',
+    OWNER_PIN: '1111', WORKER_PIN: '2222', DRIVER_PIN: '3333', TV_KEY: 'tv-secret',
     BOT_TOKEN: 'bot-token', WEBHOOK_SECRET: 'hook-secret', OWNER_CHAT_ID: '998877'
   }, props);
   const fetches = [];
@@ -107,5 +107,6 @@ function makeApiCtx(props = {}) {
 
 function loginOwner(ctx) { return ctx.login('1111').token; }
 function loginWorker(ctx) { return ctx.login('2222').token; }
+function loginDriver(ctx) { return ctx.login('3333').token; }
 
-module.exports = { makeApiCtx, loginOwner, loginWorker, FakeSheet, FakeSpreadsheet };
+module.exports = { makeApiCtx, loginOwner, loginWorker, loginDriver, FakeSheet, FakeSpreadsheet };

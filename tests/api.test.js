@@ -19,6 +19,9 @@ test('login: неверный PIN отклоняется, верный даёт 
   const owner = ctx.login('1111');
   assert.strictEqual(owner.role, 'owner');
   assert.strictEqual(ctx.login('2222').role, 'worker');
+  assert.strictEqual(ctx.login('3333').role, 'driver');
+  // Водителя не пускают в API цеха и владельца
+  assert.ok(!ctx.getDayList(ctx.login('3333').token, TODAY).ok);
   // Истёкший/чужой токен не пускает
   assert.ok(!ctx.getDayList('нет-такого', TODAY).ok);
   // Явный выход отзывает токен

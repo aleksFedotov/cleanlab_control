@@ -7,6 +7,7 @@ function login(pin) {
   var role = null;
   if (String(pin) === props.getProperty('OWNER_PIN')) role = 'owner';
   else if (String(pin) === props.getProperty('WORKER_PIN')) role = 'worker';
+  else if (String(pin) === props.getProperty('DRIVER_PIN')) role = 'driver';
   if (!role) return { ok: false, error: 'Неверный PIN' };
   var token = Utilities.getUuid();
   CacheService.getScriptCache().put(SESSION_PREFIX + token,

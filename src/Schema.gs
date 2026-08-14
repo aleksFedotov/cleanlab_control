@@ -8,6 +8,8 @@ var SHEETS = {
   WASHES: 'Washes',
   WASH_ITEMS: 'WashItems',
   SHIFTS: 'Shifts',
+  DELIVERIES: 'Deliveries',
+  STORAGE: 'Storage',
   LOG: 'Log'
 };
 
@@ -21,6 +23,10 @@ var HEADERS = {
   WashItems: ['id', 'wash_id', 'item_type_id', 'qty'],
   Shifts: ['id', 'date', 'status', 'opened_at', 'closed_at',
     'total_kg', 'washes_done', 'washes_deferred', 'digest_sent'],
+  Deliveries: ['id', 'date', 'client_id', 'ord', 'status',
+    'delivered_at', 'pickup', 'driver_comment', 'created_by', 'created_at'],
+  Storage: ['id', 'client_id', 'kind', 'weight_kg', 'items_total',
+    'wash_id', 'created_at', 'consumed_at'],
   Log: ['ts', 'actor', 'action', 'entity', 'details']
 };
 
