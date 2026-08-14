@@ -653,17 +653,10 @@ function renderDriver() {
       if (v.address) meta.push(esc(v.address));
       if (v.has_clean) meta.push('✨ чистое: ' + v.clean_kg + ' кг / ' + v.clean_items + ' шт');
       if (v.has_dirty) meta.push('🧺 грязное в цеху');
-      return '<div class="wcard' + (done ? ' done' : '') + '">' +
+      return '<div class="wcard' + (done ? ' done' : '') + '"' + (done ? '' : ' data-open="' + v.id + '"') + '>' +
         '<div class="nm">' + esc(v.client_name) + '</div>' +
         (meta.length ? '<div class="cm">' + meta.join(' · ') + '</div>' : '') +
-        (done
-          ? '<div class="cm">' + (STATUS_LABELS[v.status] || v.status) + ' ✓</div>'
-          : '<div class="actions" style="margin-top:6px">' +
-            (v.has_clean ? '<button class="btn btn-primary" data-act="deliver" data-v="' + v.id + '">Выдал чистое</button>' : '') +
-            '<button class="btn btn-ghost" data-act="pickup" data-v="' + v.id + '">Забрал грязное</button>' +
-            (v.has_clean ? '<button class="btn btn-ghost" data-act="both" data-v="' + v.id + '">И то и другое</button>' : '') +
-            '<button class="btn btn-ghost" data-act="empty" data-v="' + v.id + '">Ничего нет</button>' +
-            '</div>') +
+        (done ? '<div class="cm">' + (STATUS_LABELS[v.status] || v.status) + ' ✓</div>' : '') +
         '</div>';
     }).join('');
   }
@@ -674,12 +667,34 @@ function renderDriver() {
   document.getElementById('logoutBtn').onclick = function () {
     api('logout', state.token).finally(backToPin);
   };
+  Array.prototype.forEach.call(document.querySelectorAll('[data-open]'), function (el) {
+    el.onclick = function () {
+      var v = route.visits.filter(function (x) { return x.id === el.dataset.open; })[0];
+      if (v) openDriverVisit(v);
+    };
+  });
+}
+
+// Диалог действий водителя: тап по карточке → крупные кнопки (защита от промахов).
+function openDriverVisit(v) {
+  var meta = [];
+  if (v.address) meta.push(esc(v.address));
+  if (v.has_clean) meta.push('✨ чистое: ' + v.clean_kg + ' кг / ' + v.clean_items + ' шт');
+  if (v.has_dirty) meta.push('🧺 грязное в цеху');
+  showDialog('<h2>' + esc(v.client_name) + '</h2>' +
+    (meta.length ? '<div class="meta" style="margin-bottom:8px">' + meta.join(' · ') + '</div>' : '') +
+    (v.has_clean ? '<div class="row"><button class="btn btn-primary btn-big" data-act="deliver">Выдал чистое</button></div>' : '') +
+    '<div class="row"><button class="btn btn-primary btn-big" data-act="pickup">Забрал грязное</button></div>' +
+    (v.has_clean ? '<div class="row"><button class="btn btn-primary btn-big" data-act="both">И то и другое</button></div>' : '') +
+    '<div class="row"><button class="btn btn-ghost btn-big" data-act="empty">Ничего нет</button></div>' +
+    '<div class="actions"><button class="btn btn-ghost" id="dlgCancel">Назад</button></div>');
+  document.getElementById('dlgCancel').onclick = hideDialog;
   Array.prototype.forEach.call(document.querySelectorAll('[data-act]'), function (b) {
     b.onclick = function () {
       busy(b, '…');
-      api('driverVisit', state.token, b.dataset.v, b.dataset.act)
-        .then(function () { toast('Отмечено ✓'); loadDriver(state.date); })
-        .catch(function (e) { toast(e.message); loadDriver(state.date); });
+      api('driverVisit', state.token, v.id, b.dataset.act)
+        .then(function () { hideDialog(); toast('Отмечено ✓'); loadDriver(state.date); })
+        .catch(function (e) { hideDialog(); toast(e.message); loadDriver(state.date); });
     };
   });
 }
