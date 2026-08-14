@@ -156,3 +156,35 @@ function driverVisit(token, visitId, action) {
     return ok_({ visit: v });
   });
 }
+
+// --- Одноразовая миграция (запуск вручную из редактора GAS) ---
+
+// До смены модели «Неделя» хранила карточки как стирки (Washes), теперь это
+// визиты развоза (Deliveries). Переносим: дата визита = issue_date стирки
+// (день выдачи), дедуп по клиент+дата, отменённые стирки пропускаем.
+function migrateWashesToVisits() {
+  return withLock_(function () {
+    var existing = {};
+    readTail_(SHEETS.DELIVERIES, 5000).forEach(function (v) {
+      existing[v.client_id + '|' + v.date] = true;
+    });
+    var created = 0;
+    readTail_(SHEETS.WASHES, 5000).forEach(function (w) {
+      if (w.status === 'cancelled') return;
+      var date = w.issue_date || w.wash_date;
+      var key = w.client_id + '|' + date;
+      if (!w.client_id || !date || existing[key]) return;
+      existing[key] = true;
+      appendRow_(SHEETS.DELIVERIES, {
+        id: nextId_(SHEETS.DELIVERIES, 'del'), date: date, client_id: w.client_id,
+        ord: 0, status: 'planned',
+        delivered_at: '', pickup: '', driver_comment: '',
+        created_by: 'migration', created_at: nowStr_()
+      });
+      created++;
+    });
+    if (created) logEvent('owner', 'migrate_visits', '-', { created: created });
+    Logger.log('migrateWashesToVisits: создано визитов ' + created);
+    return created;
+  });
+}

@@ -363,6 +363,27 @@ test('нормализация: даты из ячеек Sheets как Date на
   assert.ok(del.planned.some(w => w.id === 'wash_d1'));
 });
 
+test('миграция: стирки → визиты развоза с дедупом клиент+дата', () => {
+  const { ctx } = makeApiCtx();
+  const clientA = seedClient(ctx);
+  const clientB = seedClient(ctx, { name: 'Ресторан Б' });
+  const owner = loginOwner(ctx);
+  ctx.addToDelivery(owner, clientA, TODAY, TOMORROW);
+  ctx.addToDelivery(owner, clientA, TODAY, TOMORROW); // дубль той же пары клиент+дата
+  ctx.addToDelivery(owner, clientB, TODAY, TOMORROW);
+  // Уже существующий визит не дублируется
+  ctx.addDeliveryVisit(owner, clientA, TOMORROW);
+
+  const created = ctx.migrateWashesToVisits();
+  assert.strictEqual(created, 1); // только clientB
+  const week = ctx.getWeekPlan(owner, '2026-08-10');
+  const cards = week.days.flatMap(d => d.cards);
+  assert.strictEqual(cards.length, 2);
+  assert.ok(cards.every(c => c.date === TOMORROW));
+  // Повторный запуск ничего не создаёт
+  assert.strictEqual(ctx.migrateWashesToVisits(), 0);
+});
+
 test('склад: dirty от водителя расходуется стиркой, clean — выдачей', () => {
   const { ctx } = makeApiCtx();
   const clientId = seedClient(ctx);

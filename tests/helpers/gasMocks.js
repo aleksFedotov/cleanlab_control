@@ -94,7 +94,8 @@ function makeApiCtx(props = {}) {
     },
     ContentService: { createTextOutput: t => ({ text: t }) },
     Utilities: { getUuid: () => `token-${++uuid}`, formatDate: fakeFormatDate },
-    Session: { getScriptTimeZone: () => 'Europe/Moscow' }
+    Session: { getScriptTimeZone: () => 'Europe/Moscow' },
+    Logger: { log: () => {} }
   };
   ['Schema.gs', 'Db.gs', 'Core.gs', 'Setup.gs', 'Audit.gs', 'Auth.gs', 'Storage.gs', 'Deliveries.gs', 'Api.gs', 'Telegram.gs']
     .forEach(f => loadGs(f, sandbox));
