@@ -448,3 +448,36 @@ test('визиты развоза: добавить/перенести/убра�
   // Отменённый нельзя перенести
   assert.ok(!ctx.moveDeliveryVisit(owner, v2.visit.id, TODAY).ok);
 });
+
+test('стирки дня автоматически формируются из развоза на завтра', () => {
+  const { ctx } = makeApiCtx();
+  const clientId = seedClient(ctx);
+  const client2 = seedClient(ctx, { name: 'Ресторан Б' });
+  const owner = loginOwner(ctx);
+  const worker = loginWorker(ctx);
+
+  // Развоз на завтра: два клиента
+  ctx.addDeliveryVisit(owner, clientId, TOMORROW);
+  ctx.addDeliveryVisit(owner, client2, TOMORROW);
+
+  const day = ctx.getDayList(worker, TODAY);
+  assert.strictEqual(day.washes.length, 2);
+  assert.ok(day.washes.every(w => w.status === 'planned' && w.issue_date === TOMORROW
+    && w.wash_date === TODAY && w.created_by === 'auto'));
+
+  // Идемпотентно: повторный вызов не дублирует
+  const again = ctx.getDayList(worker, TODAY);
+  assert.strictEqual(again.washes.length, 2);
+  assert.strictEqual(ctx.readAll_('Log').filter(l => l.action === 'wash_create' && l.actor === 'auto').length, 2);
+
+  // Ручная стирка того же клиента на сегодня не дублируется автоматикой
+  ctx.addToDelivery(owner, clientId, TODAY, TOMORROW);
+  const third = ctx.getDayList(worker, TODAY);
+  assert.strictEqual(third.washes.filter(w => w.client_id === clientId).length, 2); // auto + ручная
+
+  // Отменённый визит не порождает стирку
+  const v = ctx.addDeliveryVisit(owner, seedClient(ctx, { name: 'Спа В' }), '2026-08-14');
+  ctx.removeDeliveryVisit(owner, v.visit.id);
+  const other = ctx.getDayList(worker, TOMORROW);
+  assert.strictEqual(other.washes.length, 0);
+});

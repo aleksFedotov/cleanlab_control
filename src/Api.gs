@@ -42,25 +42,53 @@ function clientName_(clientId, clientsById) {
 
 // --- Общие чтения ---
 
+// Автоформирование стирок дня из завтрашнего развоза: клиент в развозе на
+// date+1 → плановая стирка сегодня (выдача завтра). Идемпотентно, только под локом.
+function ensureWashesFromDelivery_(date) {
+  var nextDay = addDaysStr_(date, 1);
+  var visits = getVisitsByDate_(nextDay);
+  if (!visits.length) return;
+  var dayWashes = findRowsBy_(SHEETS.WASHES, function (w) {
+    return w.wash_date === date && w.status !== 'cancelled';
+  }, 1000).map(function (r) { return r.obj; });
+  visits.forEach(function (v) {
+    var exists = dayWashes.some(function (w) { return w.client_id === v.client_id; });
+    if (exists) return;
+    var w = {
+      id: nextId_(SHEETS.WASHES, 'wash'), client_id: v.client_id,
+      wash_date: date, issue_date: nextDay, status: 'planned',
+      dirty_weight_kg: '', items_total: '', comment: '',
+      created_by: 'auto', created_at: nowStr_(),
+      started_at: '', done_at: '', issued_at: '', deferred_from: '', deferred_reason: ''
+    };
+    appendRow_(SHEETS.WASHES, w);
+    dayWashes.push(w);
+    logEvent('auto', 'wash_create', w.id, { client_id: v.client_id, from_visit: v.id });
+  });
+}
+
 function getDayList(token, date) {
   if (!requireRole_(token, ['owner', 'worker'])) return err_('Нет доступа');
   date = date || todayStr_();
-  var clients = {};
-  getClients_().forEach(function (c) { clients[c.id] = c; });
-  var washes = findRowsBy_(SHEETS.WASHES, function (w) {
-    return isDayWash_(w, date);
-  }, 1000).map(function (r) { return r.obj; });
-  var shift = getShiftByDate_(date);
-  return ok_({
-    date: date,
-    laundryName: getSettings_().LAUNDRY_NAME || 'Прачка360',
-    washes: sortDayList_(washes).map(function (w) {
-      w.client_name = clientName_(w.client_id, clients);
-      return w;
-    }),
-    shift: shift ? shift.obj : null,
-    clients: getClients_().filter(function (c) { return c.active === 'да'; }),
-    itemTypes: getItemTypes_().filter(function (t) { return t.active === 'да'; })
+  return withLock_(function () {
+    ensureWashesFromDelivery_(date);
+    var clients = {};
+    getClients_().forEach(function (c) { clients[c.id] = c; });
+    var washes = findRowsBy_(SHEETS.WASHES, function (w) {
+      return isDayWash_(w, date);
+    }, 1000).map(function (r) { return r.obj; });
+    var shift = getShiftByDate_(date);
+    return ok_({
+      date: date,
+      laundryName: getSettings_().LAUNDRY_NAME || 'Прачка360',
+      washes: sortDayList_(washes).map(function (w) {
+        w.client_name = clientName_(w.client_id, clients);
+        return w;
+      }),
+      shift: shift ? shift.obj : null,
+      clients: getClients_().filter(function (c) { return c.active === 'да'; }),
+      itemTypes: getItemTypes_().filter(function (t) { return t.active === 'да'; })
+    });
   });
 }
 
