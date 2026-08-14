@@ -91,6 +91,8 @@
     .wcard.doing { background: #cfe3ff; border-left-color: #1d4e9e; }
     .wcard.partial { background: #ffe9a8; border-left-color: #e8b400; }
     .wcard.done { background: #a9d9b8; border-left-color: #1c6b2a; }
+    .wcard.drv { background: #fff; border-left-color: #2f6fed; border: 1px solid #dde3ea; border-left: 4px solid #2f6fed; padding: 12px; margin-bottom: 10px; }
+    .wcard.drv .nm { font-size: 16px; }
     .wcard .nm { font-weight: 700; font-size: 14px; }
     .wcard .cm { font-size: 12px; color: #555; margin-top: 2px; }
     .week-add { width: 100%; background: #e3e8ef; padding: 6px; font-size: 16px; }
@@ -653,7 +655,7 @@ function renderDriver() {
       if (v.address) meta.push(esc(v.address));
       if (v.has_clean) meta.push('✨ чистое: ' + v.clean_kg + ' кг / ' + v.clean_items + ' шт');
       if (v.has_dirty) meta.push('🧺 грязное в цеху');
-      return '<div class="wcard' + (done ? ' done' : '') + '"' + (done ? '' : ' data-open="' + v.id + '"') + '>' +
+      return '<div class="wcard' + (done ? ' done' : ' drv') + '"' + (done ? '' : ' data-open="' + v.id + '"') + '>' +
         '<div class="nm">' + esc(v.client_name) + '</div>' +
         (meta.length ? '<div class="cm">' + meta.join(' · ') + '</div>' : '') +
         (done ? '<div class="cm">' + (STATUS_LABELS[v.status] || v.status) + ' ✓</div>' : '') +
