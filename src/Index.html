@@ -99,8 +99,10 @@
     @media (max-width: 520px) { .week-board { grid-template-columns: repeat(2, 1fr); } }
 
     /* Дневная доска цеха: К стирке / В работе / Готово */
-    .day-board { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; align-items: start; margin-bottom: 12px; }
-    @media (max-width: 520px) { .day-board { grid-template-columns: 1fr; } }
+    .day-board { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-bottom: 12px; }
+    .db-head { font-size: 13px; font-weight: 700; text-align: center; padding: 6px 2px; background: #fff; border-radius: 10px; white-space: nowrap; overflow: hidden; }
+    .wcard-slot { min-height: 4px; }
+    @media (max-width: 520px) { .day-board { gap: 4px; } .db-head { font-size: 11px; } }
   </style>
 </head>
 <body>
@@ -263,11 +265,7 @@ function renderDay() {
 
 function renderWashList() {
   var washes = state.day.washes || [];
-  var cols = [
-    { key: 'todo', title: 'К стирке', match: function (w) { return w.status === 'planned'; } },
-    { key: 'doing', title: 'В работе', match: function (w) { return w.status === 'in_progress'; } },
-    { key: 'done', title: 'Готово', match: function (w) { return w.status === 'done' || w.status === 'stored' || w.status === 'partial'; } }
-  ];
+  var cols = [{ title: 'К стирке' }, { title: 'В работе' }, { title: 'Готово' }];
   var cardHtml = function (w) {
     var meta = [];
     if (w.dirty_weight_kg !== '' && w.dirty_weight_kg != null) meta.push(w.dirty_weight_kg + ' кг');
@@ -289,13 +287,28 @@ function renderWashList() {
       (w.status === 'partial' ? '<div class="cm">⚠ Частично — клиент не готов</div>' : '') +
       '</div>';
   };
-  document.getElementById('washList').innerHTML =
-    '<div class="day-board">' + cols.map(function (col) {
-      var list = washes.filter(col.match);
-      return '<div class="week-col"><h3>' + col.title + ' (' + list.length + ')</h3>' +
-        (list.length ? list.map(cardHtml).join('') : '<div class="cm" style="text-align:center;padding:6px">—</div>') +
-        '</div>';
-    }).join('') + '</div>';
+  document.getElementById('washList').innerHTML = (function () {
+    // Колонка стирки: 0 = К стирке, 1 = В работе, 2 = Готово
+    var colOf = function (w) {
+      if (w.status === 'planned') return 0;
+      if (w.status === 'in_progress') return 1;
+      return 2;
+    };
+    var counts = [0, 0, 0];
+    washes.forEach(function (w) { counts[colOf(w)]++; });
+    // Строка карточки = её позиция в общем списке дня: при смене статуса
+    // карточка переезжает в другую колонку той же строки, место не схлопывается.
+    return '<div class="day-board">' +
+      cols.map(function (col, i) {
+        return '<div class="db-head">' + col.title + ' (' + counts[i] + ')</div>';
+      }).join('') +
+      washes.map(function (w) {
+        var cells = ['<div class="wcard-slot"></div>', '<div class="wcard-slot"></div>', '<div class="wcard-slot"></div>'];
+        cells[colOf(w)] = cardHtml(w);
+        return cells.join('');
+      }).join('') +
+      '</div>';
+  })();
   Array.prototype.forEach.call(document.querySelectorAll('#washList .wcard'), function (c) {
     c.onclick = function () { renderWashCard(c.dataset.id); };
   });
