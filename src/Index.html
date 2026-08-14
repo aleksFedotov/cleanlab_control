@@ -920,10 +920,18 @@ function renderStorage() {
     var types = {};
     (res.itemTypes || []).forEach(function (t) { types[t.id] = t.name; });
 
-    // Секция «Чистое бельё»: stored-стирки, группировка по клиентам (уже отсортировано сервером)
+    // Секция «Чистое бельё»: stored-стирки + чистое полностью завершённых (done) —
+    // оно сразу идёт на склад на хранение. Группировка по клиентам.
     var byClient = {};
     res.stored.forEach(function (w) {
       (byClient[w.client_name] = byClient[w.client_name] || []).push(w);
+    });
+    (res.cleanReady || []).forEach(function (s) {
+      (byClient[s.client_name] = byClient[s.client_name] || []).push({
+        id: s.wash_id, client_name: s.client_name,
+        dirty_weight_kg: s.weight_kg, items_total: s.items_total,
+        items: [], issue_date: s.issue_date || ''
+      });
     });
     var cleanHtml = Object.keys(byClient).map(function (name) {
       return '<h2>' + esc(name) + '</h2>' + byClient[name].map(function (w) {
