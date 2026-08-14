@@ -350,27 +350,20 @@ function updateIssueDate(token, washId, issueDate) {
   });
 }
 
-// --- Канбан «Неделя»: планирование выдачи (spec §10) ---
-// Карточка = выдача чистого белья (issue_date); стирка — за день до выдачи
-// (wash_date = issue_date − 1), поэтому дневные задачи работников подтягиваются сами.
+// --- Канбан «Неделя»: планирование развозов ---
+// Карточка = визит развоза (клиент в день D). Стирки дня формируются из развоза
+// на завтра (см. getDayList). Хранение и права — в Deliveries.gs.
 
-// Копия прошлой недели: planned-стирки со сдвигом +7 дней. Только под локом.
+// Копия прошлой недели: planned-визиты со сдвигом +7 дней. Только под локом.
 function copyPrevWeek_(monday) {
-  var prevMon = addDaysStr_(monday, -7);
-  var prevSun = addDaysStr_(monday, -1);
-  var src = findRowsBy_(SHEETS.WASHES, function (w) {
-    return w.issue_date >= prevMon && w.issue_date <= prevSun && w.status !== 'cancelled';
-  }, 1000);
-  src.forEach(function (r) {
-    var w = r.obj;
-    var copy = {
-      id: nextId_(SHEETS.WASHES, 'wash'), client_id: w.client_id,
-      wash_date: addDaysStr_(w.wash_date, 7), issue_date: addDaysStr_(w.issue_date, 7),
-      status: 'planned', dirty_weight_kg: '', items_total: '', comment: w.comment || '',
-      created_by: 'owner', created_at: nowStr_(),
-      started_at: '', done_at: '', issued_at: '', deferred_from: '', deferred_reason: ''
-    };
-    appendRow_(SHEETS.WASHES, copy);
+  var src = getVisitsByWeek_(addDaysStr_(monday, -7));
+  src.forEach(function (v) {
+    appendRow_(SHEETS.DELIVERIES, {
+      id: nextId_(SHEETS.DELIVERIES, 'del'), date: addDaysStr_(v.date, 7),
+      client_id: v.client_id, ord: v.ord, status: 'planned',
+      delivered_at: '', pickup: '', driver_comment: '',
+      created_by: 'owner', created_at: nowStr_()
+    });
   });
   if (src.length) logEvent('owner', 'week_copy', monday, { copied: src.length });
 }
@@ -378,32 +371,24 @@ function copyPrevWeek_(monday) {
 function getWeekPlan(token, monday) {
   if (!requireRole_(token, ['owner'])) return err_('Нет доступа');
   var mon = mondayOf_(monday || todayStr_());
-  var sun = addDaysStr_(mon, 6);
   return withLock_(function () {
-    var readWeek_ = function () {
-      return findRowsBy_(SHEETS.WASHES, function (w) {
-        return (w.wash_date >= mon && w.wash_date <= sun) ||
-               (w.issue_date >= mon && w.issue_date <= sun);
-      }, 2000).map(function (r) { return r.obj; });
-    };
-    var week = readWeek_();
+    var week = getVisitsByWeek_(mon);
     // Идемпотентная материализация: копируем прошлую неделю, только если эта пустая.
-    if (!week.some(function (w) { return w.status !== 'cancelled'; })) {
+    if (!week.length) {
       copyPrevWeek_(mon);
-      week = readWeek_();
+      week = getVisitsByWeek_(mon);
     }
     var clients = {};
     getClients_().forEach(function (c) { clients[c.id] = c; });
+    var storage = storageSummaryByClient_();
     var days = [];
     for (var i = 0; i < 7; i++) {
       var d = addDaysStr_(mon, i);
       days.push({
         date: d,
-        cards: week.filter(function (w) { return w.issue_date === d && w.status !== 'cancelled'; })
-          .map(function (w) {
-            return { id: w.id, client_id: w.client_id, client_name: clientName_(w.client_id, clients),
-              issue_date: w.issue_date, wash_date: w.wash_date, status: w.status, comment: w.comment };
-          })
+        cards: week.filter(function (v) { return v.date === d; })
+          .sort(function (a, b) { return (Number(a.ord) || 0) - (Number(b.ord) || 0); })
+          .map(function (v) { return decorateVisit_(v, clients, storage); })
       });
     }
     return ok_({ monday: mon, days: days,
@@ -411,28 +396,16 @@ function getWeekPlan(token, monday) {
   });
 }
 
-function addWeekCard(token, clientId, issueDate, comment) {
-  return addToDelivery(token, clientId, addDaysStr_(issueDate, -1), issueDate, comment);
+function addWeekCard(token, clientId, date) {
+  return addDeliveryVisit(token, clientId, date);
 }
 
-function moveWeekCard(token, washId, newIssueDate) {
-  if (!requireRole_(token, ['owner'])) return err_('Нет доступа');
-  return withLock_(function () {
-    var found = findById_(SHEETS.WASHES, washId);
-    if (!found) return err_('Стирка не найдена');
-    if (found.obj.status !== 'planned') return err_('Можно переносить только запланированные');
-    var old = found.obj.issue_date;
-    found.obj.issue_date = newIssueDate;
-    found.obj.wash_date = addDaysStr_(newIssueDate, -1);
-    updateRow_(SHEETS.WASHES, found.rowNumber, found.obj);
-    logEvent('owner', 'wash_move', washId, { issue_date: old + ' → ' + newIssueDate });
-    return ok_({ wash: found.obj });
-  });
+function moveWeekCard(token, visitId, newDate) {
+  return moveDeliveryVisit(token, visitId, newDate);
 }
 
-// Убрать карточку = отмена planned-стирки, логика уже в cancelWash.
-function removeWeekCard(token, washId) {
-  return cancelWash(token, washId);
+function removeWeekCard(token, visitId) {
+  return removeDeliveryVisit(token, visitId);
 }
 
 function getStorage(token) {
