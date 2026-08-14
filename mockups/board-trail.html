@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Цех — сравнение: перемещение vs серый след</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; background: #eef1f5; color: #1a1d21; padding: 16px; }
+  h1 { font-size: 18px; margin-bottom: 4px; }
+  .sub { color: #667; font-size: 13px; margin-bottom: 16px; }
+  .mode-switch { margin-bottom: 16px; display: flex; gap: 8px; flex-wrap: wrap; }
+  .mode-switch button {
+    padding: 8px 16px; border-radius: 8px; border: 1px solid #c4ccd6; background: #fff;
+    font-size: 14px; cursor: pointer;
+  }
+  .mode-switch button.active { background: #1d4e9e; color: #fff; border-color: #1d4e9e; }
+
+  .board-wrap { overflow-x: auto; }
+  .day-board { display: grid; grid-template-columns: repeat(3, minmax(220px, 1fr)); gap: 8px; min-width: 700px; }
+  /* изначальный вариант: колонки-списки без фиксированных строк */
+  .cols-flex { display: flex; gap: 8px; min-width: 700px; }
+  .cols-flex .col { flex: 1; display: flex; flex-direction: column; gap: 8px; }
+  .col-head {
+    font-weight: 600; font-size: 14px; padding: 8px 10px; background: #dde3ea;
+    border-radius: 8px; text-align: center;
+  }
+  .wcard, .wcard-slot { min-height: 62px; border-radius: 8px; }
+  .wcard {
+    background: #f2f4f7; border-left: 5px solid #c4ccd6; padding: 8px 10px;
+    font-size: 13px; cursor: pointer; display: flex; flex-direction: column; gap: 2px;
+  }
+  .wcard .nm { font-weight: 600; }
+  .wcard .mt { color: #556; font-size: 12px; }
+  .wcard-slot { background: transparent; border: 1px dashed #d5dbe3; }
+
+  /* цвета как в приложении */
+  .wcard.todo-dirty   { background: #ffe9c2; border-left-color: #e8a13a; }
+  .wcard.todo-nodirty { background: #f8d7da; border-left-color: #c0392b; }
+  .wcard.todo-clean   { background: #d4edda; border-left-color: #28a745; }
+  .wcard.doing        { background: #cfe3ff; border-left-color: #1d4e9e; }
+  .wcard.partial      { background: #ffe9a8; border-left-color: #d9a400; }
+  .wcard.done         { background: #a9d9b8; border-left-color: #1c6b2a; }
+
+  /* «след»: карточка осталась в прежней колонке, но неактивна */
+  .wcard.ghost {
+    filter: grayscale(1); opacity: .45; cursor: default;
+    border-left-style: dashed;
+  }
+  .wcard.ghost::after { content: attr(data-ghost); font-size: 11px; color: #667; }
+
+  .hint { margin-top: 14px; font-size: 13px; color: #556; }
+  .hint b { color: #1a1d21; }
+  .legend { margin-top: 10px; font-size: 12px; color: #556; display: flex; gap: 10px; flex-wrap: wrap; }
+  .legend span { display: inline-flex; align-items: center; gap: 4px; }
+  .legend i { width: 14px; height: 14px; border-radius: 4px; display: inline-block; }
+</style>
+</head>
+<body>
+
+<h1>Доска «Цех» — сравнение двух вариантов</h1>
+<div class="sub">Прототип для клиента. Кликайте карточку — она переезжает в следующую колонку. В варианте «след» прежняя карточка остаётся серой и неактивной.</div>
+
+<div class="mode-switch">
+  <button id="btn0" onclick="setMode('orig')">Вариант 0 — изначальный (списки подряд)</button>
+  <button id="btnA" class="active" onclick="setMode('move')">Вариант 1 — как сейчас (фиксированные строки)</button>
+  <button id="btnB" onclick="setMode('trail')">Вариант 2 — оставлять серый след</button>
+</div>
+
+<div class="board-wrap">
+  <div class="day-board" id="board"></div>
+</div>
+
+<div class="hint" id="hint"></div>
+
+<div class="legend">
+  <span><i style="background:#ffe9c2;border-left:3px solid #e8a13a"></i> К стирке — грязное есть</span>
+  <span><i style="background:#f8d7da;border-left:3px solid #c0392b"></i> К стирке — грязного нет</span>
+  <span><i style="background:#d4edda;border-left:3px solid #28a745"></i> К стирке — чистое уже есть</span>
+  <span><i style="background:#cfe3ff;border-left:3px solid #1d4e9e"></i> В работе</span>
+  <span><i style="background:#ffe9a8;border-left:3px solid #d9a400"></i> Частично</span>
+  <span><i style="background:#a9d9b8;border-left:3px solid #1c6b2a"></i> Готово</span>
+  <span><i style="background:#eee;border-left:3px dashed #999"></i> След (вариант 2)</span>
+</div>
+
+<script>
+// Демо-данные: статус: todo-dirty | todo-nodirty | todo-clean | doing | done
+let clients = [
+  { id: 1, name: 'Отель «Аврора»',      meta: 'готово 14,2 кг',    st: 'done' },
+  { id: 2, name: 'Кафе «Лимон»',        meta: 'грязное 4,1 кг',    st: 'todo-dirty' },
+  { id: 3, name: 'СПА «Релакс»',        meta: 'грязное 11,0 кг',   st: 'doing' },
+  { id: 4, name: 'Хостел «Пионер»',     meta: 'грязное 9,8 кг',    st: 'todo-dirty' },
+  { id: 5, name: 'Отель «Меридиан»',    meta: 'готово 5,6 кг',     st: 'done' },
+  { id: 6, name: 'Ресторан «Волга»',    meta: 'чистое 6,2 кг',     st: 'todo-clean' },
+  { id: 7, name: 'Гостиница «Юг»',      meta: 'нет грязного',      st: 'todo-nodirty' },
+  { id: 8, name: 'Баня «Жар»',          meta: 'грязное 7,5 кг',    st: 'doing' },
+  { id: 9, name: 'Мотель «Трасса»',     meta: 'готово 8,3 кг',     st: 'done' },
+  { id: 10, name: 'Отель «Север»',      meta: 'грязное 12,4 кг',   st: 'todo-dirty' },
+];
+// history[id] = [{col, ghost}] — следы: пишутся всегда, показываются в варианте 2
+let history = {};
+let mode = 'move';
+
+// изначальные следы для карточек, которые уже «в работе» или «готово»
+clients.forEach(c => {
+  if (c.st === 'doing') history[c.id] = [{ col: 'todo', ghost: '→ в работе' }];
+  if (c.st === 'done')  history[c.id] = [{ col: 'todo', ghost: '→ в работе' }, { col: 'doing', ghost: '→ готово' }];
+});
+
+const COLS = [
+  { key: 'todo',  title: 'К стирке' },
+  { key: 'doing', title: 'В работе' },
+  { key: 'done',  title: 'Готово' },
+];
+function colOf(st) { return st.startsWith('todo') ? 'todo' : st; }
+
+const HINTS = {
+  orig: '<b>Вариант 0 (изначальный):</b> каждая колонка — простой список, карточки идут подряд сверху. Компактно, но карточка «прыгает» при переезде и колонки сильно разной высоты.',
+  move: '<b>Вариант 1 (сейчас в приложении):</b> карточка всегда остаётся в своей строке — легко следить глазами за клиентом. Минус: пустые ячейки, по ним не видно, кто уже «прошёл».',
+  trail: '<b>Вариант 2 (предложение клиента):</b> карточка при переезде оставляет серый след в прежней колонке. Видно весь путь клиента за день, но доска плотнее — серые карточки нужно отличать от активных.',
+};
+
+function setMode(m) {
+  mode = m;
+  document.getElementById('btn0').classList.toggle('active', m === 'orig');
+  document.getElementById('btnA').classList.toggle('active', m === 'move');
+  document.getElementById('btnB').classList.toggle('active', m === 'trail');
+  document.getElementById('hint').innerHTML = HINTS[m];
+  render();
+}
+
+function clickCard(c) {
+  const from = colOf(c.st);
+  if (from === 'todo') c.st = 'doing';
+  else if (from === 'doing') c.st = 'done';
+  else return; // done — дальше некуда
+  const to = colOf(c.st);
+  (history[c.id] = history[c.id] || []).push({ col: from, ghost: to === 'doing' ? '→ в работе' : '→ готово' });
+  render();
+}
+
+function makeCard(c) {
+  const d = document.createElement('div');
+  d.className = 'wcard ' + c.st;
+  d.innerHTML = `<div class="nm">${c.name}</div><div class="mt">${c.meta}</div>`;
+  d.onclick = () => clickCard(c);
+  return d;
+}
+
+function renderOrig(board) {
+  board.className = 'cols-flex';
+  COLS.forEach(col => {
+    const colDiv = document.createElement('div');
+    colDiv.className = 'col';
+    const h = document.createElement('div');
+    h.className = 'col-head';
+    h.textContent = col.title;
+    colDiv.appendChild(h);
+    clients.filter(c => colOf(c.st) === col.key).forEach(c => colDiv.appendChild(makeCard(c)));
+    board.appendChild(colDiv);
+  });
+}
+
+function render() {
+  const board = document.getElementById('board');
+  board.innerHTML = '';
+  if (mode === 'orig') { renderOrig(board); return; }
+  board.className = 'day-board';
+  COLS.forEach(c => {
+    const h = document.createElement('div');
+    h.className = 'col-head';
+    h.textContent = c.title;
+    board.appendChild(h);
+  });
+
+  const todoRow = {}, doingRow = {}, doneRow = {};
+  // каждому клиенту — его исходная строка
+  clients.forEach((c, i) => {
+    const col = colOf(c.st);
+    ({ todo: todoRow, doing: doingRow, done: doneRow })[col][i] = c;
+  });
+  // следы занимают строку своего клиента
+  const ghostsByColRow = { todo: {}, doing: {}, done: {} };
+  if (mode === 'trail') {
+    clients.forEach((c, i) => {
+      (history[c.id] || []).forEach(g => ghostsByColRow[g.col][i] = g);
+    });
+  }
+
+  const maps = { todo: todoRow, doing: doingRow, done: doneRow };
+  for (let r = 0; r < clients.length; r++) {
+    COLS.forEach(col => {
+      const card = maps[col.key][r];
+      const ghost = ghostsByColRow[col.key][r];
+      if (card) {
+        board.appendChild(makeCard(card));
+      } else if (ghost) {
+        const d = document.createElement('div');
+        d.className = 'wcard ghost';
+        d.dataset.ghost = ghost.ghost;
+        const c = clients[r];
+        d.innerHTML = `<div class="nm">${c.name}</div>`;
+        board.appendChild(d);
+      } else {
+        const d = document.createElement('div');
+        d.className = 'wcard-slot';
+        board.appendChild(d);
+      }
+    });
+  }
+}
+
+setMode('move');
+</script>
+</body>
+</html>
