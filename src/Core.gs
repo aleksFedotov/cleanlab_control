@@ -2,7 +2,8 @@
 // одинаково выполняются в GAS и в Node-тестах. Даты — строки 'yyyy-MM-dd'.
 
 var TERMINAL_STATUSES = ['issued', 'cancelled'];
-var DONE_STATUSES = ['done', 'stored', 'issued'];
+// partial = стирка завершена частично: чистая часть на складе, клиент НЕ готов к выдаче
+var DONE_STATUSES = ['done', 'stored', 'partial', 'issued'];
 
 // --- Даты (строковая арифметика без TZ-сюрпризов) ---
 
@@ -63,7 +64,7 @@ function applyDefer_(wash, newDate, reason) {
 
 // Правка данных завершённой (spec §4.2): owner — всегда, worker — пока смена дня открыта.
 function canEditWashData_(role, wash, shiftOfDay) {
-  if (['done', 'stored'].indexOf(wash.status) === -1) return false;
+  if (['done', 'stored', 'partial'].indexOf(wash.status) === -1) return false;
   if (role === 'owner') return true;
   return !!shiftOfDay && shiftOfDay.status === 'open';
 }

@@ -39,6 +39,7 @@
     .chip-in_progress { background: #ffe9a8; color: #7a5b00; }
     .chip-done { background: #c9efd0; color: #1c6b2a; }
     .chip-stored { background: #cfe3ff; color: #1d4e9e; }
+    .chip-partial { background: #ffe1b3; color: #8a5a00; }
     .chip-deferred { background: #ffd9c2; color: #8a3c00; }
 
     .row { display: flex; gap: 10px; align-items: center; margin-top: 12px; }
@@ -196,7 +197,7 @@ function renderPin() {
 }
 
 // ===== Список дня =====
-var STATUS_LABELS = { planned: 'К стирке', in_progress: 'В работе', done: 'Готово', stored: 'На складе',
+var STATUS_LABELS = { planned: 'К стирке', in_progress: 'В работе', done: 'Готово', stored: 'На складе', partial: 'Частично',
   delivered: 'Выдано', picked: 'Забрано', both: 'Выдано + забрано', empty: 'Ничего нет', cancelled: 'Отменено' };
 
 function loadDay(date) {
@@ -261,20 +262,21 @@ function renderWashList() {
   var cols = [
     { key: 'todo', title: 'К стирке', match: function (w) { return w.status === 'planned'; } },
     { key: 'doing', title: 'В работе', match: function (w) { return w.status === 'in_progress'; } },
-    { key: 'done', title: 'Готово', match: function (w) { return w.status === 'done' || w.status === 'stored'; } }
+    { key: 'done', title: 'Готово', match: function (w) { return w.status === 'done' || w.status === 'stored' || w.status === 'partial'; } }
   ];
   var cardHtml = function (w) {
     var meta = [];
     if (w.dirty_weight_kg !== '' && w.dirty_weight_kg != null) meta.push(w.dirty_weight_kg + ' кг');
     if (w.items_total !== '' && w.items_total != null) meta.push(w.items_total + ' шт');
     if (w.status === 'stored') meta.push('выдача ' + esc(w.issue_date));
-    var cls = w.status === 'in_progress' ? ' doing' : ((w.status === 'done' || w.status === 'stored') ? ' done' : '');
+    var cls = w.status === 'in_progress' ? ' doing' : ((w.status === 'done' || w.status === 'stored' || w.status === 'partial') ? ' done' : '');
     return '<div class="wcard' + cls + '" data-id="' + w.id + '">' +
       '<div class="nm">' + esc(w.client_name) + '</div>' +
       (w.deferred_from ? '<div class="cm">⤷ с ' + esc(w.deferred_from) + '</div>' : '') +
       (meta.length ? '<div class="cm">' + meta.join(' · ') + '</div>' : '') +
       (w.comment ? '<div class="cm">💬 ' + esc(w.comment) + '</div>' : '') +
       (w.status === 'stored' ? '<div class="cm">На складе</div>' : '') +
+      (w.status === 'partial' ? '<div class="cm">⚠ Частично — клиент не готов</div>' : '') +
       '</div>';
   };
   document.getElementById('washList').innerHTML =
@@ -300,7 +302,7 @@ function renderWashCard(id) {
   var types = state.day.itemTypes || [];
   var counts = state.counts[id] || {};
   var weight = state.weights[id] != null ? state.weights[id] : (w.dirty_weight_kg || '');
-  var canEdit = w.status === 'done' || w.status === 'stored';
+  var canEdit = w.status === 'done' || w.status === 'stored' || w.status === 'partial';
 
   var html = '<div class="app-header"><button class="btn btn-ghost" id="backBtn">← Список</button>' +
     '<h1>' + esc(w.client_name) + '</h1><div class="spacer"></div>' +
@@ -425,17 +427,22 @@ function confirmComplete(w) {
     '<div class="meta"><b>' + esc(w.client_name) + '</b> · ' + esc(kg) + ' кг</div>' +
     (lines || '<div class="meta">Позиций нет</div>') +
     '<div class="meta" style="margin-top:8px">Итого: <b>' + totalQty(counts) + ' шт</b></div>' +
+    '<div class="row" style="margin-top:8px">' +
+    '<label><input type="radio" name="wmode" value="full" checked> Полностью — клиент готов к развозу</label></div>' +
+    '<div class="row"><label><input type="radio" name="wmode" value="partial"> Частично — чистое на склад, клиент НЕ готов</label></div>' +
     '<div class="actions"><button class="btn btn-ghost" id="dlgCancel">Назад</button>' +
     '<button class="btn btn-primary" id="dlgOk">Подтвердить</button></div>');
   document.getElementById('dlgCancel').onclick = hideDialog;
   var okBtn = document.getElementById('dlgOk');
   okBtn.onclick = function () {
     busy(okBtn, 'Завершаем…');
-    api('completeWash', state.token, w.id, countsToItems(counts), kg).then(function (res) {
+    var mode = document.querySelector('input[name="wmode"]:checked').value;
+    api('completeWash', state.token, w.id, countsToItems(counts), kg, mode).then(function (res) {
       delete state.counts[w.id];
       delete state.weights[w.id];
       hideDialog();
-      toast(res.wash.status === 'stored' ? 'Стирка завершена ✓ бельё на склад' : 'Стирка завершена ✓');
+      toast(res.wash.status === 'partial' ? 'Частично завершено: чистое на складе' :
+        res.wash.status === 'stored' ? 'Стирка завершена ✓ бельё на склад' : 'Стирка завершена ✓');
       loadDay();
     }).catch(function (e) { hideDialog(); toast(e.message); });
   };
@@ -856,7 +863,7 @@ function renderReport(date) {
     html += rows.length ? '<table class="report"><tr><th>Клиент</th><th>Кг</th><th>Позиции</th><th>Шт</th><th>Статус</th><th></th></tr>' +
       rows.map(function (w) {
         var positions = (w.items || []).map(function (it) { return esc(it.item_name) + ' ×' + it.qty; }).join(', ');
-        var canEdit = w.status === 'done' || w.status === 'stored';
+        var canEdit = w.status === 'done' || w.status === 'stored' || w.status === 'partial';
         return '<tr><td>' + esc(w.client_name) +
           (w.deferred_from ? '<br><span class="chip chip-deferred">с ' + esc(w.deferred_from) + '</span>' : '') + '</td>' +
           '<td>' + (w.dirty_weight_kg || '—') + '</td><td>' + (positions || '—') + '</td>' +

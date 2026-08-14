@@ -481,3 +481,34 @@ test('стирки дня автоматически формируются из
   const other = ctx.getDayList(worker, TOMORROW);
   assert.strictEqual(other.washes.length, 0);
 });
+
+test('partial-завершение: чистое на складе, клиент не готов, смену не блокирует', () => {
+  const { ctx } = makeApiCtx();
+  const clientId = seedClient(ctx);
+  const owner = loginOwner(ctx);
+  const worker = loginWorker(ctx);
+  const washId = ctx.addToDelivery(owner, clientId, TODAY, TOMORROW).wash.id;
+  ctx.startWash(worker, washId);
+
+  const done = ctx.completeWash(worker, washId, [{ item_type_id: 'itm_1', qty: 4 }], 3, 'partial');
+  assert.ok(done.ok);
+  assert.strictEqual(done.wash.status, 'partial');
+
+  // Чистая часть легла на склад
+  const sum = ctx.storageSummaryByClient_();
+  assert.strictEqual(sum[clientId].clean, 1);
+  assert.strictEqual(sum[clientId].cleanKg, 3);
+
+  // Не выдаётся (issue только из done/stored) и не попадает в issueToday
+  assert.ok(!ctx.markIssued(owner, washId).ok);
+  assert.strictEqual(ctx.getDeliveryPlan(owner, TOMORROW).issueToday.length, 0);
+
+  // Смену не блокирует, в отчёте кг учитываются
+  const close = ctx.getShiftCloseState(worker);
+  assert.strictEqual(close.blockers.length, 0);
+  assert.strictEqual(close.report.washesDone, 1);
+  assert.strictEqual(close.report.totalKg, 3);
+
+  // Данные partial правятся как у завершённой
+  assert.ok(ctx.editWashData(owner, washId, 3.5, [{ item_type_id: 'itm_1', qty: 5 }]).ok);
+});

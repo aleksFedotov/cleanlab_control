@@ -116,7 +116,7 @@ function startWash(token, washId, weightKg) {
   });
 }
 
-function completeWash(token, washId, items, weightKg) {
+function completeWash(token, washId, items, weightKg, mode) {
   var role = requireRole_(token, ['owner', 'worker']);
   if (!role) return err_('Нет доступа');
   return withLock_(function () {
@@ -136,7 +136,9 @@ function completeWash(token, washId, items, weightKg) {
         item_type_id: it.item_type_id, qty: qty
       });
     });
-    w.status = completionStatus_(w.wash_date, w.issue_date);
+    // mode='partial': чистая часть на складе, но клиент НЕ готов к выдаче;
+    // владелец вручную ставит остаток в стирку позже
+    w.status = mode === 'partial' ? 'partial' : completionStatus_(w.wash_date, w.issue_date);
     w.items_total = total;
     w.dirty_weight_kg = round1_(weightKg);
     w.done_at = nowStr_();
