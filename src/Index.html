@@ -93,6 +93,13 @@
     .wcard.done { background: #a9d9b8; border-left-color: #1c6b2a; }
     .wcard.drv { background: #fff; border-left-color: #2f6fed; border: 1px solid #dde3ea; border-left: 4px solid #2f6fed; padding: 12px; margin-bottom: 10px; }
     .wcard.drv .nm { font-size: 16px; }
+    /* Склад: единый вид карточек, цвет полосы = секция */
+    .wcard.st { background: #fff; border: 1px solid #dde3ea; border-left: 4px solid #c4ccd6; padding: 12px; margin-bottom: 10px; }
+    .wcard.st .nm { font-size: 16px; }
+    .wcard.st-clean { border-left-color: #1c6b2a; }
+    .wcard.st-partial { border-left-color: #e8b400; }
+    .wcard.st-dirty { border-left-color: #e8a13a; }
+    .wcard.st .overdue { color: #c0392b; font-weight: 700; }
     .wcard .nm { font-weight: 700; font-size: 14px; }
     .wcard .cm { font-size: 12px; color: #555; margin-top: 2px; }
     .week-add { width: 100%; background: #e3e8ef; padding: 6px; font-size: 16px; }
@@ -914,87 +921,114 @@ function openWeekCard(c, days) {
 }
 
 // ===== Склад =====
+// Единые карточки во всех секциях; детали и кнопки — по тапу на карточку.
 function renderStorage() {
   appShell('Склад', 'storage', '<div class="empty">Загружаем…</div>');
   api('getStorage', state.token).then(function (res) {
     var types = {};
     (res.itemTypes || []).forEach(function (t) { types[t.id] = t.name; });
 
-    // Секция «Чистое бельё»: stored-стирки + чистое полностью завершённых (done) —
-    // оно сразу идёт на склад на хранение. Группировка по клиентам.
-    var byClient = {};
+    // Чистое бельё: stored-стирки + чистое полностью завершённых (done) —
+    // оно сразу идёт на склад на хранение.
+    var clean = [];
     res.stored.forEach(function (w) {
-      (byClient[w.client_name] = byClient[w.client_name] || []).push(w);
+      clean.push({ kind: 'clean', id: w.id, client_name: w.client_name,
+        kg: w.dirty_weight_kg, total: w.items_total, items: w.items || [], issue_date: w.issue_date });
     });
     (res.cleanReady || []).forEach(function (s) {
-      (byClient[s.client_name] = byClient[s.client_name] || []).push({
-        id: s.wash_id, client_name: s.client_name,
-        dirty_weight_kg: s.weight_kg, items_total: s.items_total,
-        items: [], issue_date: s.issue_date || ''
-      });
+      clean.push({ kind: 'clean', id: s.wash_id, client_name: s.client_name,
+        kg: s.weight_kg, total: s.items_total, items: [], issue_date: s.issue_date || '' });
     });
-    var cleanHtml = Object.keys(byClient).map(function (name) {
-      return '<h2>' + esc(name) + '</h2>' + byClient[name].map(function (w) {
-        var overdue = w.issue_date < state.today;
-        var positions = (w.items || []).map(function (it) {
-          return esc(types[it.item_type_id] || it.item_type_id) + ' ×' + it.qty;
-        }).join(', ');
-        return '<div class="card' + (overdue ? ' overdue' : '') + '">' +
-          '<div class="meta">' + (w.dirty_weight_kg || 0) + ' кг · ' + (w.items_total || 0) + ' шт</div>' +
-          (positions ? '<div class="meta">' + positions + '</div>' : '') +
-          '<div class="meta">Выдача: <b>' + esc(w.issue_date) + '</b>' + (overdue ? ' — просрочена!' : '') + '</div>' +
-          '<div class="row"><button class="btn btn-primary" data-issue="' + w.id + '">Выдано</button>' +
-          '<button class="btn btn-ghost" data-editdate="' + w.id + '" data-cur="' + esc(w.issue_date) + '">Изменить дату</button></div></div>';
+    clean.sort(function (a, b) { return a.issue_date < b.issue_date ? -1 : 1; });
+
+    var partial = (res.partialClean || []).map(function (s) {
+      return { kind: 'partial', id: s.id, client_name: s.client_name,
+        kg: s.weight_kg, total: s.items_total, since: (s.created_at || '').slice(0, 10) };
+    });
+    var dirty = (res.dirty || []).map(function (s) {
+      return { kind: 'dirty', id: s.id, client_name: s.client_name,
+        since: (s.created_at || '').slice(0, 10) };
+    });
+
+    function metaOf(e) {
+      if (e.kind === 'dirty') return '🧺 Принято: ' + esc(e.since) + ' · ждёт стирки';
+      var m = (e.kg || 0) + ' кг · ' + (e.total || 0) + ' шт';
+      if (e.kind === 'partial') return m + ' · с ' + esc(e.since);
+      var overdue = e.issue_date && e.issue_date < state.today;
+      return m + ' · Выдача: <b>' + esc(e.issue_date) + '</b>' +
+        (overdue ? ' · <span class="overdue">просрочена!</span>' : '');
+    }
+    function cardsHtml(list, cls) {
+      return list.map(function (e, i) {
+        return '<div class="wcard st ' + cls + '" data-sec="' + e.kind + '" data-i="' + i + '">' +
+          '<div class="nm">' + esc(e.client_name) + '</div>' +
+          '<div class="cm">' + metaOf(e) + '</div></div>';
       }).join('');
-    }).join('') || '<div class="empty">Чистого белья нет</div>';
+    }
 
-    // Секция «Грязное бельё»: записи склада от водителя/подтверждения (без веса)
-    var dirtyByClient = {};
-    (res.dirty || []).forEach(function (s) {
-      (dirtyByClient[s.client_name] = dirtyByClient[s.client_name] || []).push(s);
-    });
-    var dirtyHtml = Object.keys(dirtyByClient).map(function (name) {
-      return '<h2>' + esc(name) + '</h2>' + dirtyByClient[name].map(function (s) {
-        return '<div class="card"><div class="meta">🧺 Принято: <b>' + esc((s.created_at || '').slice(0, 10)) + '</b>' +
-          ' · вес/количество после стирки</div></div>';
-      }).join('');
-    }).join('') || '<div class="empty">Грязного белья нет</div>';
+    setContainer(
+      '<h1>Чистое бельё</h1>' + (cardsHtml(clean, 'st-clean') || '<div class="empty">Чистого белья нет</div>') +
+      (partial.length ? '<h1 style="margin-top:16px">Остатки частичных стирок</h1>' + cardsHtml(partial, 'st-partial') : '') +
+      '<h1 style="margin-top:16px">Грязное бельё</h1>' + (cardsHtml(dirty, 'st-dirty') || '<div class="empty">Грязного белья нет</div>'));
 
-    // Остатки частичных стирок (отбираются на сервере по статусу стирки)
-    var partialClean = res.partialClean || [];
-    var partialHtml = partialClean.length ? '<h2>Остатки частичных стирок</h2>' + partialClean.map(function (s) {
-      return '<div class="card"><div class="meta"><b>' + esc(s.client_name) + '</b> · ' +
-        (s.weight_kg || 0) + ' кг · ' + (s.items_total || 0) + ' шт' +
-        ' · с ' + esc((s.created_at || '').slice(0, 10)) + '</div></div>';
-    }).join('') : '';
-
-    setContainer('<h1>Чистое бельё</h1>' + cleanHtml + partialHtml + '<h1 style="margin-top:16px">Грязное бельё</h1>' + dirtyHtml);
-
-    Array.prototype.forEach.call(document.querySelectorAll('[data-issue]'), function (b) {
-      b.onclick = function () {
-        busy(b, 'Сохраняем…');
-        api('markIssued', state.token, b.dataset.issue)
-          .then(function () { toast('Выдано ✓'); renderStorage(); })
-          .catch(function (e) { unbusy(b); toast(e.message); });
-      };
-    });
-    Array.prototype.forEach.call(document.querySelectorAll('[data-editdate]'), function (b) {
-      b.onclick = function () {
-        showDialog('<h2>Дата выдачи</h2>' +
-          '<div class="row"><input type="date" id="newIssue" value="' + b.dataset.cur + '"></div>' +
-          '<div class="actions"><button class="btn btn-ghost" id="dlgCancel">Назад</button>' +
-          '<button class="btn btn-primary" id="dlgOk">Сохранить</button></div>');
-        document.getElementById('dlgCancel').onclick = hideDialog;
-        var okBtn = document.getElementById('dlgOk');
-        okBtn.onclick = function () {
-          busy(okBtn, 'Сохраняем…');
-          api('updateIssueDate', state.token, b.dataset.editdate, document.getElementById('newIssue').value)
-            .then(function () { hideDialog(); toast('Дата обновлена ✓'); renderStorage(); })
-            .catch(function (e) { hideDialog(); toast(e.message); });
-        };
+    var bySec = { clean: clean, partial: partial, dirty: dirty };
+    Array.prototype.forEach.call(document.querySelectorAll('[data-sec]'), function (el) {
+      el.onclick = function () {
+        openStorageCard(bySec[el.dataset.sec][Number(el.dataset.i)], types);
       };
     });
   }).catch(function (e) { setContainer('<div class="empty">' + esc(e.message) + '</div>'); });
+}
+
+// Диалог карточки склада: подробности + действия (для чистого — «Выдано», «Изменить дату»)
+function openStorageCard(e, types) {
+  var html = '<h2>' + esc(e.client_name) + '</h2>';
+  if (e.kind === 'dirty') {
+    html += '<div class="meta">🧺 Грязное бельё, принято: <b>' + esc(e.since) + '</b></div>' +
+      '<div class="meta">Вес и количество появятся после стирки.</div>' +
+      '<div class="actions"><button class="btn btn-ghost" id="dlgCancel">Назад</button></div>';
+  } else if (e.kind === 'partial') {
+    html += '<div class="meta">Обработано частично: <b>' + (e.kg || 0) + ' кг · ' + (e.total || 0) + ' шт</b></div>' +
+      '<div class="meta">На складе с ' + esc(e.since) + '. Клиент НЕ готов к развозу — вернуть в стирку решает владелец.</div>' +
+      '<div class="actions"><button class="btn btn-ghost" id="dlgCancel">Назад</button></div>';
+  } else {
+    var positions = (e.items || []).map(function (it) {
+      return esc(types[it.item_type_id] || it.item_type_id) + ' ×' + it.qty;
+    }).join(', ');
+    var overdue = e.issue_date && e.issue_date < state.today;
+    html += '<div class="meta"><b>' + (e.kg || 0) + ' кг · ' + (e.total || 0) + ' шт</b></div>' +
+      (positions ? '<div class="meta">' + positions + '</div>' : '') +
+      '<div class="meta">Выдача: <b>' + esc(e.issue_date) + '</b>' +
+      (overdue ? ' · <span class="overdue">просрочена!</span>' : '') + '</div>' +
+      '<div class="row"><button class="btn btn-primary btn-big" id="stIssue">Выдано</button></div>' +
+      '<div class="row"><button class="btn btn-ghost btn-big" id="stEditDate">Изменить дату</button></div>' +
+      '<div class="actions"><button class="btn btn-ghost" id="dlgCancel">Назад</button></div>';
+  }
+  showDialog(html);
+  document.getElementById('dlgCancel').onclick = hideDialog;
+
+  var issueBtn = document.getElementById('stIssue');
+  if (issueBtn) issueBtn.onclick = function () {
+    busy(issueBtn, 'Сохраняем…');
+    api('markIssued', state.token, e.id)
+      .then(function () { hideDialog(); toast('Выдано ✓'); renderStorage(); })
+      .catch(function (err) { unbusy(issueBtn); toast(err.message); });
+  };
+  var editBtn = document.getElementById('stEditDate');
+  if (editBtn) editBtn.onclick = function () {
+    showDialog('<h2>Дата выдачи</h2>' +
+      '<div class="row"><input type="date" id="newIssue" value="' + esc(e.issue_date) + '"></div>' +
+      '<div class="actions"><button class="btn btn-ghost" id="dlgCancel">Назад</button>' +
+      '<button class="btn btn-primary" id="dlgOk">Сохранить</button></div>');
+    document.getElementById('dlgCancel').onclick = hideDialog;
+    var okBtn = document.getElementById('dlgOk');
+    okBtn.onclick = function () {
+      busy(okBtn, 'Сохраняем…');
+      api('updateIssueDate', state.token, e.id, document.getElementById('newIssue').value)
+        .then(function () { hideDialog(); toast('Дата обновлена ✓'); renderStorage(); })
+        .catch(function (err) { hideDialog(); toast(err.message); });
+    };
+  };
 }
 
 // ===== Отчёт за день =====

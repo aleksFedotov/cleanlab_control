@@ -737,3 +737,22 @@ test('getDeliveryVisits: возвращает notReady для вкладки Р�
   ctx.completeWash(owner, w, [], 5);
   assert.strictEqual(ctx.getDeliveryVisits(owner, TOMORROW).notReady.length, 0);
 });
+
+test('склад: cleanReady для полной стирки, partialClean для частичной', () => {
+  const { ctx } = makeApiCtx();
+  const cA = seedClient(ctx);
+  const cB = seedClient(ctx, { name: 'Клиент Б' });
+  const owner = loginOwner(ctx);
+  const worker = loginWorker(ctx);
+  const wA = ctx.addToDelivery(owner, cA, TODAY, TOMORROW).wash.id;
+  ctx.startWash(worker, wA);
+  ctx.completeWash(worker, wA, [{ item_type_id: 'itm_1', qty: 5 }], 5);
+  const wB = ctx.addToDelivery(owner, cB, TODAY, TOMORROW).wash.id;
+  ctx.startWash(worker, wB);
+  ctx.completeWash(worker, wB, [{ item_type_id: 'itm_1', qty: 3 }], 3, 'partial');
+  const st = ctx.getStorage(owner);
+  assert.ok(st.cleanReady.some(s => s.wash_id === wA), 'полная стирка должна быть в cleanReady');
+  assert.ok(!st.partialClean.some(s => s.wash_id === wA));
+  assert.ok(st.partialClean.some(s => s.wash_id === wB), 'частичная должна быть в partialClean');
+  assert.ok(!st.cleanReady.some(s => s.wash_id === wB));
+});
