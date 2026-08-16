@@ -3,7 +3,8 @@
 
 var TERMINAL_STATUSES = ['issued', 'cancelled'];
 // partial = стирка завершена частично: чистая часть на складе, клиент НЕ готов к выдаче
-var DONE_STATUSES = ['done', 'stored', 'partial', 'issued'];
+// ready_clean = стирать не нужно: чистое бельё уже на складе, клиент готов к развозу
+var DONE_STATUSES = ['done', 'stored', 'partial', 'issued', 'ready_clean'];
 
 // --- Даты (строковая арифметика без TZ-сюрпризов) ---
 
@@ -35,10 +36,10 @@ function completionStatus_(washDate, issueDate) {
 }
 
 var TRANSITIONS = {
-  start: { from: ['planned'] },
+  start: { from: ['planned', 'no_linen'] },
   complete: { from: ['in_progress'] },
   issue: { from: ['done', 'stored'] },
-  cancel: { from: ['planned'] },
+  cancel: { from: ['planned', 'no_linen'] },
   defer: { from: ['planned', 'in_progress'] }
 };
 

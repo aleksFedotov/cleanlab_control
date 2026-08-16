@@ -18,6 +18,19 @@ function ensureSheet_(ss, name, headers) {
   return sh;
 }
 
+// Одноразовая миграция: добавить колонку bags в Washes (запустить вручную после деплоя).
+// Идемпотентна: если колонка уже есть, ничего не делает. Db читает строки по заголовкам.
+function migrateAddBagsColumn() {
+  var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEETS.WASHES);
+  var headers = getHeaders_(sh);
+  if (headers.indexOf('bags') !== -1) {
+    Logger.log('migrateAddBagsColumn: колонка уже есть');
+    return;
+  }
+  sh.getRange(1, headers.length + 1).setValue('bags');
+  Logger.log('migrateAddBagsColumn: колонка bags добавлена');
+}
+
 // Дефолтные настройки (без секретов — они в Script Properties, spec §3.2).
 function seedSettings_() {
   var defaults = {

@@ -453,13 +453,13 @@ test('check-storage: флаги склада в getDayList и confirmStorageChec
   assert.ok(ctx.confirmStorageCheck(worker, wB, 'has_dirty').ok); // повтор ок, дублей записи нет
   assert.strictEqual(ctx.getDayList(worker, TODAY).washes.filter(w => w.id === wB).length, 1);
 
-  // Подтверждения снимают стирки с доски; повтор — ошибка
+  // no_dirty → no_linen (остаётся на доске приглушённой), already_clean → ready_clean (остаётся в «Готово»); повтор из no_linen разрешён
   assert.ok(ctx.confirmStorageCheck(worker, wB, 'no_dirty').ok);
   assert.ok(ctx.confirmStorageCheck(worker, wC, 'already_clean').ok);
-  assert.ok(!ctx.confirmStorageCheck(worker, wB, 'no_dirty').ok);
+  assert.ok(ctx.confirmStorageCheck(worker, wB, 'no_dirty').ok); // повтор из no_linen ок
   const after = ctx.getDayList(worker, TODAY);
-  assert.ok(!after.washes.some(w => w.id === wB));
-  assert.ok(!after.washes.some(w => w.id === wC));
+  assert.ok(after.washes.some(w => w.id === wB && w.status === 'no_linen'));
+  assert.ok(after.washes.some(w => w.id === wC && w.status === 'ready_clean'));
 
   // Автостирка НЕ пересоздаётся после подтверждения (клиент в развозе на завтра)
   const cD = seedClient(ctx, { name: 'Авто' });
@@ -468,7 +468,8 @@ test('check-storage: флаги склада в getDayList и confirmStorageChec
   assert.ok(auto);
   assert.ok(ctx.confirmStorageCheck(worker, auto.id, 'no_dirty').ok);
   const again = ctx.getDayList(worker, TODAY);
-  assert.ok(!again.washes.some(w => w.client_id === cD));
+  assert.strictEqual(again.washes.filter(w => w.client_id === cD).length, 1);
+  assert.strictEqual(again.washes.find(w => w.client_id === cD).status, 'no_linen');
 
   // Клиент остаётся в «не готовы к развозу» (no_clean) на завтра
   const del = ctx.getDeliveryVisits(owner, TOMORROW);
@@ -755,4 +756,133 @@ test('склад: cleanReady для полной стирки, partialClean дл
   assert.ok(!st.partialClean.some(s => s.wash_id === wA));
   assert.ok(st.partialClean.some(s => s.wash_id === wB), 'частичная должна быть в partialClean');
   assert.ok(!st.cleanReady.some(s => s.wash_id === wB));
+});
+
+// Проверка склада: «нет белья» → no_linen (остаётся на доске, не отмена,
+// смену не блокирует), повторная проверка, возврат в planned по has_dirty.
+test('storage check: no_dirty → no_linen, повторная проверка и старт', () => {
+  const { ctx } = makeApiCtx();
+  const clientId = seedClient(ctx);
+  const owner = loginOwner(ctx);
+  const worker = loginWorker(ctx);
+  const washId = ctx.addToDelivery(owner, clientId, TODAY, TOMORROW).wash.id;
+
+  const r1 = ctx.confirmStorageCheck(worker, washId, 'no_dirty');
+  assert.ok(r1.ok);
+  assert.strictEqual(r1.wash.status, 'no_linen');
+  assert.ok(r1.wash.done_at); // время проверки записано
+
+  // Остаётся в списке дня (не терминальный статус)
+  const day = ctx.getDayList(worker, TODAY);
+  assert.strictEqual(day.washes.length, 1);
+  assert.strictEqual(day.washes[0].status, 'no_linen');
+
+  // В отчёте не считается ни отменой, ни завершением
+  const rep = ctx.getDayReport(owner, TODAY);
+  assert.strictEqual(rep.report.cancelled, 0);
+  assert.strictEqual(rep.report.washesDone, 0);
+
+  // Не блокирует закрытие смены
+  assert.ok(ctx.closeShift(worker).ok);
+
+  // Повторная проверка разрешена; has_dirty возвращает в planned и чистит done_at
+  const r2 = ctx.confirmStorageCheck(worker, washId, 'has_dirty');
+  assert.ok(r2.ok);
+  assert.strictEqual(r2.wash.status, 'planned');
+  assert.strictEqual(r2.wash.done_at, '');
+
+  // Снова no_linen — и из неё можно начать стирку, если бельё нашлось
+  assert.ok(ctx.confirmStorageCheck(worker, washId, 'no_dirty').ok);
+  const started = ctx.startWash(worker, washId);
+  assert.ok(started.ok);
+  assert.strictEqual(started.wash.status, 'in_progress');
+});
+
+// Проверка склада: «уже чистое» → ready_clean (готово, считается завершённой).
+test('storage check: already_clean → ready_clean', () => {
+  const { ctx } = makeApiCtx();
+  const clientId = seedClient(ctx);
+  const owner = loginOwner(ctx);
+  const worker = loginWorker(ctx);
+  const washId = ctx.addToDelivery(owner, clientId, TODAY, TOMORROW).wash.id;
+
+  const r = ctx.confirmStorageCheck(worker, washId, 'already_clean');
+  assert.ok(r.ok);
+  assert.strictEqual(r.wash.status, 'ready_clean');
+  assert.ok(r.wash.done_at);
+
+  // В отчёте — завершённая (0 кг), не отмена
+  const rep = ctx.getDayReport(owner, TODAY);
+  assert.strictEqual(rep.report.washesDone, 1);
+  assert.strictEqual(rep.report.cancelled, 0);
+
+  // Из ready_clean нельзя ни в работу, ни повторно подтвердить проверку
+  assert.ok(!ctx.startWash(worker, washId).ok);
+  assert.ok(!ctx.confirmStorageCheck(worker, washId, 'no_dirty').ok);
+});
+
+// Отмена из no_linen разрешена владельцу (переход cancel расширен).
+test('storage check: отмена из no_linen разрешена владельцу', () => {
+  const { ctx } = makeApiCtx();
+  const clientId = seedClient(ctx);
+  const owner = loginOwner(ctx);
+  const worker = loginWorker(ctx);
+  const washId = ctx.addToDelivery(owner, clientId, TODAY, TOMORROW).wash.id;
+
+  assert.ok(ctx.confirmStorageCheck(worker, washId, 'no_dirty').ok);
+  const cancelled = ctx.cancelWash(owner, washId);
+  assert.ok(cancelled.ok);
+  assert.strictEqual(cancelled.wash.status, 'cancelled');
+  assert.strictEqual(ctx.getDayList(worker, TODAY).washes.length, 0);
+});
+
+// Мешки после стирки: bags сохраняется при завершении и правится через editWashData.
+test('bags: завершение сохраняет количество мешков, правка меняет', () => {
+  const { ctx } = makeApiCtx();
+  const clientId = seedClient(ctx);
+  const owner = loginOwner(ctx);
+  const worker = loginWorker(ctx);
+  const washId = ctx.addToDelivery(owner, clientId, TODAY, TOMORROW).wash.id;
+
+  ctx.startWash(worker, washId);
+  const done = ctx.completeWash(worker, washId, [{ item_type_id: 'itm_1', qty: 5 }], 10, 'full', 3);
+  assert.ok(done.ok);
+  assert.strictEqual(done.wash.bags, 3);
+  assert.strictEqual(ctx.getDayList(worker, TODAY).washes[0].bags, 3);
+
+  // Правка меняет bags
+  const edited = ctx.editWashData(owner, washId, 10, [{ item_type_id: 'itm_1', qty: 5 }], 4);
+  assert.ok(edited.ok);
+  assert.strictEqual(edited.wash.bags, 4);
+});
+
+// bags необязателен: без аргумента получается 0, мусор нормализуется.
+test('bags: по умолчанию 0 и нормализуется', () => {
+  const { ctx } = makeApiCtx();
+  const clientId = seedClient(ctx);
+  const worker = loginWorker(ctx);
+  const washId = ctx.addToDelivery(loginOwner(ctx), clientId, TODAY, TOMORROW).wash.id;
+
+  ctx.startWash(worker, washId);
+  const done = ctx.completeWash(worker, washId, [{ item_type_id: 'itm_1', qty: 2 }], 5);
+  assert.ok(done.ok);
+  assert.strictEqual(done.wash.bags, 0);
+});
+
+// Склад: clean-записи несут bags из стирки.
+test('склад: bags видны в clean-записях', () => {
+  const { ctx } = makeApiCtx();
+  const clientId = seedClient(ctx);
+  const owner = loginOwner(ctx);
+  const worker = loginWorker(ctx);
+  const washId = ctx.addToDelivery(owner, clientId, TODAY, TOMORROW).wash.id;
+
+  ctx.startWash(worker, washId);
+  ctx.completeWash(worker, washId, [{ item_type_id: 'itm_1', qty: 5 }], 10, 'full', 2);
+
+  const st = ctx.getStorage(owner);
+  assert.ok(st.ok);
+  const entry = st.cleanReady.find(s => s.wash_id === washId);
+  assert.ok(entry);
+  assert.strictEqual(entry.bags, 2);
 });

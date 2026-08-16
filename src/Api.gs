@@ -123,7 +123,7 @@ function startWash(token, washId, weightKg) {
   });
 }
 
-function completeWash(token, washId, items, weightKg, mode) {
+function completeWash(token, washId, items, weightKg, mode, bags) {
   var role = requireRole_(token, ['owner', 'worker']);
   if (!role) return err_('Нет доступа');
   return withLock_(function () {
@@ -147,6 +147,7 @@ function completeWash(token, washId, items, weightKg, mode) {
     // владелец вручную ставит остаток в стирку позже
     w.status = mode === 'partial' ? 'partial' : completionStatus_(w.wash_date, w.issue_date);
     w.items_total = total;
+    w.bags = Math.max(0, Math.floor(Number(bags) || 0)); // мешков получилось после стирки
     w.dirty_weight_kg = round1_(weightKg);
     w.done_at = nowStr_();
     updateRow_(SHEETS.WASHES, found.rowNumber, w);
@@ -155,13 +156,13 @@ function completeWash(token, washId, items, weightKg, mode) {
       weight_kg: w.dirty_weight_kg, items_total: total, wash_id: washId
     });
     ensureShift_(w.wash_date);
-    logEvent(role, 'wash_done', washId, { status: w.status, items: valid, kg: w.dirty_weight_kg });
+    logEvent(role, 'wash_done', washId, { status: w.status, items: valid, kg: w.dirty_weight_kg, bags: w.bags });
     return ok_({ wash: w });
   });
 }
 
-// Правка веса/пересчёта завершённой (spec §4.2): статус и done_at не меняются.
-function editWashData(token, washId, weightKg, items) {
+// Правка веса/пересчёта/мешков завершённой (spec §4.2): статус и done_at не меняются.
+function editWashData(token, washId, weightKg, items, bags) {
   var role = requireRole_(token, ['owner', 'worker']);
   if (!role) return err_('Нет доступа');
   return withLock_(function () {
@@ -172,7 +173,7 @@ function editWashData(token, washId, weightKg, items) {
     if (!canEditWashData_(role, w, shift && shift.obj)) {
       return err_('Правка недоступна: смена закрыта');
     }
-    var old = { kg: w.dirty_weight_kg, items_total: w.items_total };
+    var old = { kg: w.dirty_weight_kg, items_total: w.items_total, bags: w.bags };
     // WashItems стирки удаляются (снизу вверх) и пишутся заново
     var oldItems = findRowsBy_(SHEETS.WASH_ITEMS, function (wi) { return wi.wash_id === washId; }, 1000);
     oldItems.sort(function (a, b) { return b.rowNumber - a.rowNumber; })
@@ -188,6 +189,7 @@ function editWashData(token, washId, weightKg, items) {
     });
     w.dirty_weight_kg = round1_(weightKg);
     w.items_total = total;
+    w.bags = Math.max(0, Math.floor(Number(bags) || 0));
     updateRow_(SHEETS.WASHES, found.rowNumber, w);
     // Синхронно правим clean-запись склада, если она ещё не выдана
     var st = findRowsBy_(SHEETS.STORAGE, function (s) {
@@ -198,7 +200,7 @@ function editWashData(token, washId, weightKg, items) {
       st[0].obj.items_total = total;
       updateRow_(SHEETS.STORAGE, st[0].rowNumber, st[0].obj);
     }
-    logEvent(role, 'wash_edit', washId, { old: old, now: { kg: w.dirty_weight_kg, items_total: total } });
+    logEvent(role, 'wash_edit', washId, { old: old, now: { kg: w.dirty_weight_kg, items_total: total, bags: w.bags } });
     return ok_({ wash: w });
   });
 }
@@ -396,36 +398,45 @@ function cancelWash(token, washId) {
 }
 
 // Подтверждение проверки склада работником (спека «check storage»).
-// Применимо только к planned-стирке. Три исхода:
-//  - no_dirty / already_clean → стирка не нужна, отменяем с причиной;
-//    клиент при этом остаётся в предупреждении «не готов к развозу» (no_clean), если чистого нет.
+// Применимо к planned-стирке и к повторной проверке no_linen. Три исхода:
+//  - no_dirty → статус no_linen: стирать нечего, карточка остаётся в «К стирке»
+//    приглушённой; смену не блокирует, в отчёт как отмена НЕ идёт;
+//    клиент остаётся в предупреждении «не готов к развозу» (no_clean), если чистого нет.
+//  - already_clean → статус ready_clean: чистое уже на складе, работа закончена,
+//    карточка уходит в «Готово», в отчёте считается завершённой (0 кг).
 //  - has_dirty → рабочий нашёл грязное бельё: если записи о грязном нет,
-//    создаём её (без веса — как приёмка водителем). Стирка остаётся planned,
-//    карточка становится янтарной везде. Запись израсходуется при startWash.
+//    создаём её (без веса — как приёмка водителем). Стирка остаётся/возвращается
+//    в planned, карточка становится янтарной везде. Запись израсходуется при startWash.
+// Время проверки пишем в done_at (для этих статусов — «когда разобрались с клиентом»).
 function confirmStorageCheck(token, washId, verdict) {
   var role = requireRole_(token, ['owner', 'worker']);
   if (!role) return err_('Нет доступа');
-  var REASONS = {
-    no_dirty: 'нет грязного белья на складе',
-    already_clean: 'бельё уже чистое на складе'
-  };
-  if (verdict !== 'has_dirty' && !REASONS[verdict]) return err_('Неизвестный verdict');
+  var VERDICTS = { no_dirty: 1, already_clean: 1, has_dirty: 1 };
+  if (!VERDICTS[verdict]) return err_('Неизвестный verdict');
   return withLock_(function () {
     var found = findById_(SHEETS.WASHES, washId);
     if (!found) return err_('Стирка не найдена');
-    if (found.obj.status !== 'planned') return err_('Подтверждение возможно только для стирки «К работе»');
+    var w = found.obj;
+    if (w.status !== 'planned' && w.status !== 'no_linen') {
+      return err_('Подтверждение возможно только для стирки «К работе»');
+    }
     if (verdict === 'has_dirty') {
-      if (openStorage_(found.obj.client_id, 'dirty').length === 0) {
-        addStorageEntry_(found.obj.client_id, 'dirty', {});
+      if (openStorage_(w.client_id, 'dirty').length === 0) {
+        addStorageEntry_(w.client_id, 'dirty', {});
+      }
+      if (w.status === 'no_linen') {
+        w.status = 'planned';
+        w.done_at = '';
+        updateRow_(SHEETS.WASHES, found.rowNumber, w);
       }
       logEvent(role, 'storage_check', washId, { verdict: verdict });
-      return ok_({ wash: found.obj });
+      return ok_({ wash: w });
     }
-    found.obj.status = 'cancelled';
-    found.obj.deferred_reason = REASONS[verdict];
-    updateRow_(SHEETS.WASHES, found.rowNumber, found.obj);
+    w.status = verdict === 'no_dirty' ? 'no_linen' : 'ready_clean';
+    w.done_at = nowStr_();
+    updateRow_(SHEETS.WASHES, found.rowNumber, w);
     logEvent(role, 'storage_check', washId, { verdict: verdict });
-    return ok_({ wash: found.obj });
+    return ok_({ wash: w });
   });
 }
 
@@ -550,6 +561,7 @@ function getStorage(token) {
       var w = washById[s.wash_id];
       s.wash_status = w ? w.status : '';
       s.issue_date = w ? w.issue_date : '';
+      s.bags = w ? (Number(w.bags) || 0) : 0;
       return s;
     });
   // Остатки частичных стирок: clean-записи, чья стирка в статусе partial

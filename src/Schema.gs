@@ -19,7 +19,7 @@ var HEADERS = {
   ItemTypes: ['id', 'name', 'sort', 'active'],
   Washes: ['id', 'client_id', 'wash_date', 'issue_date', 'status',
     'dirty_weight_kg', 'items_total', 'comment', 'created_by', 'created_at',
-    'started_at', 'done_at', 'issued_at', 'deferred_from', 'deferred_reason'],
+    'started_at', 'done_at', 'issued_at', 'deferred_from', 'deferred_reason', 'bags'],
   WashItems: ['id', 'wash_id', 'item_type_id', 'qty'],
   Shifts: ['id', 'date', 'status', 'opened_at', 'closed_at',
     'total_kg', 'washes_done', 'washes_deferred', 'digest_sent'],

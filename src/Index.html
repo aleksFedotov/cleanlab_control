@@ -13,8 +13,11 @@
 
     .app-header { background: #1e3a5f; color: #fff; padding: 12px 16px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
     .app-header h1 { font-size: 22px; }
-    .app-header .date-nav { display: flex; align-items: center; gap: 10px; font-size: 20px; font-weight: 600; }
-    .app-header .date-nav button { background: #33517c; color: #fff; width: 44px; height: 44px; font-size: 22px; }
+    .date-nav { display: flex; align-items: center; justify-content: center; gap: 10px; font-size: 20px; font-weight: 600; margin: 4px 0 12px; }
+    .date-nav button { background: #33517c; color: #fff; width: 44px; height: 44px; font-size: 22px; }
+    .date-nav .date-jump { background: none; color: inherit; width: auto; height: auto; font: inherit; padding: 4px 8px; border-radius: 8px; text-decoration: underline dotted; }
+    .today-btn { width: auto; height: auto; padding: 8px 14px; font-size: 15px; font-weight: 700; background: #e3e8ef; color: #1a1a1a; }
+    .search-input { margin-bottom: 12px; }
     .app-header .spacer { flex: 1; }
     .btn { padding: 12px 18px; font-size: 18px; font-weight: 600; }
     .btn-primary { background: #2f6fed; color: #fff; }
@@ -41,6 +44,8 @@
     .chip-stored { background: #cfe3ff; color: #1d4e9e; }
     .chip-partial { background: #ffe1b3; color: #8a5a00; }
     .chip-deferred { background: #ffd9c2; color: #8a3c00; }
+    .chip-no_linen { background: #eceff1; color: #607d8b; }
+    .chip-ready_clean { background: #c9efd0; color: #1c6b2a; }
 
     .row { display: flex; gap: 10px; align-items: center; margin-top: 12px; }
     .row > * { flex: 1; }
@@ -62,7 +67,16 @@
     .dialog .actions { display: flex; gap: 10px; margin-top: 18px; }
 
     .blockers { background: #ffe1e1; border: 2px solid #d64545; border-radius: 14px; padding: 14px; margin-bottom: 14px; }
+    .blockers .brow { font-size: 15px; padding: 3px 0; }
+    .blockers .brow .why { color: #777; }
+    /* Развоз: компактные строки визитов и клиентов */
+    .vrow { display: flex; align-items: center; gap: 10px; background: #fff; border-radius: 10px; padding: 10px 12px; margin-bottom: 6px; border-left: 4px solid #2f6fed; box-shadow: 0 1px 2px rgba(0,0,0,.06); }
+    .vrow .nm { flex: 1; font-weight: 700; }
+    .vrow .cm { font-size: 13px; color: #555; font-weight: 400; }
+    .vrow .rm { flex: none; width: 36px; height: 36px; background: #f6d5d5; color: #c0392b; font-size: 18px; }
+    .vrow .add { flex: none; width: 36px; height: 36px; background: #2f6fed; color: #fff; font-size: 20px; }
     .toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: #1c6b2a; color: #fff; padding: 12px 24px; border-radius: 12px; font-weight: 700; display: none; z-index: 30; }
+    .toast.err { background: #d64545; }
     .toast.show { display: block; }
     .empty { text-align: center; color: #777; padding: 40px 0; }
     .spinner { font-weight: 600; }
@@ -74,6 +88,9 @@
     table.report { width: 100%; border-collapse: collapse; background: #fff; border-radius: 12px; overflow: hidden; font-size: 15px; }
     table.report th, table.report td { padding: 8px 10px; text-align: left; border-bottom: 1px solid #eee; vertical-align: top; }
     table.report th { background: #1e3a5f; color: #fff; }
+    table.report details.pos summary { cursor: pointer; list-style: none; color: #2f6fed; font-weight: 600; user-select: none; }
+    table.report details.pos[open] summary { margin-bottom: 4px; }
+    table.report .pos-list div { padding: 2px 0; }
     .overdue { border-left: 6px solid #d64545; }
     .summary { display: flex; flex-wrap: wrap; gap: 8px; }
     .summary .chip { font-size: 16px; padding: 8px 14px; }
@@ -87,6 +104,7 @@
     .wcard { background: #f2f4f7; border-radius: 10px; padding: 6px 8px; margin-bottom: 6px; cursor: pointer; overflow: hidden; border-left: 4px solid transparent; }
     .wcard.todo-dirty { background: #ffe9c2; border-left-color: #e8a13a; }
     .wcard.todo-nodirty { background: #f8d7da; border-left-color: #c0392b; }
+    .wcard.nolinen { background: #eceff1; border-left-color: #90a4ae; opacity: .75; }
     .wcard.todo-clean { background: #d4edda; border-left-color: #28a745; }
     .wcard.doing { background: #cfe3ff; border-left-color: #1d4e9e; }
     .wcard.partial { background: #ffe9a8; border-left-color: #e8b400; }
@@ -156,9 +174,10 @@ function api(fnName) {
 }
 function showOffline() { document.getElementById('offlineBanner').classList.add('show'); }
 function hideOffline() { document.getElementById('offlineBanner').classList.remove('show'); }
-function toast(msg) {
+function toast(msg, isErr) {
   var t = document.getElementById('toast');
   t.textContent = msg; t.classList.add('show');
+  t.classList.toggle('err', !!isErr);
   setTimeout(function () { t.classList.remove('show'); }, 2500);
 }
 function backToPin() {
@@ -182,6 +201,30 @@ function busy(btn, text) {
 function unbusy(btn) {
   btn.disabled = false;
   btn.textContent = btn.dataset.label || btn.textContent;
+}
+
+// Диалог перехода к произвольной дате; go(dateStr) вызывается с выбранной датой
+function openDateJump(go, current) {
+  showDialog('<h2>Перейти к дате</h2>' +
+    '<div class="row"><input type="date" id="jumpDate" value="' + esc(current || state.date) + '"></div>' +
+    '<div class="actions"><button class="btn btn-ghost" id="dlgCancel">Отмена</button>' +
+    '<button class="btn btn-primary" id="dlgGo">Перейти</button></div>');
+  document.getElementById('dlgCancel').onclick = hideDialog;
+  document.getElementById('dlgGo').onclick = function () {
+    var v = document.getElementById('jumpDate').value;
+    if (!v) return;
+    hideDialog();
+    go(v);
+  };
+}
+
+// Подтверждение деструктивного действия
+function confirmDialog(text, okLabel, onOk) {
+  showDialog('<h2>' + esc(text) + '</h2>' +
+    '<div class="actions"><button class="btn btn-ghost" id="dlgCancel">Отмена</button>' +
+    '<button class="btn btn-danger" id="dlgOk">' + esc(okLabel) + '</button></div>');
+  document.getElementById('dlgCancel').onclick = hideDialog;
+  document.getElementById('dlgOk').onclick = function () { onOk(); };
 }
 
 // ===== Вход =====
@@ -211,7 +254,11 @@ function renderPin() {
 
 // ===== Список дня =====
 var STATUS_LABELS = { planned: 'К стирке', in_progress: 'В работе', done: 'Готово', stored: 'На складе', partial: 'Частично',
+  no_linen: 'Нет белья', ready_clean: 'Чистое на складе',
   delivered: 'Выдано', picked: 'Забрано', both: 'Выдано + забрано', empty: 'Ничего нет', cancelled: 'Отменено' };
+
+// 'HH:MM' из 'yyyy-MM-dd HH:mm:ss' (пустая строка, если формата нет)
+function timeOf(s) { return (s || '').length >= 16 ? String(s).slice(11, 16) : ''; }
 
 function loadDay(date) {
   if (date) state.date = date;
@@ -246,7 +293,6 @@ function renderDay() {
   var day = state.day;
   var shiftClosed = day.shift && day.shift.status === 'closed';
   var html = '<div class="app-header"><h1>' + esc(day.laundryName || 'Прачка360') + '</h1>' +
-    '<div class="date-nav"><button id="prevDay">‹</button><span>' + esc(state.date) + '</span><button id="nextDay">›</button></div>' +
     '<div class="spacer"></div>' +
     (shiftClosed
       ? '<span class="chip chip-done">Смена закрыта в ' + esc(day.shift.closed_at) + '</span>'
@@ -254,12 +300,17 @@ function renderDay() {
     '<button class="btn btn-ghost" id="logoutBtn">Выход</button></div>' +
     ownerTabs('day') +
     '<div class="container">' +
+    '<div class="date-nav"><button id="prevDay">‹</button><button class="date-jump" id="dateJump">' + esc(state.date) + '</button><button id="nextDay">›</button>' +
+    (state.date !== state.today ? '<button class="today-btn" id="todayBtn">Сегодня</button>' : '') + '</div>' +
     '<div id="washList"></div>' +
     '<button class="btn btn-primary btn-big" id="addWashBtn">+ Добавить стирку</button></div>';
   document.getElementById('app').innerHTML = html;
 
   document.getElementById('prevDay').onclick = function () { shiftDate(-1); };
   document.getElementById('nextDay').onclick = function () { shiftDate(1); };
+  document.getElementById('dateJump').onclick = function () { openDateJump(loadDay); };
+  var todayBtn = document.getElementById('todayBtn');
+  if (todayBtn) todayBtn.onclick = function () { loadDay(state.today); };
   document.getElementById('logoutBtn').onclick = function () {
     api('logout', state.token).finally(backToPin);
   };
@@ -273,22 +324,26 @@ function renderDay() {
 function renderWashList() {
   var washes = state.day.washes || [];
   var cols = [
-    { key: 'todo', title: 'К стирке', match: function (w) { return w.status === 'planned'; } },
+    { key: 'todo', title: 'К стирке', match: function (w) { return w.status === 'planned' || w.status === 'no_linen'; } },
     { key: 'doing', title: 'В работе', match: function (w) { return w.status === 'in_progress'; } },
-    { key: 'done', title: 'Готово', match: function (w) { return w.status === 'done' || w.status === 'stored' || w.status === 'partial'; } }
+    { key: 'done', title: 'Готово', match: function (w) { return w.status === 'done' || w.status === 'stored' || w.status === 'partial' || w.status === 'ready_clean'; } }
   ];
   var cardHtml = function (w) {
     var meta = [];
     if (w.dirty_weight_kg !== '' && w.dirty_weight_kg != null) meta.push(w.dirty_weight_kg + ' кг');
     if (w.items_total !== '' && w.items_total != null) meta.push(w.items_total + ' шт');
+    if (Number(w.bags) > 0) meta.push(w.bags + ' меш.');
     if (w.status === 'stored') meta.push('выдача ' + esc(w.issue_date));
     var cls = '';
     if (w.status === 'in_progress') cls = ' doing';
     else if (w.status === 'partial') cls = ' partial';
-    else if (w.status === 'done' || w.status === 'stored') cls = ' done';
+    else if (w.status === 'done' || w.status === 'stored' || w.status === 'ready_clean') cls = ' done';
+    else if (w.status === 'no_linen') cls = ' nolinen';
     else if (w.status === 'planned') cls = w.has_dirty ? ' todo-dirty' : (w.has_clean ? ' todo-clean' : ' todo-nodirty');
     return '<div class="wcard' + cls + '" data-id="' + w.id + '">' +
       '<div class="nm">' + esc(w.client_name) + '</div>' +
+      (w.status === 'no_linen' ? '<div class="cm">🔴 Белья нет · ✓ проверено ' + timeOf(w.done_at) + '</div>' : '') +
+      (w.status === 'ready_clean' ? '<div class="cm">🟢 Чистое бельё · ✓ проверено ' + timeOf(w.done_at) + '</div>' : '') +
       (w.status === 'planned' ? '<div class="cm">' +
         (w.has_dirty ? 'Есть грязное — можно в работу' : (w.has_clean ? 'Бельё уже чистое' : 'Нет белья на складе')) + '</div>' : '') +
       (w.deferred_from ? '<div class="cm">⤷ с ' + esc(w.deferred_from) + '</div>' : '') +
@@ -299,12 +354,20 @@ function renderWashList() {
       '</div>';
   };
   document.getElementById('washList').innerHTML =
+    '<input class="search-input" id="washSearch" placeholder="Поиск по клиенту…">' +
     '<div class="day-board">' + cols.map(function (col) {
       var list = washes.filter(col.match);
       return '<div class="week-col"><h3>' + col.title + ' (' + list.length + ')</h3>' +
         (list.length ? list.map(cardHtml).join('') : '<div class="cm" style="text-align:center;padding:6px">—</div>') +
         '</div>';
     }).join('') + '</div>';
+  document.getElementById('washSearch').oninput = function () {
+    var q = this.value.trim().toLowerCase();
+    Array.prototype.forEach.call(document.querySelectorAll('#washList .wcard'), function (c) {
+      var nm = c.querySelector('.nm').textContent.toLowerCase();
+      c.style.display = !q || nm.indexOf(q) !== -1 ? '' : 'none';
+    });
+  };
   Array.prototype.forEach.call(document.querySelectorAll('#washList .wcard'), function (c) {
     c.onclick = function () { renderWashCard(c.dataset.id); };
   });
@@ -334,16 +397,24 @@ function renderWashCard(id) {
   // «В работу» доступна, когда грязное есть по системе или рабочий его подтвердил.
   // «Проверить на складе» — диалог с тремя вариантами: подтвердить текущее
   // состояние или изменить на любое из двух других.
-  if (w.status === 'planned') {
+  if (w.status === 'planned' || w.status === 'no_linen') {
     var dirtyOk = w.has_dirty || (state.checkedDirty || {})[id];
+    if (w.status === 'no_linen') {
+      html += '<div class="meta">🔴 Белья нет — проверено в ' + timeOf(w.done_at) + '.</div>';
+    }
     if (dirtyOk) {
       html += '<div class="row"><button class="btn btn-primary btn-big" id="startBtn">В работу</button></div>';
-    } else if (w.has_clean) {
+    } else if (w.status === 'planned' && w.has_clean) {
       html += '<div class="meta">Грязного нет. На складе уже есть чистое бельё этого клиента.</div>';
-    } else {
+    } else if (w.status === 'planned') {
       html += '<div class="meta">Грязного белья этого клиента на складе нет — стирать нечего.</div>';
     }
     html += '<div class="row"><button class="btn btn-ghost btn-big" id="checkStorageBtn">Проверить на складе</button></div>';
+  }
+
+  if (w.status === 'ready_clean') {
+    html += '<div class="meta">🟢 Чистое бельё уже на складе — проверено в ' + timeOf(w.done_at) +
+      '. Стирать не нужно, клиент готов к развозу.</div>';
   }
 
   // Шаг 2: вес чистого + пересчёт (в работе или правка завершённой)
@@ -353,9 +424,15 @@ function renderWashCard(id) {
         '<div class="row"><div class="stepper">' +
         '<button data-w="-1">−1</button><button data-w="-0.1">−0.1</button>' +
         '<div class="val" id="weightVal">' + (weight || 0) + '</div>' +
-        '<button data-w="0.1">+0.1</button><button data-w="1">+1</button><button data-w="5">+5</button></div></div>';
+        '<button data-w="0.1">+0.1</button><button data-w="1">+1</button><button data-w="5">+5</button></div></div>' +
+        '<div class="meta">Мешков получилось:</div>' +
+        '<div class="row"><div class="stepper">' +
+        '<button data-b="-1">−</button>' +
+        '<div class="val" id="bagsVal">' + ((state.bags || {})[id] || 0) + '</div>' +
+        '<button data-b="1">+</button></div></div>';
     } else {
-      html += '<div class="meta">Вес: <b>' + esc(w.dirty_weight_kg) + ' кг</b></div>';
+      html += '<div class="meta">Вес: <b>' + esc(w.dirty_weight_kg) + ' кг</b>' +
+        (Number(w.bags) > 0 ? ' · Мешков: <b>' + esc(w.bags) + '</b>' : '') + '</div>';
     }
     html += '</div><div class="card"><h2>Пересчёт чистого</h2><div id="countList">' +
       types.map(function (t) {
@@ -384,14 +461,14 @@ function renderWashCard(id) {
   document.getElementById('backBtn').onclick = renderDay;
 
   // В работу — без веса (грязное есть по системе или подтверждено рабочим)
-  if (w.status === 'planned') {
+  if (w.status === 'planned' || w.status === 'no_linen') {
     var startBtn = document.getElementById('startBtn');
     if (startBtn) startBtn.onclick = function () {
       busy(startBtn, 'Сохраняем…');
       api('startWash', state.token, id).then(function () {
         toast('В работе ✓');
         loadDay(); // возвращаемся на доску цеха
-      }).catch(function (e) { unbusy(startBtn); toast(e.message); });
+      }).catch(function (e) { unbusy(startBtn); toast(e.message, true); });
     };
     var checkBtn = document.getElementById('checkStorageBtn');
     if (checkBtn) checkBtn.onclick = function () { openStorageCheck(w); };
@@ -405,6 +482,14 @@ function renderWashCard(id) {
         var next = Math.max(0, Math.round((cur + parseFloat(b.dataset.w)) * 10) / 10);
         document.getElementById('weightVal').textContent = next;
         state.weights[id] = next;
+      };
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('[data-b]'), function (b) {
+      b.onclick = function () {
+        var cur = parseInt(document.getElementById('bagsVal').textContent, 10) || 0;
+        var next = Math.max(0, cur + parseInt(b.dataset.b, 10));
+        document.getElementById('bagsVal').textContent = next;
+        (state.bags = state.bags || {})[id] = next;
       };
     });
   }
@@ -449,14 +534,15 @@ function loadDayAndCard(id) {
 function confirmComplete(w) {
   var counts = state.counts[w.id] || {};
   var kg = state.weights[w.id] != null ? state.weights[w.id] : (parseFloat(w.dirty_weight_kg) || 0);
-  if (kg <= 0) return toast('Укажите вес чистого белья');
+  if (kg <= 0) return toast('Укажите вес чистого белья', true);
+  var bags = (state.bags || {})[w.id] || 0;
   var types = {};
   (state.day.itemTypes || []).forEach(function (t) { types[t.id] = t.name; });
   var lines = countsToItems(counts).map(function (it) {
     return '<div>' + esc(types[it.item_type_id] || it.item_type_id) + ' ×' + it.qty + '</div>';
   }).join('');
   showDialog('<h2>Завершить стирку?</h2>' +
-    '<div class="meta"><b>' + esc(w.client_name) + '</b> · ' + esc(kg) + ' кг</div>' +
+    '<div class="meta"><b>' + esc(w.client_name) + '</b> · ' + esc(kg) + ' кг · ' + bags + ' меш.</div>' +
     (lines || '<div class="meta">Позиций нет</div>') +
     '<div class="meta" style="margin-top:8px">Итого: <b>' + totalQty(counts) + ' шт</b></div>' +
     '<div class="row" style="margin-top:8px">' +
@@ -469,21 +555,24 @@ function confirmComplete(w) {
   okBtn.onclick = function () {
     busy(okBtn, 'Завершаем…');
     var mode = document.querySelector('input[name="wmode"]:checked').value;
-    api('completeWash', state.token, w.id, countsToItems(counts), kg, mode).then(function (res) {
+    api('completeWash', state.token, w.id, countsToItems(counts), kg, mode, bags).then(function (res) {
       delete state.counts[w.id];
       delete state.weights[w.id];
+      if (state.bags) delete state.bags[w.id];
       hideDialog();
       toast(res.wash.status === 'partial' ? 'Частично завершено: чистое на складе' :
         res.wash.status === 'stored' ? 'Стирка завершена ✓ бельё на склад' : 'Стирка завершена ✓');
       loadDay();
-    }).catch(function (e) { hideDialog(); toast(e.message); });
+    }).catch(function (e) { hideDialog(); toast(e.message, true); });
   };
 }
 
 // Проверка склада: три варианта в любом состоянии — подтвердить текущее
 // или изменить на одно из двух других.
 function openStorageCheck(w) {
-  var current = w.has_dirty || (state.checkedDirty || {})[w.id] ? 'has_dirty'
+  var current = w.status === 'no_linen' ? 'no_dirty'
+    : w.status === 'ready_clean' ? 'already_clean'
+    : w.has_dirty || (state.checkedDirty || {})[w.id] ? 'has_dirty'
     : w.has_clean ? 'already_clean' : 'no_dirty';
   var LABELS = {
     has_dirty: 'Есть грязное бельё',
@@ -515,7 +604,7 @@ function openStorageCheck(w) {
           toast('Подтверждено ✓');
           loadDay(); // стирка снята — назад на доску
         }
-      }).catch(function (e) { unbusy(b); toast(e.message); });
+      }).catch(function (e) { unbusy(b); toast(e.message, true); });
     };
   });
 }
@@ -530,11 +619,11 @@ function confirmEdit(w) {
   var okBtn = document.getElementById('dlgOk');
   okBtn.onclick = function () {
     busy(okBtn, 'Сохраняем…');
-    api('editWashData', state.token, w.id, w.dirty_weight_kg, countsToItems(counts))
+    api('editWashData', state.token, w.id, w.dirty_weight_kg, countsToItems(counts), w.bags)
       .then(function () {
         delete state.counts[w.id];
         hideDialog(); toast('Данные обновлены ✓'); loadDayAndCard(w.id);
-      }).catch(function (e) { hideDialog(); toast(e.message); });
+      }).catch(function (e) { hideDialog(); toast(e.message, true); });
   };
 }
 
@@ -564,7 +653,7 @@ function openDefer(w) {
     busy(okBtn, 'Переносим…');
     api('deferWash', state.token, w.id, newDate, document.getElementById('deferReason').value)
       .then(function () { hideDialog(); toast('Стирка перенесена ✓'); loadDay(); })
-      .catch(function (e) { hideDialog(); toast(e.message); });
+      .catch(function (e) { hideDialog(); toast(e.message, true); });
   };
 }
 
@@ -585,7 +674,7 @@ function openAddWash() {
     api('addUnplannedWash', state.token, document.getElementById('addClient').value,
         document.getElementById('addComment').value)
       .then(function () { hideDialog(); toast('Стирка добавлена ✓'); loadDay(); })
-      .catch(function (e) { hideDialog(); toast(e.message); });
+      .catch(function (e) { hideDialog(); toast(e.message, true); });
   };
 }
 
@@ -622,9 +711,9 @@ function openShiftClose() {
       busy(okBtn, 'Закрываем…');
       api('closeShift', state.token).then(function () {
         hideDialog(); toast('Смена закрыта ✓'); loadDay();
-      }).catch(function (e) { hideDialog(); toast(e.message); });
+      }).catch(function (e) { hideDialog(); toast(e.message, true); });
     };
-  }).catch(function (e) { toast(e.message); });
+  }).catch(function (e) { toast(e.message, true); });
 }
 
 // ===== Экран водителя =====
@@ -649,10 +738,11 @@ function loadDriver(date) {
 function renderDriver() {
   var route = state.route;
   var html = '<div class="app-header"><h1>' + esc(route.laundryName || 'Прачка360') + '</h1>' +
-    '<div class="date-nav"><button id="prevDay">‹</button><span>' + esc(state.date) + '</span><button id="nextDay">›</button></div>' +
     '<div class="spacer"></div>' +
     '<button class="btn btn-ghost" id="logoutBtn">Выход</button></div>' +
-    '<div class="container">';
+    '<div class="container">' +
+    '<div class="date-nav"><button id="prevDay">‹</button><button class="date-jump" id="dateJump">' + esc(state.date) + '</button><button id="nextDay">›</button>' +
+    (state.date !== state.today ? '<button class="today-btn" id="todayBtn">Сегодня</button>' : '') + '</div>';
   if (!route.visits.length) {
     html += '<div class="empty">На ' + esc(state.date) + ' развоза нет</div>';
   } else {
@@ -673,6 +763,9 @@ function renderDriver() {
   document.getElementById('app').innerHTML = html;
   document.getElementById('prevDay').onclick = function () { loadDriver(shiftDateStr(state.date, -1)); };
   document.getElementById('nextDay').onclick = function () { loadDriver(shiftDateStr(state.date, 1)); };
+  document.getElementById('dateJump').onclick = function () { openDateJump(loadDriver); };
+  var todayBtn = document.getElementById('todayBtn');
+  if (todayBtn) todayBtn.onclick = function () { loadDriver(state.today); };
   document.getElementById('logoutBtn').onclick = function () {
     api('logout', state.token).finally(backToPin);
   };
@@ -703,7 +796,7 @@ function openDriverVisit(v) {
       busy(b, '…');
       api('driverVisit', state.token, v.id, b.dataset.act)
         .then(function () { hideDialog(); toast('Отмечено ✓'); loadDriver(state.date); })
-        .catch(function (e) { hideDialog(); toast(e.message); loadDriver(state.date); });
+        .catch(function (e) { hideDialog(); toast(e.message, true); loadDriver(state.date); });
     };
   });
 }
@@ -750,61 +843,91 @@ function appShell(title, tab, containerHtml, wide) {
 }
 function setContainer(html) { document.querySelector('.container').innerHTML = html; }
 
-// ===== Развоз на завтра (визиты) =====
-function renderDelivery() {
-  var date = shiftDateStr(state.today, 1);
-  appShell('Развоз на ' + date, 'delivery', '<div class="empty">Загружаем…</div>');
+// ===== Развоз (визиты) =====
+function renderDelivery(date) {
+  var tomorrow = shiftDateStr(state.today, 1);
+  if (!date) date = tomorrow;
+  appShell('Развоз', 'delivery', '<div class="empty">Загружаем…</div>');
   api('getDeliveryVisits', state.token, date).then(function (res) {
-    var html = '';
+    var addrByClient = {};
+    res.clients.forEach(function (c) { addrByClient[c.id] = c.address; });
+
+    var html = '<div class="date-nav"><button id="dlPrev">‹</button>' +
+      '<button class="date-jump" id="dlJump">' + esc(date) + '</button>' +
+      '<button id="dlNext">›</button>' +
+      (date !== tomorrow ? '<button class="today-btn" id="dlTomorrow">Завтра</button>' : '') + '</div>';
+
     if (res.notReady && res.notReady.length) {
       var REASONS = { washing_incomplete: 'стирка не завершена', partial: 'стирка частичная', no_clean: 'нет чистого белья' };
       html += '<div class="blockers"><b>⚠ Не готовы к развозу:</b>' + res.notReady.map(function (n) {
-        return '<div class="meta">' + esc(n.client_name) + ' — ' + (REASONS[n.reason] || n.reason) + '</div>';
+        return '<div class="brow">' + esc(n.client_name) + ' <span class="why">— ' + (REASONS[n.reason] || n.reason) + '</span></div>';
       }).join('') + '</div>';
     }
+
     html += '<h2>Визиты (' + res.visits.length + ')</h2>' +
       (res.visits.length ? res.visits.map(function (v) {
         var meta = [];
+        if (addrByClient[v.client_id]) meta.push(esc(addrByClient[v.client_id]));
         if (v.has_clean) meta.push('✨ чистое: ' + v.clean_kg + ' кг / ' + v.clean_items + ' шт');
         if (v.has_dirty) meta.push('🧺 грязное в цеху');
-        return '<div class="card"><div class="client">' + esc(v.client_name) + '</div>' +
-          (meta.length ? '<div class="meta">' + meta.join(' · ') + '</div>' : '') +
-          '<div class="row">' +
+        return '<div class="vrow"><div class="nm">' + esc(v.client_name) +
+          (meta.length ? '<div class="cm">' + meta.join(' · ') + '</div>' : '') + '</div>' +
           (v.status === 'planned'
-            ? '<button class="btn btn-danger" data-rm="' + v.id + '">Убрать</button>'
+            ? '<button class="rm" data-rm="' + v.id + '" data-name="' + esc(v.client_name) + '" title="Убрать из развоза">✕</button>'
             : '<span class="chip chip-' + v.status + '">' + (STATUS_LABELS[v.status] || v.status) + '</span>') +
-          '</div></div>';
+          '</div>';
       }).join('') : '<div class="empty">Развоз пуст — добавьте клиентов ниже или на «Неделе»</div>');
+
     var inDelivery = {};
     res.visits.forEach(function (v) { inDelivery[v.client_id] = 1; });
     var available = res.clients.filter(function (c) { return !inDelivery[c.id]; });
-    html += '<h2>Клиенты</h2>' + (available.length ? available.map(function (c) {
-      return '<div class="card"><div class="client">' + esc(c.name) + '</div>' +
-        '<div class="meta">' + esc(c.type) + (c.storage === 'да' ? ' · складской клиент' : '') + '</div>' +
-        '<div class="row"><button class="btn btn-primary" data-add="' + c.id + '">+ В развоз</button></div></div>';
-    }).join('') : '<div class="empty">Все активные клиенты уже в развозе</div>');
+    html += '<h2>Добавить</h2>' +
+      '<input class="search-input" id="dlSearch" placeholder="Начните вводить имя клиента…">' +
+      '<div id="dlResults"></div>';
     setContainer(html);
+
+    document.getElementById('dlPrev').onclick = function () { renderDelivery(shiftDateStr(date, -1)); };
+    document.getElementById('dlNext').onclick = function () { renderDelivery(shiftDateStr(date, 1)); };
+    document.getElementById('dlJump').onclick = function () { openDateJump(renderDelivery, date); };
+    var dlTomorrow = document.getElementById('dlTomorrow');
+    if (dlTomorrow) dlTomorrow.onclick = function () { renderDelivery(); };
+
+    function renderResults() {
+      var q = document.getElementById('dlSearch').value.trim().toLowerCase();
+      var box = document.getElementById('dlResults');
+      if (!q) { box.innerHTML = ''; return; }
+      var found = available.filter(function (c) { return c.name.toLowerCase().indexOf(q) !== -1; });
+      box.innerHTML = found.length ? found.map(function (c) {
+        return '<div class="vrow"><div class="nm">' + esc(c.name) +
+          '<div class="cm">' + esc(c.type) + (c.address ? ' · ' + esc(c.address) : '') +
+          (c.storage === 'да' ? ' · складской клиент' : '') + '</div></div>' +
+          '<button class="add" data-add="' + c.id + '" title="Добавить в развоз">+</button></div>';
+      }).join('') : '<div class="empty" style="padding:16px 0">Никого не найдено</div>';
+      Array.prototype.forEach.call(box.querySelectorAll('[data-add]'), function (b) {
+        b.onclick = function () {
+          busy(b, '…');
+          api('addDeliveryVisit', state.token, b.dataset.add, date)
+            .then(function () { toast('Добавлено в развоз ✓'); renderDelivery(date); })
+            .catch(function (e) { unbusy(b); toast(e.message, true); });
+        };
+      });
+    }
+    document.getElementById('dlSearch').oninput = renderResults;
 
     Array.prototype.forEach.call(document.querySelectorAll('[data-rm]'), function (b) {
       b.onclick = function () {
-        busy(b, '…');
-        api('removeDeliveryVisit', state.token, b.dataset.rm)
-          .then(function () { toast('Убрано'); renderDelivery(); })
-          .catch(function (e) { unbusy(b); toast(e.message); });
-      };
-    });
-    Array.prototype.forEach.call(document.querySelectorAll('[data-add]'), function (b) {
-      b.onclick = function () {
-        busy(b, '…');
-        api('addDeliveryVisit', state.token, b.dataset.add, date)
-          .then(function () { toast('Добавлено в развоз ✓'); renderDelivery(); })
-          .catch(function (e) { unbusy(b); toast(e.message); });
+        confirmDialog('Убрать «' + b.dataset.name + '» из развоза?', 'Убрать', function () {
+          busy(document.getElementById('dlgOk'), '…');
+          api('removeDeliveryVisit', state.token, b.dataset.rm)
+            .then(function () { hideDialog(); toast('Убрано'); renderDelivery(date); })
+            .catch(function (e) { hideDialog(); toast(e.message, true); });
+        });
       };
     });
   }).catch(function (e) {
     setContainer('<div class="empty">Не удалось загрузить развоз: ' + esc(e.message) + '</div>' +
       '<button class="btn btn-primary btn-big" id="dlRetry">Повторить</button>');
-    document.getElementById('dlRetry').onclick = renderDelivery;
+    document.getElementById('dlRetry').onclick = function () { renderDelivery(date); };
   });
 }
 
@@ -883,7 +1006,7 @@ function openWeekAdd(date, clients, cards) {
       chain = chain.then(function () { return api('addWeekCard', state.token, cid, date); });
     });
     chain.then(function () { hideDialog(); toast('Добавлено: ' + ids.length + ' ✓'); renderWeek(); })
-      .catch(function (e) { hideDialog(); toast(e.message); renderWeek(); });
+      .catch(function (e) { hideDialog(); toast(e.message, true); renderWeek(); });
   };
 }
 
@@ -910,13 +1033,15 @@ function openWeekCard(c, days) {
       busy(b, '…');
       api('moveWeekCard', state.token, c.id, b.dataset.mv)
         .then(function () { hideDialog(); toast('Перенесено ✓'); renderWeek(); })
-        .catch(function (e) { hideDialog(); toast(e.message); });
+        .catch(function (e) { hideDialog(); toast(e.message, true); });
     };
   });
   document.getElementById('wcDel').onclick = function () {
-    api('removeWeekCard', state.token, c.id)
-      .then(function () { hideDialog(); toast('Убрано'); renderWeek(); })
-      .catch(function (e) { hideDialog(); toast(e.message); });
+    confirmDialog('Убрать карточку «' + c.client_name + '» из недели?', 'Убрать', function () {
+      api('removeWeekCard', state.token, c.id)
+        .then(function () { hideDialog(); toast('Убрано'); renderWeek(); })
+        .catch(function (e) { hideDialog(); toast(e.message, true); });
+    });
   };
 }
 
@@ -933,17 +1058,17 @@ function renderStorage() {
     var clean = [];
     res.stored.forEach(function (w) {
       clean.push({ kind: 'clean', id: w.id, client_name: w.client_name,
-        kg: w.dirty_weight_kg, total: w.items_total, items: w.items || [], issue_date: w.issue_date });
+        kg: w.dirty_weight_kg, total: w.items_total, bags: Number(w.bags) || 0, items: w.items || [], issue_date: w.issue_date });
     });
     (res.cleanReady || []).forEach(function (s) {
       clean.push({ kind: 'clean', id: s.wash_id, client_name: s.client_name,
-        kg: s.weight_kg, total: s.items_total, items: [], issue_date: s.issue_date || '' });
+        kg: s.weight_kg, total: s.items_total, bags: Number(s.bags) || 0, items: [], issue_date: s.issue_date || '' });
     });
     clean.sort(function (a, b) { return a.issue_date < b.issue_date ? -1 : 1; });
 
     var partial = (res.partialClean || []).map(function (s) {
       return { kind: 'partial', id: s.id, client_name: s.client_name,
-        kg: s.weight_kg, total: s.items_total, since: (s.created_at || '').slice(0, 10) };
+        kg: s.weight_kg, total: s.items_total, bags: Number(s.bags) || 0, since: (s.created_at || '').slice(0, 10) };
     });
     var dirty = (res.dirty || []).map(function (s) {
       return { kind: 'dirty', id: s.id, client_name: s.client_name,
@@ -952,7 +1077,7 @@ function renderStorage() {
 
     function metaOf(e) {
       if (e.kind === 'dirty') return '🧺 Принято: ' + esc(e.since) + ' · ждёт стирки';
-      var m = (e.kg || 0) + ' кг · ' + (e.total || 0) + ' шт';
+      var m = (e.kg || 0) + ' кг · ' + (e.total || 0) + ' шт' + (e.bags > 0 ? ' · ' + e.bags + ' меш.' : '');
       if (e.kind === 'partial') return m + ' · с ' + esc(e.since);
       var overdue = e.issue_date && e.issue_date < state.today;
       return m + ' · Выдача: <b>' + esc(e.issue_date) + '</b>' +
@@ -967,9 +1092,18 @@ function renderStorage() {
     }
 
     setContainer(
+      '<input class="search-input" id="stSearch" placeholder="Поиск по клиенту…">' +
       '<h1>Чистое бельё</h1>' + (cardsHtml(clean, 'st-clean') || '<div class="empty">Чистого белья нет</div>') +
       (partial.length ? '<h1 style="margin-top:16px">Остатки частичных стирок</h1>' + cardsHtml(partial, 'st-partial') : '') +
       '<h1 style="margin-top:16px">Грязное бельё</h1>' + (cardsHtml(dirty, 'st-dirty') || '<div class="empty">Грязного белья нет</div>'));
+
+    document.getElementById('stSearch').oninput = function () {
+      var q = this.value.trim().toLowerCase();
+      Array.prototype.forEach.call(document.querySelectorAll('[data-sec]'), function (c) {
+        var nm = c.querySelector('.nm').textContent.toLowerCase();
+        c.style.display = !q || nm.indexOf(q) !== -1 ? '' : 'none';
+      });
+    };
 
     var bySec = { clean: clean, partial: partial, dirty: dirty };
     Array.prototype.forEach.call(document.querySelectorAll('[data-sec]'), function (el) {
@@ -988,7 +1122,8 @@ function openStorageCard(e, types) {
       '<div class="meta">Вес и количество появятся после стирки.</div>' +
       '<div class="actions"><button class="btn btn-ghost" id="dlgCancel">Назад</button></div>';
   } else if (e.kind === 'partial') {
-    html += '<div class="meta">Обработано частично: <b>' + (e.kg || 0) + ' кг · ' + (e.total || 0) + ' шт</b></div>' +
+    html += '<div class="meta">Обработано частично: <b>' + (e.kg || 0) + ' кг · ' + (e.total || 0) + ' шт' +
+      (e.bags > 0 ? ' · ' + e.bags + ' меш.' : '') + '</b></div>' +
       '<div class="meta">На складе с ' + esc(e.since) + '. Клиент НЕ готов к развозу — вернуть в стирку решает владелец.</div>' +
       '<div class="actions"><button class="btn btn-ghost" id="dlgCancel">Назад</button></div>';
   } else {
@@ -996,7 +1131,8 @@ function openStorageCard(e, types) {
       return esc(types[it.item_type_id] || it.item_type_id) + ' ×' + it.qty;
     }).join(', ');
     var overdue = e.issue_date && e.issue_date < state.today;
-    html += '<div class="meta"><b>' + (e.kg || 0) + ' кг · ' + (e.total || 0) + ' шт</b></div>' +
+    html += '<div class="meta"><b>' + (e.kg || 0) + ' кг · ' + (e.total || 0) + ' шт' +
+      (e.bags > 0 ? ' · ' + e.bags + ' меш.' : '') + '</b></div>' +
       (positions ? '<div class="meta">' + positions + '</div>' : '') +
       '<div class="meta">Выдача: <b>' + esc(e.issue_date) + '</b>' +
       (overdue ? ' · <span class="overdue">просрочена!</span>' : '') + '</div>' +
@@ -1009,10 +1145,12 @@ function openStorageCard(e, types) {
 
   var issueBtn = document.getElementById('stIssue');
   if (issueBtn) issueBtn.onclick = function () {
-    busy(issueBtn, 'Сохраняем…');
-    api('markIssued', state.token, e.id)
-      .then(function () { hideDialog(); toast('Выдано ✓'); renderStorage(); })
-      .catch(function (err) { unbusy(issueBtn); toast(err.message); });
+    confirmDialog('Отметить выдачу клиенту «' + e.client_name + '»?', 'Выдано', function () {
+      busy(document.getElementById('dlgOk'), 'Сохраняем…');
+      api('markIssued', state.token, e.id)
+        .then(function () { hideDialog(); toast('Выдано ✓'); renderStorage(); })
+        .catch(function (err) { hideDialog(); toast(err.message, true); });
+    });
   };
   var editBtn = document.getElementById('stEditDate');
   if (editBtn) editBtn.onclick = function () {
@@ -1026,7 +1164,7 @@ function openStorageCard(e, types) {
       busy(okBtn, 'Сохраняем…');
       api('updateIssueDate', state.token, e.id, document.getElementById('newIssue').value)
         .then(function () { hideDialog(); toast('Дата обновлена ✓'); renderStorage(); })
-        .catch(function (err) { hideDialog(); toast(err.message); });
+        .catch(function (err) { hideDialog(); toast(err.message, true); });
     };
   };
 }
@@ -1038,8 +1176,10 @@ function renderReport(date) {
     var r = res.report;
     var html = '<div class="card"><div class="row" style="margin-top:0">' +
       '<button class="btn btn-ghost" id="repPrev">‹</button>' +
-      '<div style="text-align:center;font-weight:700;font-size:20px">' + esc(r.date) + '</div>' +
+      '<div style="text-align:center;font-weight:700;font-size:20px">' +
+      '<button class="date-jump" id="repJump" style="font-size:20px">' + esc(r.date) + '</button></div>' +
       '<button class="btn btn-ghost" id="repNext">›</button></div>' +
+      (r.date !== state.today ? '<div class="row"><button class="today-btn" id="repToday" style="flex:none">Сегодня</button></div>' : '') +
       '<div class="summary" style="margin-top:12px">' +
       '<span class="chip chip-done">' + r.totalKg + ' кг</span>' +
       '<span class="chip chip-done">Завершено: ' + r.washesDone + '</span>' +
@@ -1059,12 +1199,17 @@ function renderReport(date) {
     });
     html += rows.length ? '<table class="report"><tr><th>Клиент</th><th>Кг</th><th>Позиции</th><th>Шт</th><th>Статус</th><th></th></tr>' +
       rows.map(function (w) {
-        var positions = (w.items || []).map(function (it) { return esc(it.item_name) + ' ×' + it.qty; }).join(', ');
+        var items = w.items || [];
+        var positions = items.length
+          ? '<details class="pos"><summary>▸ ' + items.length + ' поз.</summary><div class="pos-list">' +
+            items.map(function (it) { return '<div>' + esc(it.item_name) + ' ×' + it.qty + '</div>'; }).join('') +
+            '</div></details>'
+          : '—';
         var canEdit = w.status === 'done' || w.status === 'stored' || w.status === 'partial';
         return '<tr><td>' + esc(w.client_name) +
           (w.deferred_from ? '<br><span class="chip chip-deferred">с ' + esc(w.deferred_from) + '</span>' : '') + '</td>' +
-          '<td>' + (w.dirty_weight_kg || '—') + '</td><td>' + (positions || '—') + '</td>' +
-          '<td>' + (w.items_total || '—') + '</td>' +
+          '<td>' + (w.dirty_weight_kg || '—') + '</td><td>' + positions + '</td>' +
+          '<td>' + (w.items_total || '—') + (Number(w.bags) > 0 ? ' · ' + w.bags + ' меш.' : '') + '</td>' +
           '<td>' + (STATUS_LABELS[w.status] || w.status) + '</td>' +
           '<td>' + (canEdit ? '<button class="btn btn-ghost" data-edit="' + w.id + '">Изменить</button>' : '') + '</td></tr>';
       }).join('') + '</table>' : '<div class="empty">Стирок не было</div>';
@@ -1072,6 +1217,9 @@ function renderReport(date) {
 
     document.getElementById('repPrev').onclick = function () { renderReport(shiftDateStr(date, -1)); };
     document.getElementById('repNext').onclick = function () { renderReport(shiftDateStr(date, 1)); };
+    document.getElementById('repJump').onclick = function () { openDateJump(renderReport, date); };
+    var repToday = document.getElementById('repToday');
+    if (repToday) repToday.onclick = function () { renderReport(state.today); };
     Array.prototype.forEach.call(document.querySelectorAll('[data-edit]'), function (b) {
       b.onclick = function () {
         var w = res.washes.find(function (x) { return x.id === b.dataset.edit; });
@@ -1087,7 +1235,8 @@ function openEditDialog(w, onSaved) {
   var counts = {};
   (w.items || []).forEach(function (it) { counts[it.item_type_id] = it.qty; });
   showDialog('<h2>Изменить данные: ' + esc(w.client_name) + '</h2>' +
-    '<div class="row"><span>Вес, кг</span><input type="number" step="0.1" min="0" id="editWeight" value="' + (w.dirty_weight_kg || 0) + '"></div>' +
+    '<div class="row"><span>Вес, кг</span><input type="number" inputmode="decimal" step="0.1" min="0" id="editWeight" value="' + (w.dirty_weight_kg || 0) + '"></div>' +
+    '<div class="row"><span>Мешков</span><input type="number" inputmode="numeric" step="1" min="0" id="editBags" value="' + (w.bags || 0) + '"></div>' +
     types.map(function (t) {
       return '<div class="item-row"><span class="name">' + esc(t.name) + '</span>' +
         '<div class="stepper"><button data-t="' + t.id + '" data-d="-1">−</button>' +
@@ -1110,9 +1259,10 @@ function openEditDialog(w, onSaved) {
     var items = Object.keys(counts).filter(function (k) { return counts[k] > 0; })
       .map(function (k) { return { item_type_id: k, qty: counts[k] }; });
     var kg = parseFloat(document.getElementById('editWeight').value) || 0;
-    api('editWashData', state.token, w.id, kg, items)
+    var bags = parseInt(document.getElementById('editBags').value, 10) || 0;
+    api('editWashData', state.token, w.id, kg, items, bags)
       .then(function () { hideDialog(); toast('Данные обновлены ✓'); onSaved(); })
-      .catch(function (e) { hideDialog(); toast(e.message); });
+      .catch(function (e) { hideDialog(); toast(e.message, true); });
   };
 }
 
@@ -1155,7 +1305,7 @@ function renderRefs() {
         busy(b, 'Архивируем…');
         api('deleteClient', state.token, b.dataset.carch)
           .then(function () { toast('Клиент в архиве'); renderRefs(); })
-          .catch(function (e) { unbusy(b); toast(e.message); });
+          .catch(function (e) { unbusy(b); toast(e.message, true); });
       };
     });
     document.getElementById('addTypeBtn').onclick = function () { openTypeForm(null); };
@@ -1169,7 +1319,7 @@ function renderRefs() {
         busy(b, 'Сохраняем…');
         api('saveItemType', state.token, { id: b.dataset.ttoggle, active: b.dataset.active === 'да' ? 'нет' : 'да' })
           .then(function () { renderRefs(); })
-          .catch(function (e) { unbusy(b); toast(e.message); });
+          .catch(function (e) { unbusy(b); toast(e.message, true); });
       };
     });
   }).catch(function (e) { setContainer('<div class="empty">' + esc(e.message) + '</div>'); });
@@ -1209,7 +1359,7 @@ function openClientForm(c) {
     if (c.id) payload.id = c.id;
     api('saveClient', state.token, payload)
       .then(function () { hideDialog(); toast('Сохранено ✓'); renderRefs(); })
-      .catch(function (e) { hideDialog(); toast(e.message); });
+      .catch(function (e) { hideDialog(); toast(e.message, true); });
   };
 }
 
@@ -1228,7 +1378,7 @@ function openTypeForm(t) {
     if (t) payload.id = t.id;
     api('saveItemType', state.token, payload)
       .then(function () { hideDialog(); toast('Сохранено ✓'); renderRefs(); })
-      .catch(function (e) { hideDialog(); toast(e.message); });
+      .catch(function (e) { hideDialog(); toast(e.message, true); });
   };
 }
 
