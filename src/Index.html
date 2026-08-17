@@ -128,6 +128,14 @@
     /* Дневная доска цеха: К стирке / В работе / Готово */
     .day-board { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; align-items: start; margin-bottom: 12px; }
     @media (max-width: 520px) { .day-board { grid-template-columns: 1fr; } }
+    /* Режим «по строкам»: клиент держит свою строку, в пустых ячейках призрак */
+    .day-board.rows { align-items: stretch; }
+    .day-board.rows .col-head { font-size: 13px; font-weight: 700; text-align: center; background: #e4e9ee; border-radius: 8px; padding: 6px; }
+    .wcard.ghost { background: transparent; border-left: 4px solid transparent; outline: 1px dashed #c4ccd6; color: #9aa5b1; cursor: default; }
+    .wcard.ghost .nm { font-weight: 400; }
+    .view-toggle { display: inline-flex; gap: 4px; margin-left: 8px; vertical-align: middle; }
+    .view-toggle button { border: 1px solid #c4ccd6; background: #fff; border-radius: 6px; padding: 4px 8px; font-size: 13px; cursor: pointer; }
+    .view-toggle button.on { background: #2f6fed; border-color: #2f6fed; color: #fff; }
   </style>
 </head>
 <body>
@@ -353,14 +361,40 @@ function renderWashList() {
       (w.status === 'partial' ? '<div class="cm">⚠ Частично — клиент не готов</div>' : '') +
       '</div>';
   };
-  document.getElementById('washList').innerHTML =
-    '<input class="search-input" id="washSearch" placeholder="Поиск по клиенту…">' +
-    '<div class="day-board">' + cols.map(function (col) {
+  var viewMode = localStorage.getItem('cl_wash_view') === 'rows' ? 'rows' : 'list';
+  var colIdx = function (w) { return cols.findIndex(function (c) { return c.match(w); }); };
+  var boardHtml;
+  if (viewMode === 'rows') {
+    // Вариант 1: каждый клиент держит свою строку, карточка «переезжает»
+    // по горизонтали; в пустых ячейках призрак с именем и колонкой назначения.
+    var arrows = ['→ к стирке', '→ в работе', '→ готово'];
+    boardHtml = '<div class="day-board rows">' +
+      cols.map(function (col) { return '<div class="col-head">' + col.title + '</div>'; }).join('') +
+      washes.map(function (w) {
+        var active = colIdx(w);
+        return cols.map(function (col, i) {
+          if (i === active) return cardHtml(w);
+          return '<div class="wcard ghost"><div class="nm">' + esc(w.client_name) + '</div>' +
+            '<div class="cm">' + arrows[active] + '</div></div>';
+        }).join('');
+      }).join('') + '</div>';
+  } else {
+    // Вариант 0: каждая колонка — простой список, карточки подряд сверху.
+    boardHtml = '<div class="day-board">' + cols.map(function (col) {
       var list = washes.filter(col.match);
       return '<div class="week-col"><h3>' + col.title + ' (' + list.length + ')</h3>' +
         (list.length ? list.map(cardHtml).join('') : '<div class="cm" style="text-align:center;padding:6px">—</div>') +
         '</div>';
     }).join('') + '</div>';
+  }
+  document.getElementById('washList').innerHTML =
+    '<input class="search-input" id="washSearch" placeholder="Поиск по клиенту…">' +
+    '<div class="view-toggle">' +
+    '<button id="viewListBtn" class="' + (viewMode === 'list' ? 'on' : '') + '" title="Списки по колонкам">☰ Списком</button>' +
+    '<button id="viewRowsBtn" class="' + (viewMode === 'rows' ? 'on' : '') + '" title="Клиент держит свою строку">⇄ По строкам</button>' +
+    '</div>' + boardHtml;
+  document.getElementById('viewListBtn').onclick = function () { localStorage.setItem('cl_wash_view', 'list'); renderWashList(); };
+  document.getElementById('viewRowsBtn').onclick = function () { localStorage.setItem('cl_wash_view', 'rows'); renderWashList(); };
   document.getElementById('washSearch').oninput = function () {
     var q = this.value.trim().toLowerCase();
     Array.prototype.forEach.call(document.querySelectorAll('#washList .wcard'), function (c) {
@@ -368,7 +402,7 @@ function renderWashList() {
       c.style.display = !q || nm.indexOf(q) !== -1 ? '' : 'none';
     });
   };
-  Array.prototype.forEach.call(document.querySelectorAll('#washList .wcard'), function (c) {
+  Array.prototype.forEach.call(document.querySelectorAll('#washList .wcard:not(.ghost)'), function (c) {
     c.onclick = function () { renderWashCard(c.dataset.id); };
   });
 }
