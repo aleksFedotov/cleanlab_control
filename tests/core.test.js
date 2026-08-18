@@ -108,7 +108,7 @@ test('агрегаты отчёта за день (spec §8.2)', () => {
   assert.strictEqual(r.washesDone, 4);
   assert.strictEqual(r.deferred, 1);
   assert.strictEqual(r.cancelled, 1);
-  assert.strictEqual(r.stored, 1);
+  assert.strictEqual(r.stored, 2); // done + stored (issued не считается — уже выдано)
   assert.strictEqual(r.issued, 1); // только issued_at внутри даты
 });
 

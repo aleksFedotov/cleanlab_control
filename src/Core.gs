@@ -109,7 +109,9 @@ function buildDayReport_(date, washes, logEvents) {
         doneCount++;
       }
       if (w.status === 'cancelled') cancelled++;
-      if (w.status === 'stored') stored++;
+      // «Ушло на склад»: чистое done/stored/partial физически лежит на складе
+      // (issued сюда не входит — его уже отдали клиенту)
+      if (['done', 'stored', 'partial'].indexOf(w.status) !== -1) stored++;
     }
     // Выдано: issued_at внутри даты
     if (w.status === 'issued' && String(w.issued_at || '').indexOf(date) === 0) issued++;

@@ -942,6 +942,14 @@ function renderDriver() {
         : '') + '</div>';
   }
 
+  // Массовое действие: взять чистое сразу по всем точкам, где оно есть на складе
+  var toTake = route.visits.filter(function (v) {
+    return v.status === 'planned' && v.has_clean && !v.clean_taken_at;
+  });
+  if (toTake.length >= 2) {
+    html += '<div class="row"><button class="btn btn-primary btn-big" id="takeAllBtn">📦 Взять всё чистое со склада (' + toTake.length + ' точек)</button></div>';
+  }
+
   if (!route.visits.length) {
     html += '<div class="empty">На ' + esc(state.date) + ' развоза нет</div>';
   } else {
@@ -987,6 +995,18 @@ function renderDriver() {
     confirmDialog('Передать всё грязное бельё на склад?', 'Передать', function () {
       api('driverHandover', state.token).then(function (res) {
         toast('Передано на склад: ' + res.handed + ' ✓');
+        loadDriver(state.date);
+      }).catch(function (e) { toast(e.message, true); });
+    });
+  };
+  var takeAllBtn = document.getElementById('takeAllBtn');
+  if (takeAllBtn) takeAllBtn.onclick = function () {
+    var n = route.visits.filter(function (v) {
+      return v.status === 'planned' && v.has_clean && !v.clean_taken_at;
+    }).length;
+    confirmDialog('Взять чистое бельё для ' + n + ' точек?', 'Да, взял', function () {
+      api('driverTakeAllClean', state.token, state.date).then(function (res) {
+        toast('Взято: ' + res.taken + ' точек, ' + res.bags + ' меш. ✓');
         loadDriver(state.date);
       }).catch(function (e) { toast(e.message, true); });
     });
@@ -1057,7 +1077,7 @@ function openDriverVisit(v) {
 // ===== Экран владельца: вкладки =====
 function ownerTabs(active) {
   if (state.role !== 'owner') return '';
-  var tabs = [['day', 'Цех'], ['delivery', 'Развоз'], ['week', 'Неделя'], ['storage', 'Склад'], ['report', 'Отчёт'], ['refs', 'Справочники']];
+  var tabs = [['day', 'Стирка'], ['delivery', 'Сегодня'], ['week', 'План'], ['storage', 'Склад'], ['report', 'Отчёт'], ['refs', 'Справочники']];
   return '<div class="tabs">' + tabs.map(function (t) {
     return '<button data-view="' + t[0] + '"' + (t[0] === active ? ' class="active"' : '') + '>' + t[1] + '</button>';
   }).join('') + '</div>';
@@ -1096,19 +1116,29 @@ function appShell(title, tab, containerHtml, wide) {
 }
 function setContainer(html) { document.querySelector('.container').innerHTML = html; }
 
-// ===== Развоз (визиты) =====
+// ===== Сегодня (развоз дня): контроль готовности, не планировщик =====
 function renderDelivery(date) {
-  var tomorrow = shiftDateStr(state.today, 1);
-  if (!date) date = tomorrow;
-  appShell('Развоз', 'delivery', '<div class="empty">Загружаем…</div>');
+  if (!date) date = state.today;
+  appShell('Сегодня', 'delivery', '<div class="empty">Загружаем…</div>');
   api('getDeliveryVisits', state.token, date).then(function (res) {
     var addrByClient = {};
     res.clients.forEach(function (c) { addrByClient[c.id] = c.address; });
+    var notReadyByClient = {};
+    (res.notReady || []).forEach(function (n) { notReadyByClient[n.client_id] = n.reason; });
+    var readyCnt = res.visits.filter(function (v) { return v.has_clean; }).length;
 
     var html = '<div class="date-nav"><button id="dlPrev">‹</button>' +
-      '<button class="date-jump" id="dlJump">' + esc(date) + '</button>' +
+      '<button class="date-jump" id="dlJump">' + esc(formatDateRu(date)) + '</button>' +
       '<button id="dlNext">›</button>' +
-      (date !== tomorrow ? '<button class="today-btn" id="dlTomorrow">Завтра</button>' : '') + '</div>';
+      (date !== state.today ? '<button class="today-btn" id="dlToday">Сегодня</button>' : '') + '</div>';
+
+    if (res.visits.length) {
+      html += '<div class="meta" style="margin-bottom:8px">' +
+        ((res.notReady || []).length
+          ? '⚠ <b>' + res.notReady.length + ' из ' + res.visits.length + '</b> не готовы · '
+          : '') +
+        '<b>' + readyCnt + '</b> готовы к развозу</div>';
+    }
 
     if (res.notReady && res.notReady.length) {
       var REASONS = { washing_incomplete: 'стирка не завершена', partial: 'стирка частичная', no_clean: 'нет чистого белья' };
@@ -1121,15 +1151,20 @@ function renderDelivery(date) {
       (res.visits.length ? res.visits.map(function (v) {
         var meta = [];
         if (addrByClient[v.client_id]) meta.push(esc(addrByClient[v.client_id]));
-        if (v.has_clean) meta.push('✨ чистое: ' + v.clean_kg + ' кг / ' + v.clean_items + ' шт');
+        if (v.clean_taken_at) meta.push('🚚 чистое у водителя');
+        else if (v.has_clean) meta.push('✨ чистое: ' + v.clean_kg + ' кг / ' + v.clean_items + ' шт');
         if (v.has_dirty) meta.push('🧺 грязное в цеху');
-        return '<div class="vrow"><div class="nm">' + esc(v.client_name) +
+        var icon = v.status !== 'planned' ? ''
+          : notReadyByClient[v.client_id] ? '🔴 '
+          : v.clean_taken_at ? '🚚 '
+          : v.has_clean ? '🟢 ' : '⚪ ';
+        return '<div class="vrow"><div class="nm">' + icon + esc(v.client_name) +
           (meta.length ? '<div class="cm">' + meta.join(' · ') + '</div>' : '') + '</div>' +
           (v.status === 'planned'
             ? '<button class="rm" data-rm="' + v.id + '" data-name="' + esc(v.client_name) + '" title="Убрать из развоза">✕</button>'
             : '<span class="chip chip-' + v.status + '">' + (STATUS_LABELS[v.status] || v.status) + '</span>') +
           '</div>';
-      }).join('') : '<div class="empty">Развоз пуст — добавьте клиентов ниже или на «Неделе»</div>');
+      }).join('') : '<div class="empty">Развоз пуст — добавьте клиентов ниже или на вкладке «План»</div>');
 
     var inDelivery = {};
     res.visits.forEach(function (v) { inDelivery[v.client_id] = 1; });
@@ -1142,8 +1177,8 @@ function renderDelivery(date) {
     document.getElementById('dlPrev').onclick = function () { renderDelivery(shiftDateStr(date, -1)); };
     document.getElementById('dlNext').onclick = function () { renderDelivery(shiftDateStr(date, 1)); };
     document.getElementById('dlJump').onclick = function () { openDateJump(renderDelivery, date); };
-    var dlTomorrow = document.getElementById('dlTomorrow');
-    if (dlTomorrow) dlTomorrow.onclick = function () { renderDelivery(); };
+    var dlToday = document.getElementById('dlToday');
+    if (dlToday) dlToday.onclick = function () { renderDelivery(); };
 
     function renderResults() {
       var q = document.getElementById('dlSearch').value.trim().toLowerCase();
@@ -1184,7 +1219,7 @@ function renderDelivery(date) {
   });
 }
 
-// ===== Неделя (канбан выдачи) =====
+// ===== План на неделю (канбан выдачи) =====
 var WEEKDAYS = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
 function mondayOfStr(dateStr) {
   var p = dateStr.split('-').map(Number);
@@ -1193,7 +1228,7 @@ function mondayOfStr(dateStr) {
 }
 function renderWeek() {
   if (!state.weekMonday) state.weekMonday = mondayOfStr(state.today);
-  appShell('Неделя', 'week', '<div class="empty">Загружаем…</div>', true);
+  appShell('План', 'week', '<div class="empty">Загружаем…</div>', true);
   api('getWeekPlan', state.token, state.weekMonday).then(function (res) {
     state.weekMonday = res.monday;
     var html = '<div class="row" style="margin-top:0">' +
@@ -1522,25 +1557,49 @@ function openStorageCard(e, types) {
 }
 
 // ===== Отчёт за день =====
+var MONTHS_RU = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня',
+  'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
+function formatDateRu(dateStr) {
+  var p = dateStr.split('-').map(Number);
+  return p[2] + ' ' + MONTHS_RU[p[1] - 1] + ' ' + p[0];
+}
+
+// Группа статуса для фильтра отчёта
+function reportGroup(w) {
+  if (w.status === 'cancelled') return 'cancelled';
+  if (w.deferred_from) return 'deferred';
+  if (['planned', 'no_linen', 'in_progress'].indexOf(w.status) !== -1) return 'todo';
+  return 'done'; // done/stored/issued/partial/ready_clean
+}
+function statusIcon(w) {
+  var g = reportGroup(w);
+  var label = STATUS_LABELS[w.status] || w.status;
+  if (g === 'cancelled') return '⚪ ' + label;
+  if (g === 'deferred') return '🟠 Перенесено';
+  if (g === 'todo') return w.status === 'in_progress' ? '🔵 ' + label : '🟠 ' + label;
+  if (w.status === 'partial') return '🟡 ' + label;
+  return '🟢 ' + label;
+}
+
 function renderReport(date) {
   appShell('Отчёт за день', 'report', '<div class="empty">Загружаем…</div>');
   api('getDayReport', state.token, date).then(function (res) {
     var r = res.report;
+    state.repFilter = state.repFilter || 'all';
     var html = '<div class="card"><div class="row" style="margin-top:0">' +
       '<button class="btn btn-ghost" id="repPrev">‹</button>' +
       '<div style="text-align:center;font-weight:700;font-size:20px">' +
-      '<button class="date-jump" id="repJump" style="font-size:20px">' + esc(r.date) + '</button></div>' +
+      '<button class="date-jump" id="repJump" style="font-size:20px">' + esc(formatDateRu(r.date)) + '</button></div>' +
       '<button class="btn btn-ghost" id="repNext">›</button></div>' +
       (r.date !== state.today ? '<div class="row"><button class="today-btn" id="repToday" style="flex:none">Сегодня</button></div>' : '') +
-      '<div class="summary" style="margin-top:12px">' +
-      '<span class="chip chip-done">' + r.totalKg + ' кг</span>' +
-      '<span class="chip chip-done">Завершено: ' + r.washesDone + '</span>' +
-      '<span class="chip chip-deferred">Перенесено: ' + r.deferred + '</span>' +
-      '<span class="chip chip-planned">Отменено: ' + r.cancelled + '</span>' +
-      '<span class="chip chip-stored">На складе: ' + r.stored + '</span>' +
-      '<span class="chip chip-planned">Выдано: ' + r.issued + '</span>' +
-      (res.shift ? '<span class="chip ' + (res.shift.status === 'closed' ? 'chip-done' : 'chip-in_progress') + '">Смена: ' +
-        (res.shift.status === 'closed' ? 'закрыта в ' + esc(res.shift.closed_at) : 'открыта') + '</span>' : '') +
+      '<div class="dash" style="margin-top:12px">' +
+      '<div class="dash-tile"><div class="dash-n" style="color:#1c6b2a">' + r.totalKg + '</div><div class="dash-l">кг постирано</div></div>' +
+      '<div class="dash-tile"><div class="dash-n" style="color:#1c6b2a">' + r.washesDone + '</div><div class="dash-l">завершено</div></div>' +
+      '<div class="dash-tile"><div class="dash-n" style="color:#e8a13a">' + r.deferred + '</div><div class="dash-l">перенесено</div></div>' +
+      '<div class="dash-tile"><div class="dash-n" style="color:#c0392b">' + r.cancelled + '</div><div class="dash-l">отменено</div></div>' +
+      '</div>' +
+      '<div class="meta">Ушло на склад: <b>' + r.stored + '</b> · Выдано: <b>' + r.issued + '</b>' +
+      (res.shift ? ' · Смена: <b>' + (res.shift.status === 'closed' ? 'закрыта в ' + esc(res.shift.closed_at) : 'открыта') + '</b>' : '') +
       '</div></div>';
 
     // Завершённые и прочие сверху, незавершённые — внизу (spec §7.3)
@@ -1549,21 +1608,19 @@ function renderReport(date) {
       var openB = b.status === 'planned' || b.status === 'in_progress' ? 1 : 0;
       return openA - openB;
     });
-    html += rows.length ? '<table class="report"><tr><th>Клиент</th><th>Кг</th><th>Позиции</th><th>Шт</th><th>Статус</th><th></th></tr>' +
-      rows.map(function (w) {
-        var items = w.items || [];
-        var positions = items.length
-          ? '<details class="pos"><summary>▸ ' + items.length + ' поз.</summary><div class="pos-list">' +
-            items.map(function (it) { return '<div>' + esc(it.item_name) + ' ×' + it.qty + '</div>'; }).join('') +
-            '</div></details>'
-          : '—';
-        var canEdit = w.status === 'done' || w.status === 'stored' || w.status === 'partial';
-        return '<tr><td>' + esc(w.client_name) +
-          (w.deferred_from ? '<br><span class="chip chip-deferred">с ' + esc(w.deferred_from) + '</span>' : '') + '</td>' +
-          '<td>' + (w.dirty_weight_kg || '—') + '</td><td>' + positions + '</td>' +
-          '<td>' + (w.items_total || '—') + (Number(w.bags) > 0 ? ' · ' + w.bags + ' меш.' : '') + '</td>' +
-          '<td>' + (STATUS_LABELS[w.status] || w.status) + '</td>' +
-          '<td>' + (canEdit ? '<button class="btn btn-ghost" data-edit="' + w.id + '">Изменить</button>' : '') + '</td></tr>';
+    html += '<div class="view-toggle" style="margin:0 0 10px">' +
+      [['all', 'Все'], ['done', 'Завершено'], ['todo', 'К стирке'], ['deferred', 'Перенесено'], ['cancelled', 'Отменено']].map(function (f) {
+        return '<button data-rfilter="' + f[0] + '" class="' + (state.repFilter === f[0] ? 'on' : '') + '">' + f[1] + '</button>';
+      }).join('') + '</div>';
+    html += rows.length ? '<table class="report"><tr><th>Клиент</th><th>Вес</th><th>Бельё</th><th>Кол-во</th><th>Статус</th><th>Причина</th></tr>' +
+      rows.map(function (w, i) {
+        var kinds = (w.items || []).length;
+        return '<tr data-group="' + reportGroup(w) + '" data-i="' + i + '" style="cursor:pointer"><td>' + esc(w.client_name) + '</td>' +
+          '<td>' + (w.dirty_weight_kg ? w.dirty_weight_kg + ' кг' : '—') + '</td>' +
+          '<td>' + (kinds ? kinds + ' видов' : '—') + '</td>' +
+          '<td>' + (w.items_total ? w.items_total + ' шт.' : '—') + (Number(w.bags) > 0 ? ' · ' + w.bags + ' меш.' : '') + '</td>' +
+          '<td>' + statusIcon(w) + '</td>' +
+          '<td>' + (w.deferred_from ? 'с ' + esc(w.deferred_from) + (w.deferred_reason ? ': ' + esc(w.deferred_reason) : '') : '—') + '</td></tr>';
       }).join('') + '</table>' : '<div class="empty">Стирок не было</div>';
     setContainer(html);
 
@@ -1572,13 +1629,53 @@ function renderReport(date) {
     document.getElementById('repJump').onclick = function () { openDateJump(renderReport, date); };
     var repToday = document.getElementById('repToday');
     if (repToday) repToday.onclick = function () { renderReport(state.today); };
-    Array.prototype.forEach.call(document.querySelectorAll('[data-edit]'), function (b) {
+
+    Array.prototype.forEach.call(document.querySelectorAll('[data-rfilter]'), function (b) {
       b.onclick = function () {
-        var w = res.washes.find(function (x) { return x.id === b.dataset.edit; });
-        openEditDialog(w, function () { renderReport(date); });
+        state.repFilter = b.dataset.rfilter;
+        Array.prototype.forEach.call(document.querySelectorAll('[data-rfilter]'), function (x) {
+          x.className = x.dataset.rfilter === state.repFilter ? 'on' : '';
+        });
+        Array.prototype.forEach.call(document.querySelectorAll('table.report tr[data-group]'), function (tr) {
+          tr.style.display = state.repFilter === 'all' || tr.dataset.group === state.repFilter ? '' : 'none';
+        });
       };
     });
+    // Применить текущий фильтр (при переходе по датам он сохраняется)
+    if (state.repFilter !== 'all') {
+      Array.prototype.forEach.call(document.querySelectorAll('table.report tr[data-group]'), function (tr) {
+        tr.style.display = tr.dataset.group === state.repFilter ? '' : 'none';
+      });
+    }
+
+    // Клик по строке → детали стирки (+ правка для завершённых)
+    Array.prototype.forEach.call(document.querySelectorAll('table.report tr[data-i]'), function (tr) {
+      tr.onclick = function () { openReportRow(rows[Number(tr.dataset.i)], date); };
+    });
   }).catch(function (e) { setContainer('<div class="empty">' + esc(e.message) + '</div>'); });
+}
+
+// Детали строки отчёта: позиции построчно, правка для завершённых
+function openReportRow(w, date) {
+  var canEdit = w.status === 'done' || w.status === 'stored' || w.status === 'partial';
+  var lines = (w.items || []).map(function (it) {
+    return '<div class="item-row"><span class="name">' + esc(it.item_name) + '</span><span>×' + it.qty + '</span></div>';
+  }).join('');
+  showDialog('<h2>' + esc(w.client_name) + '</h2>' +
+    '<div class="meta">' + statusIcon(w) + (w.deferred_from ? ' · с ' + esc(w.deferred_from) : '') + '</div>' +
+    '<div class="meta"><b>' + (w.dirty_weight_kg ? w.dirty_weight_kg + ' кг' : '—') +
+    (w.items_total ? ' · ' + w.items_total + ' шт.' : '') +
+    (Number(w.bags) > 0 ? ' · ' + w.bags + ' меш.' : '') + '</b></div>' +
+    (w.deferred_reason ? '<div class="meta">Причина переноса: ' + esc(w.deferred_reason) + '</div>' : '') +
+    (lines || '<div class="meta">Позиций нет</div>') +
+    (canEdit ? '<div class="row"><button class="btn btn-primary btn-big" id="rowEdit">Изменить данные</button></div>' : '') +
+    '<div class="actions"><button class="btn btn-ghost" id="dlgCancel">Назад</button></div>');
+  document.getElementById('dlgCancel').onclick = hideDialog;
+  var editBtn = document.getElementById('rowEdit');
+  if (editBtn) editBtn.onclick = function () {
+    hideDialog();
+    openEditDialog(w, function () { renderReport(date); });
+  };
 }
 
 // Правка веса/пересчёта завершённой из отчёта (spec §7.3)

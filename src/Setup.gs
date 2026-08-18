@@ -91,12 +91,13 @@ function seedItemTypes_() {
 }
 
 // --- Демо-данные для ручной проверки user flow (запуск вручную из редактора GAS) ---
-// На каждый день текущей недели — 10 визитов развоза. Для сегодня/завтра
-// раскладываем состояния склада и стирок по всем случаям спеки:
-// чистое на складе, грязное на складе, пусто, стирки planned/in_progress/done/
-// partial/stored, «не готовы к развозу» всех трёх причин. Прошлые дни недели
-// закрыты финальными статусами визитов (delivered/picked/both/empty).
-// Идемпотентно: повторный запуск пропускается (флаг DEMO_SEEDED в Settings).
+// 5 развозов на каждый день текущей недели. Прошлые дни — выполненные
+// (финальные статусы визитов + стирки issued для отчёта). Сегодня — все
+// ключевые состояния цеха (planned/in_progress/done/partial/stored) и склада.
+// Завтра — случаи «не готовы к развозу». Идемпотентно (флаг DEMO_SEEDED).
+
+var DEMO_PER_DAY = 5;
+
 function seedDemoData() {
   return withLock_(function () {
     if (getSettings_().DEMO_SEEDED === 'да') {
@@ -104,15 +105,22 @@ function seedDemoData() {
       return 0;
     }
 
-    // Минимум 12 активных клиентов — при нехватке добиваем демо-клиентами
+    // Минимум 12 активных клиентов — при нехватке добиваем демо-клиентами.
+    // Первым трем задаём настройки новых фич: свои виды белья и режим учёта.
+    var CLIENT_TYPES = ['отель', 'ресторан', 'спа', 'прочее'];
     var clients = getClients_().filter(function (c) { return c.active === 'да'; });
     for (var i = clients.length + 1; i <= 12; i++) {
       var cid = 'cli_demo_' + i;
-      appendRow_(SHEETS.CLIENTS, {
+      var row = {
         id: cid, name: 'Демо-клиент ' + i, contact: '+7 900 000-00-' + (10 + i),
-        address: 'ул. Демонстрационная, ' + i, type: 'отель', storage: '',
-        active: 'да', comment: 'демо'
-      });
+        address: 'ул. Демонстрационная, ' + i, type: CLIENT_TYPES[i % CLIENT_TYPES.length],
+        storage: i % 3 === 0 ? 'да' : 'нет',
+        active: 'да', comment: '', item_types: '', accounting: ''
+      };
+      if (i === 1) row.item_types = JSON.stringify(['itm_1', 'itm_2', 'itm_4', 'itm_5']);
+      if (i === 2) row.accounting = 'weight';
+      if (i === 3) row.accounting = 'count';
+      appendRow_(SHEETS.CLIENTS, row);
       clients.push({ id: cid, active: 'да' });
     }
     invalidateRefCache_();
@@ -127,18 +135,18 @@ function seedDemoData() {
       if (v.status !== 'cancelled') have[v.client_id + '|' + v.date] = true;
     });
 
-    var FINAL = ['delivered', 'picked', 'both', 'empty'];
+    var FINAL = ['delivered', 'picked', 'both', 'empty', 'delivered'];
     var visitsByDate = {};
     var created = 0;
     for (var di = 0; di < 7; di++) {
       var d = addDaysStr_(mon, di);
       visitsByDate[d] = [];
-      for (var j = 0; j < 10; j++) {
-        var c = clients[(di * 10 + j) % clients.length];
+      for (var j = 0; j < DEMO_PER_DAY; j++) {
+        var c = clients[(di * DEMO_PER_DAY + j) % clients.length];
         visitsByDate[d].push(c.id);
         if (have[c.id + '|' + d]) continue;
         var past = d < today;
-        var st = past ? FINAL[j % FINAL.length] : 'planned';
+        var st = past ? FINAL[j] : 'planned';
         appendRow_(SHEETS.DELIVERIES, {
           id: nextId_(SHEETS.DELIVERIES, 'del'), date: d, client_id: c.id,
           ord: j + 1, status: st,
@@ -147,17 +155,34 @@ function seedDemoData() {
           driver_comment: '', created_by: 'seed', created_at: nowStr_()
         });
         created++;
+        // Прошлые дни: выданным визитам — выполненная стирка, чтобы отчёт не был пустым
+        if (past && (st === 'delivered' || st === 'both')) {
+          var wid = nextId_(SHEETS.WASHES, 'wash');
+          var kg = 10 + ((di * DEMO_PER_DAY + j) * 7) % 30;
+          appendRow_(SHEETS.WASHES, {
+            id: wid, client_id: c.id, wash_date: d, issue_date: d, status: 'issued',
+            dirty_weight_kg: kg, items_total: 20 + j * 4, comment: '',
+            created_by: 'seed', created_at: d + ' 08:00:00',
+            started_at: d + ' 09:00:00', done_at: d + ' 11:00:00', issued_at: d + ' 12:00:00',
+            deferred_from: '', deferred_reason: '', bags: 2 + (j % 3)
+          });
+          appendRow_(SHEETS.WASH_ITEMS, {
+            id: nextId_(SHEETS.WASH_ITEMS, 'wi'), wash_id: wid,
+            item_type_id: 'itm_' + (1 + (j % 3)), qty: 10 + j * 2
+          });
+        }
       }
     }
 
-    function mkWash(clientId, status, kg, items) {
+    function mkWash(clientId, status, kg, items, bags) {
       var doneLike = ['done', 'stored', 'issued', 'partial'].indexOf(status) !== -1;
       var w = {
         id: nextId_(SHEETS.WASHES, 'wash'), client_id: clientId,
         wash_date: today, issue_date: tomorrow, status: status,
-        dirty_weight_kg: '', items_total: items || '', comment: 'демо',
+        dirty_weight_kg: '', items_total: items || '', comment: '',
         created_by: 'seed', created_at: nowStr_(),
-        started_at: '', done_at: '', issued_at: '', deferred_from: '', deferred_reason: ''
+        started_at: '', done_at: '', issued_at: '', deferred_from: '', deferred_reason: '',
+        bags: bags || ''
       };
       if (status === 'in_progress' || doneLike) w.started_at = today + ' 09:00:00';
       if (doneLike) { w.done_at = today + ' 11:00:00'; w.dirty_weight_kg = kg || ''; }
@@ -172,30 +197,24 @@ function seedDemoData() {
       });
     }
 
-    // Сценарии для сегодняшних визитов (все случаи экрана работника и водителя)
+    // Сценарии для сегодняшних визитов: все ключевые состояния цеха
     var t = visitsByDate[today];
     mkStorage(t[0], 'dirty'); mkWash(t[0], 'planned');            // грязное ждёт стирки
-    mkWash(t[1], 'in_progress');                                   // стирка идёт (грязное уже забрано)
-    var wDone = mkWash(t[2], 'done', 18.5, 52);                    // постирано → чистое на складе
+    mkWash(t[1], 'in_progress');                                   // стирка идёт
+    var wDone = mkWash(t[2], 'done', 18.5, 52, 4);                 // постирано → чистое на складе
     mkStorage(t[2], 'clean', 18.5, 52, wDone);
-    appendRow_(SHEETS.WASH_ITEMS, { id: 'wi_demo_1', wash_id: wDone, item_type_id: 'itm_1', qty: 20 });
-    appendRow_(SHEETS.WASH_ITEMS, { id: 'wi_demo_2', wash_id: wDone, item_type_id: 'itm_2', qty: 32 });
-    var wPart = mkWash(t[3], 'partial', 7, 20);                    // частично: чистое есть, клиент НЕ готов
+    appendRow_(SHEETS.WASH_ITEMS, { id: nextId_(SHEETS.WASH_ITEMS, 'wi'), wash_id: wDone, item_type_id: 'itm_1', qty: 20 });
+    appendRow_(SHEETS.WASH_ITEMS, { id: nextId_(SHEETS.WASH_ITEMS, 'wi'), wash_id: wDone, item_type_id: 'itm_2', qty: 32 });
+    var wPart = mkWash(t[3], 'partial', 7, 20, 2);                 // частично: клиент НЕ готов
     mkStorage(t[3], 'clean', 7, 20, wPart);
-    // t[4]: ничего — ни чистого, ни грязного (случай empty)
-    mkStorage(t[5], 'clean', 11, 30);                              // чистое без стирки (накоплено)
-    mkStorage(t[6], 'clean', 9, 24);                               // водитель: выдать + забрать (both)
-    var wStored = mkWash(t[7], 'stored', 14, 38);                  // готово, лежит на складе
-    mkStorage(t[7], 'clean', 14, 38, wStored);
-    mkStorage(t[8], 'dirty');                                      // грязное есть, в стирку ещё не ставили
-    // t[9]: ничего
+    var wStored = mkWash(t[4], 'stored', 14, 38, 3);               // готово, лежит на складе
+    mkStorage(t[4], 'clean', 14, 38, wStored);
 
-    // «Не готовы к завтрашнему развозу» — все три причины
+    // «Не готовы к завтрашнему развозу»: стирка идёт и частичная
     var m = visitsByDate[tomorrow];
     mkWash(m[0], 'in_progress');                                   // washing_incomplete
-    var wPart2 = mkWash(m[1], 'partial', 5, 12);                   // partial
+    var wPart2 = mkWash(m[1], 'partial', 5, 12, 1);                // partial
     mkStorage(m[1], 'clean', 5, 12, wPart2);
-    // m[2]: намеренно без чистого — no_clean
 
     appendRow_(SHEETS.SETTINGS, { key: 'DEMO_SEEDED', value: 'да' });
     invalidateRefCache_();
@@ -203,4 +222,31 @@ function seedDemoData() {
     Logger.log('seedDemoData: создано визитов ' + created);
     return created;
   });
+}
+
+// Полная очистка данных (кроме Settings и заголовков). Запуск вручную из редактора.
+// PIN-коды и настройки не трогает — они в Script Properties и Settings.
+function wipeAllData() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  [SHEETS.CLIENTS, SHEETS.ITEM_TYPES, SHEETS.WASHES, SHEETS.WASH_ITEMS,
+   SHEETS.SHIFTS, SHEETS.DELIVERIES, SHEETS.STORAGE, SHEETS.LOG].forEach(function (name) {
+    var sh = ss.getSheetByName(name);
+    if (sh && sh.getLastRow() > 1) sh.deleteRows(2, sh.getLastRow() - 1);
+  });
+  // Сбросить флаг демо, чтобы seedDemoData можно было запустить заново
+  readAll_(SHEETS.SETTINGS).forEach(function (row) {
+    if (row.key === 'DEMO_SEEDED') {
+      var found = findRowsBy_(SHEETS.SETTINGS, function (r) { return r.key === 'DEMO_SEEDED'; }, 1)[0];
+      if (found) deleteRow_(SHEETS.SETTINGS, found.rowNumber);
+    }
+  });
+  invalidateRefCache_();
+  seedItemTypes_(); // вернуть стартовый справочник видов белья
+  Logger.log('wipeAllData: данные очищены');
+}
+
+// Очистить базу и заново заполнить демо-данными — одна кнопка.
+function resetDemoData() {
+  wipeAllData();
+  return seedDemoData();
 }

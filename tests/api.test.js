@@ -366,12 +366,12 @@ test('нормализация: даты из ячеек Sheets как Date на
 test('seedDemoData: неделя заполнена, все состояния user flow, идемпотентно', () => {
   const { ctx } = makeApiCtx();
   const created = ctx.seedDemoData(); // клиентов добьёт сам
-  assert.strictEqual(created, 70); // 7 дней × 10 визитов
+  assert.strictEqual(created, 35); // 7 дней × 5 визитов
   const owner = loginOwner(ctx);
 
-  // Неделя: по 10 карточек на день
+  // Неделя: по 5 карточек на день
   const week = ctx.getWeekPlan(owner, '2026-08-10');
-  week.days.forEach(d => assert.strictEqual(d.cards.length, 10, d.date));
+  week.days.forEach(d => assert.strictEqual(d.cards.length, 5, d.date));
 
   // Цех сегодня: стирки во всех ключевых статусах
   const day = ctx.getDayList(loginWorker(ctx), TODAY);
@@ -381,7 +381,7 @@ test('seedDemoData: неделя заполнена, все состояния u
 
   // Маршрут водителя: есть чистое, грязное и пустые клиенты
   const route = ctx.getDriverRoute(ctx.login('3333').token, TODAY);
-  assert.strictEqual(route.visits.length, 10);
+  assert.strictEqual(route.visits.length, 5);
   assert.ok(route.visits.some(v => v.has_clean));
   assert.ok(route.visits.some(v => v.has_dirty));
   assert.ok(route.visits.some(v => !v.has_clean && !v.has_dirty));
@@ -394,7 +394,7 @@ test('seedDemoData: неделя заполнена, все состояния u
 
   // Прошлые дни недели закрыты финальными статусами
   const monday = ctx.getDeliveryVisits(owner, '2026-08-10');
-  assert.ok(monday.visits.length === 10 && monday.visits.every(v => v.status !== 'planned'));
+  assert.ok(monday.visits.length === 5 && monday.visits.every(v => v.status !== 'planned'));
 
   // Повторный запуск ничего не создаёт
   assert.strictEqual(ctx.seedDemoData(), 0);
@@ -916,4 +916,65 @@ test('addUnplannedWash: не дублирует открытую стирку к
   ctx.startWash(owner, first.wash.id);
   ctx.completeWash(owner, first.wash.id, [], 5, 'full', 0);
   assert.ok(ctx.addUnplannedWash(owner, clientId, '').ok);
+});
+
+// resetDemoData: чистит данные и заполняет заново (5 визитов/день, прошлые дни выполнены).
+test('resetDemoData: очистка + повторный сид', () => {
+  const { ctx } = makeApiCtx();
+  assert.strictEqual(ctx.resetDemoData(), 35);
+  // Повторный seed без очистки — ничего не создаёт
+  assert.strictEqual(ctx.seedDemoData(), 0);
+  // А после wipe — снова заполняется
+  ctx.wipeAllData();
+  assert.strictEqual(ctx.seedDemoData(), 35);
+  // Прошлый понедельник: стирки issued попадают в отчёт (выдано в тот день)
+  const owner = loginOwner(ctx);
+  const rep = ctx.getDayReport(owner, '2026-08-10');
+  assert.ok(rep.ok);
+  assert.ok(rep.report.issued > 0);
+});
+
+test('driverTakeAllClean: массово берёт чистое по точкам дня', () => {
+  const { ctx } = makeApiCtx();
+  const owner = loginOwner(ctx);
+  const worker = loginWorker(ctx);
+  const driver = ctx.login('3333').token;
+  const c1 = seedClient(ctx);
+  const c2 = seedClient(ctx, { name: 'Клиент Б' });
+  const c3 = seedClient(ctx, { name: 'Клиент В' }); // без чистого на складе
+
+  // Чистое на складе у c1 и c2 через полный цикл стирки
+  [c1, c2].forEach((cid) => {
+    const washId = ctx.addToDelivery(owner, cid, TODAY, TOMORROW).wash.id;
+    ctx.startWash(worker, washId);
+    ctx.completeWash(worker, washId, [{ item_type_id: 'itm_1', qty: 5 }], 5, undefined, 3);
+  });
+
+  // Визиты на сегодня у всех троих
+  [c1, c2, c3].forEach((cid, i) => ctx.addDeliveryVisit(owner, cid, TODAY, i + 1));
+
+  const res = ctx.driverTakeAllClean(driver, TODAY);
+  assert.strictEqual(res.taken, 2);
+  assert.strictEqual(res.bags, 6);
+
+  // Склад больше не показывает чистое c1/c2 (у водителя)
+  const sum = ctx.storageSummaryByClient_();
+  assert.ok(!sum[c1] || sum[c1].clean === 0);
+  assert.ok(!sum[c2] || sum[c2].clean === 0);
+
+  // Визиты c1/c2 получили clean_taken_at и мешки, визит c3 не тронут
+  const route = ctx.getDriverRoute(driver, TODAY);
+  const byClient = {};
+  route.visits.forEach((v) => { byClient[v.client_id] = v; });
+  assert.ok(byClient[c1].clean_taken_at);
+  assert.strictEqual(Number(byClient[c1].clean_bags), 3);
+  assert.ok(byClient[c2].clean_taken_at);
+  assert.ok(!byClient[c3].clean_taken_at);
+
+  // Повторный вызов — ничего не берёт
+  const again = ctx.driverTakeAllClean(driver, TODAY);
+  assert.strictEqual(again.taken, 0);
+
+  // Работник не может
+  assert.ok(!ctx.driverTakeAllClean(worker, TODAY).ok);
 });

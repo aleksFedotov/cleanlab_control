@@ -32,6 +32,7 @@ class FakeSheet {
   }
   appendRow(row) { this.data.push(row.slice()); }
   deleteRow(rowNumber) { this.data.splice(rowNumber - 1, 1); }
+  deleteRows(row, howMany) { this.data.splice(row - 1, howMany); }
 }
 
 class FakeSpreadsheet {

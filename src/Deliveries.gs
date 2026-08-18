@@ -142,6 +142,48 @@ function getDriverRoute(token, date) {
 // deliver_clean — чистое отдано клиенту (стирки → issued, точка → delivered/both);
 // pickup_dirty  — грязное забрано к водителю (точка → picked/both, склад НЕ трогаем);
 // empty         — на точке ничего нет (только если чистое не взято).
+// Чистое со склада → водителю по конкретному визиту.
+// Возвращает кол-во мешков или null, если чистого на складе нет.
+// Мутирует v (clean_taken_at, clean_bags) — запись визита на диске делает вызывающий.
+function takeCleanForVisit_(v) {
+  var clean = openStorage_(v.client_id, 'clean');
+  if (!clean.length) return null;
+  var bags = 0;
+  clean.forEach(function (r) {
+    // Мешки хранятся на стирке, а не на складской записи
+    if (r.obj.wash_id) {
+      var w = findById_(SHEETS.WASHES, r.obj.wash_id);
+      if (w) bags += Number(w.obj.bags) || 0;
+    }
+    r.obj.consumed_at = 'driver'; // маркер «у водителя»: склад его больше не показывает
+    updateRow_(SHEETS.STORAGE, r.rowNumber, r.obj);
+  });
+  v.clean_taken_at = nowStr_();
+  v.clean_bags = bags;
+  return bags;
+}
+
+// Массово: взять чистое по всем открытым точкам дня, где оно есть на складе.
+function driverTakeAllClean(token, date) {
+  var role = requireRole_(token, ['driver', 'owner']);
+  if (!role) return err_('Нет доступа');
+  date = date || todayStr_();
+  return withLock_(function () {
+    var taken = 0, bags = 0;
+    findRowsBy_(SHEETS.DELIVERIES, function (v) {
+      return v.date === date && v.status === 'planned' && !v.clean_taken_at;
+    }, 1000).forEach(function (r) {
+      var b = takeCleanForVisit_(r.obj);
+      if (b === null) return; // чистого нет — точку пропускаем
+      updateRow_(SHEETS.DELIVERIES, r.rowNumber, r.obj);
+      taken++;
+      bags += b;
+    });
+    logEvent(role, 'take_all_clean', date, { points: taken, bags: bags });
+    return ok_({ taken: taken, bags: bags });
+  });
+}
+
 function driverAction(token, visitId, action) {
   var role = requireRole_(token, ['driver', 'owner']);
   if (!role) return err_('Нет доступа');
@@ -155,20 +197,7 @@ function driverAction(token, visitId, action) {
 
     if (action === 'take_clean') {
       if (v.clean_taken_at) return err_('Чистое уже взято');
-      var clean = openStorage_(v.client_id, 'clean');
-      if (!clean.length) return err_('Чистого белья на складе нет');
-      var bags = 0;
-      clean.forEach(function (r) {
-        // Мешки хранятся на стирке, а не на складской записи
-        if (r.obj.wash_id) {
-          var w = findById_(SHEETS.WASHES, r.obj.wash_id);
-          if (w) bags += Number(w.obj.bags) || 0;
-        }
-        r.obj.consumed_at = 'driver'; // маркер «у водителя»: склад его больше не показывает
-        updateRow_(SHEETS.STORAGE, r.rowNumber, r.obj);
-      });
-      v.clean_taken_at = nowStr_();
-      v.clean_bags = bags;
+      if (takeCleanForVisit_(v) === null) return err_('Чистого белья на складе нет');
     }
 
     if (action === 'deliver_clean') {
