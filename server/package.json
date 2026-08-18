@@ -1,0 +1,15 @@
+{
+  "name": "cleanlab-server",
+  "version": "0.1.0",
+  "private": true,
+  "description": "CleanLab Control (Прачка360) — VPS-бэкенд: Express + SQLite. Перенос с Google Apps Script.",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "test": "node --test \"test/*.test.js\""
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.10.0",
+    "express": "^4.21.2"
+  }
+}
