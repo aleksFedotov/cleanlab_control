@@ -90,6 +90,10 @@ function getDayList(token, date) {
         var s = storage[w.client_id] || { dirty: 0, clean: 0 };
         w.has_dirty = s.dirty > 0;
         w.has_clean = s.clean > 0;
+        // Настройки клиента: свой список белья и режим учёта (пусто = все типы / both)
+        var cl = clients[w.client_id] || {};
+        w.client_item_types = parseJsonList_(cl.item_types);
+        w.client_accounting = cl.accounting === 'weight' || cl.accounting === 'count' ? cl.accounting : 'both';
         return w;
       }),
       shift: shift ? shift.obj : null,
@@ -131,8 +135,10 @@ function completeWash(token, washId, items, weightKg, mode, bags) {
     var check = checkTransition_('complete', found && found.obj);
     if (!check.ok) return err_(check.error); // повторное завершение не дублирует WashItems
     var w = found.obj;
-    // Вес чистого белья обязателен при завершении
-    if (!(Number(weightKg) > 0)) return err_('Укажите вес чистого белья');
+    // Вес чистого белья обязателен при завершении, кроме клиентов с учётом «только количество»
+    var cl = findById_(SHEETS.CLIENTS, w.client_id);
+    var countOnly = cl && cl.obj.accounting === 'count';
+    if (!countOnly && !(Number(weightKg) > 0)) return err_('Укажите вес чистого белья');
     var valid = (items || []).filter(function (it) { return Number(it.qty) > 0; });
     var total = 0;
     valid.forEach(function (it) {
@@ -227,6 +233,12 @@ function addUnplannedWash(token, clientId, comment) {
   if (!role) return err_('Нет доступа');
   return withLock_(function () {
     var today = todayStr_();
+    // Не дублируем: у клиента уже есть открытая стирка на сегодня
+    var dup = findRowsBy_(SHEETS.WASHES, function (x) {
+      return x.client_id === clientId && x.wash_date === today &&
+        ['planned', 'no_linen', 'in_progress'].indexOf(x.status) !== -1;
+    }, 100).length;
+    if (dup) return err_('Стирка этого клиента уже в плане на сегодня');
     var w = {
       id: nextId_(SHEETS.WASHES, 'wash'), client_id: clientId,
       wash_date: today, issue_date: addDaysStr_(today, 1), status: 'planned',
@@ -605,6 +617,15 @@ function getDayReport(token, date) {
 function saveClient(token, client) {
   if (!requireRole_(token, ['owner'])) return err_('Нет доступа');
   return withLock_(function () {
+    // Нормализация новых полей: item_types — JSON-массив id, accounting — weight|count|both
+    if (client.item_types !== undefined) {
+      client.item_types = Array.isArray(client.item_types) && client.item_types.length
+        ? JSON.stringify(client.item_types) : '';
+    }
+    if (client.accounting !== undefined &&
+        ['weight', 'count', 'both'].indexOf(client.accounting) === -1) {
+      client.accounting = '';
+    }
     var saved;
     if (client.id) {
       var found = findById_(SHEETS.CLIENTS, client.id);
@@ -617,7 +638,8 @@ function saveClient(token, client) {
         id: nextId_(SHEETS.CLIENTS, 'cli'), name: client.name || '',
         contact: client.contact || '', address: client.address || '',
         type: client.type || 'прочее', storage: client.storage || 'нет',
-        active: 'да', comment: client.comment || ''
+        active: 'да', comment: client.comment || '',
+        item_types: client.item_types || '', accounting: client.accounting || ''
       };
       appendRow_(SHEETS.CLIENTS, saved);
     }
@@ -639,8 +661,11 @@ function deleteClient(token, clientId) {
   });
 }
 
+// Создавать новый тип («Другое…») может и работник с экрана стирки;
+// переименование существующего — только владелец.
 function saveItemType(token, itemType) {
-  if (!requireRole_(token, ['owner'])) return err_('Нет доступа');
+  var roles = itemType && itemType.id ? ['owner'] : ['owner', 'worker'];
+  if (!requireRole_(token, roles)) return err_('Нет доступа');
   return withLock_(function () {
     var saved;
     if (itemType.id) {
@@ -663,9 +688,25 @@ function saveItemType(token, itemType) {
   });
 }
 
-// --- TV-табло (spec §5.3): по ключу, только чтение, только агрегаты дня ---
+// Работник с экрана стирки добавил вид белья и попросил запомнить его для клиента.
+// Имеет смысл только когда у клиента уже настроен свой список (иначе показываются все типы).
+function rememberClientItemType(token, clientId, itemTypeId) {
+  if (!requireRole_(token, ['owner', 'worker'])) return err_('Нет доступа');
+  return withLock_(function () {
+    var found = findById_(SHEETS.CLIENTS, clientId);
+    if (!found) return err_('Клиент не найден');
+    var list = parseJsonList_(found.obj.item_types) || [];
+    if (list.indexOf(itemTypeId) === -1) {
+      list.push(itemTypeId);
+      found.obj.item_types = JSON.stringify(list);
+      updateRow_(SHEETS.CLIENTS, found.rowNumber, found.obj);
+      invalidateRefCache_();
+    }
+    return ok_({ client: found.obj });
+  });
+}
 
-// Полные справочники для экрана владельца (включая архивные).
+// --- TV-табло (spec §5.3): по ключу, только чтение, только агрегаты дня ---// Полные справочники для экрана владельца (включая архивные).
 function getRefs(token) {
   if (!requireRole_(token, ['owner'])) return err_('Нет доступа');
   return ok_({ clients: getClients_(), itemTypes: getItemTypes_() });

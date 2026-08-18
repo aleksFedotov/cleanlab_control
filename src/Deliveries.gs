@@ -99,7 +99,26 @@ function removeDeliveryVisit(token, visitId) {
 
 // --- Водитель ---
 
-// Маршрут на дату: визиты по ord + состояние склада клиента.
+// Груз водителя по ВСЕМ визитам (любая дата): чистое взятое, но не отданное;
+// грязное забранное, но не сданное на склад. Мешки грязного не считаем — по точкам.
+function driverCargo_() {
+  var cargo = { clean_bags: 0, clean_points: 0, dirty_points: 0 };
+  findRowsBy_(SHEETS.DELIVERIES, function (v) {
+    return v.status !== 'cancelled' &&
+      ((v.clean_taken_at && v.status !== 'delivered' && v.status !== 'both') ||
+       (v.picked_at && !v.dirty_handed_at));
+  }, 2000).forEach(function (r) {
+    var v = r.obj;
+    if (v.clean_taken_at && v.status !== 'delivered' && v.status !== 'both') {
+      cargo.clean_points++;
+      cargo.clean_bags += Number(v.clean_bags) || 0;
+    }
+    if (v.picked_at && !v.dirty_handed_at) cargo.dirty_points++;
+  });
+  return cargo;
+}
+
+// Точки на дату: визиты + состояние склада клиента + груз водителя.
 function getDriverRoute(token, date) {
   if (!requireRole_(token, ['driver', 'owner'])) return err_('Нет доступа');
   date = date || todayStr_();
@@ -109,6 +128,7 @@ function getDriverRoute(token, date) {
   return ok_({
     date: date,
     laundryName: getSettings_().LAUNDRY_NAME || 'Прачка360',
+    cargo: driverCargo_(),
     visits: getVisitsByDate_(date).map(function (v) {
       var c = clients[v.client_id] || {};
       v.address = c.address || '';
@@ -117,22 +137,46 @@ function getDriverRoute(token, date) {
   });
 }
 
-// Действие водителя у клиента: deliver (выдал чистое), pickup (забрал грязное),
-// both, empty (черновой статус «ничего нет» — открытый вопрос спеки).
-// Вес/количество водитель НЕ записывает.
-function driverVisit(token, visitId, action) {
+// Действия водителя. Статус точки (status) и местонахождение белья — раздельно:
+// take_clean    — чистое со склада к водителю (складские записи → consumed_at='driver');
+// deliver_clean — чистое отдано клиенту (стирки → issued, точка → delivered/both);
+// pickup_dirty  — грязное забрано к водителю (точка → picked/both, склад НЕ трогаем);
+// empty         — на точке ничего нет (только если чистое не взято).
+function driverAction(token, visitId, action) {
   var role = requireRole_(token, ['driver', 'owner']);
   if (!role) return err_('Нет доступа');
-  var ACTIONS = { deliver: 'delivered', pickup: 'picked', both: 'both', empty: 'empty' };
-  if (!ACTIONS[action]) return err_('Неизвестное действие');
+  var ACTIONS = ['take_clean', 'deliver_clean', 'pickup_dirty', 'empty'];
+  if (ACTIONS.indexOf(action) === -1) return err_('Неизвестное действие');
   return withLock_(function () {
     var found = findById_(SHEETS.DELIVERIES, visitId);
     if (!found) return err_('Визит не найден');
-    if (!isOpenVisit_(found.obj)) return err_('Визит уже закрыт');
     var v = found.obj;
-    if (action === 'deliver' || action === 'both') {
-      // Чистое уходит со склада; связанные стирки помечаются выданными
-      openStorage_(v.client_id, 'clean').forEach(function (r) {
+    if (VISIT_FINAL.indexOf(v.status) !== -1) return err_('Визит уже закрыт');
+
+    if (action === 'take_clean') {
+      if (v.clean_taken_at) return err_('Чистое уже взято');
+      var clean = openStorage_(v.client_id, 'clean');
+      if (!clean.length) return err_('Чистого белья на складе нет');
+      var bags = 0;
+      clean.forEach(function (r) {
+        // Мешки хранятся на стирке, а не на складской записи
+        if (r.obj.wash_id) {
+          var w = findById_(SHEETS.WASHES, r.obj.wash_id);
+          if (w) bags += Number(w.obj.bags) || 0;
+        }
+        r.obj.consumed_at = 'driver'; // маркер «у водителя»: склад его больше не показывает
+        updateRow_(SHEETS.STORAGE, r.rowNumber, r.obj);
+      });
+      v.clean_taken_at = nowStr_();
+      v.clean_bags = bags;
+    }
+
+    if (action === 'deliver_clean') {
+      if (!v.clean_taken_at) return err_('Сначала возьмите чистое на складе');
+      // Стирки, чьё чистое уехало к клиенту, помечаются выданными
+      findRowsBy_(SHEETS.STORAGE, function (s) {
+        return s.client_id === v.client_id && s.kind === 'clean' && s.consumed_at === 'driver';
+      }, 500).forEach(function (r) {
         r.obj.consumed_at = nowStr_();
         updateRow_(SHEETS.STORAGE, r.rowNumber, r.obj);
         if (r.obj.wash_id) {
@@ -144,16 +188,47 @@ function driverVisit(token, visitId, action) {
           }
         }
       });
+      v.status = v.picked_at ? 'both' : 'delivered';
+      v.delivered_at = nowStr_();
     }
-    if (action === 'pickup' || action === 'both') {
-      addStorageEntry_(v.client_id, 'dirty', {});
+
+    if (action === 'pickup_dirty') {
+      if (v.picked_at) return err_('Грязное уже забрано');
+      v.picked_at = nowStr_();
       v.pickup = 'да';
+      // Если чистое уже отдано (или его не было и не взято) — точка закрыта
+      if (v.delivered_at) v.status = 'both';
+      else if (!v.clean_taken_at) v.status = 'picked';
+      // иначе: чистое у водителя, точка остаётся открытой до «Отдал чистое»
     }
-    v.status = ACTIONS[action];
-    v.delivered_at = nowStr_();
+
+    if (action === 'empty') {
+      if (v.clean_taken_at) return err_('Чистое уже взято — отвезите его клиенту');
+      v.status = 'empty';
+      v.delivered_at = nowStr_();
+    }
+
     updateRow_(SHEETS.DELIVERIES, found.rowNumber, v);
     logEvent(role, 'visit_' + action, visitId, { client_id: v.client_id, date: v.date });
-    return ok_({ visit: v });
+    return ok_({ visit: v, cargo: driverCargo_() });
+  });
+}
+
+// «Передать грязное на склад»: всё забранное грязное уезжает на склад разом.
+function driverHandover(token) {
+  var role = requireRole_(token, ['driver', 'owner']);
+  if (!role) return err_('Нет доступа');
+  return withLock_(function () {
+    var rows = findRowsBy_(SHEETS.DELIVERIES, function (v) {
+      return v.status !== 'cancelled' && v.picked_at && !v.dirty_handed_at;
+    }, 1000);
+    rows.forEach(function (r) {
+      addStorageEntry_(r.obj.client_id, 'dirty', {});
+      r.obj.dirty_handed_at = nowStr_();
+      updateRow_(SHEETS.DELIVERIES, r.rowNumber, r.obj);
+    });
+    if (rows.length) logEvent(role, 'visit_handover', '-', { visits: rows.length });
+    return ok_({ handed: rows.length, cargo: driverCargo_() });
   });
 }
 

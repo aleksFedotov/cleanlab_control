@@ -15,7 +15,7 @@ var SHEETS = {
 
 var HEADERS = {
   Settings: ['key', 'value'],
-  Clients: ['id', 'name', 'contact', 'address', 'type', 'storage', 'active', 'comment'],
+  Clients: ['id', 'name', 'contact', 'address', 'type', 'storage', 'active', 'comment', 'item_types', 'accounting'],
   ItemTypes: ['id', 'name', 'sort', 'active'],
   Washes: ['id', 'client_id', 'wash_date', 'issue_date', 'status',
     'dirty_weight_kg', 'items_total', 'comment', 'created_by', 'created_at',
@@ -24,7 +24,8 @@ var HEADERS = {
   Shifts: ['id', 'date', 'status', 'opened_at', 'closed_at',
     'total_kg', 'washes_done', 'washes_deferred', 'digest_sent'],
   Deliveries: ['id', 'date', 'client_id', 'ord', 'status',
-    'delivered_at', 'pickup', 'driver_comment', 'created_by', 'created_at'],
+    'delivered_at', 'pickup', 'driver_comment', 'created_by', 'created_at',
+    'clean_taken_at', 'clean_bags', 'picked_at', 'dirty_handed_at'],
   Storage: ['id', 'client_id', 'kind', 'weight_kg', 'items_total',
     'wash_id', 'created_at', 'consumed_at'],
   Log: ['ts', 'actor', 'action', 'entity', 'details']

@@ -52,6 +52,21 @@
     .stepper { display: flex; align-items: center; gap: 8px; }
     .stepper button { width: 56px; height: 56px; font-size: 26px; background: #e3e8ef; font-weight: 700; flex: none; }
     .stepper .val { min-width: 60px; text-align: center; font-size: 22px; font-weight: 700; }
+    .stepper .val.tap { cursor: pointer; border-bottom: 2px dashed #9aa5b1; padding: 0 4px; }
+    .stepper-sm button { width: 44px; height: 44px; font-size: 20px; }
+    .stepper-sm .val { min-width: 44px; font-size: 18px; }
+    /* Экран стирки: блоки результата */
+    .res-label { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: #555; }
+    .res-label-sm { font-size: 12px; color: #777; margin-top: 8px; }
+    .res-opt { display: flex; gap: 10px; align-items: flex-start; border: 2px solid #dde3ea; border-radius: 10px; padding: 10px 12px; margin-bottom: 8px; cursor: pointer; }
+    .res-opt input { margin-top: 4px; }
+    .res-opt:has(input:checked) { border-color: #2f6fed; background: #eef4ff; }
+    /* Справочники: подвкладки и строки */
+    .subtabs { display: flex; gap: 6px; margin-bottom: 12px; }
+    .subtabs button { flex: 1; padding: 10px; border: 1px solid #c4ccd6; background: #fff; border-radius: 8px; font-size: 15px; cursor: pointer; }
+    .subtabs button.on { background: #2f6fed; color: #fff; border-color: #2f6fed; }
+    .ref-row { cursor: pointer; }
+    .ref-row:active { background: #eef4ff; }
     .item-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid #eee; }
     .item-row .name { flex: 1; font-size: 19px; }
 
@@ -117,6 +132,13 @@
     .wcard.st-clean { border-left-color: #1c6b2a; }
     .wcard.st-partial { border-left-color: #e8b400; }
     .wcard.st-dirty { border-left-color: #e8a13a; }
+    .wcard.st-attn { border-left-color: #c0392b; background: #f8d7da; }
+    /* Склад: панель сводки */
+    .dash { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-bottom: 12px; }
+    .dash-tile { background: #fff; border-radius: 10px; padding: 10px 6px; text-align: center; }
+    .dash-n { font-size: 24px; font-weight: 800; }
+    .dash-l { font-size: 11px; color: #666; margin-top: 2px; }
+    @media (max-width: 520px) { .dash { grid-template-columns: repeat(2, 1fr); } }
     .wcard.st .overdue { color: #c0392b; font-weight: 700; }
     .wcard .nm { font-weight: 700; font-size: 14px; }
     .wcard .cm { font-size: 12px; color: #555; margin-top: 2px; }
@@ -451,45 +473,73 @@ function renderWashCard(id) {
       '. Стирать не нужно, клиент готов к развозу.</div>';
   }
 
-  // Шаг 2: вес чистого + пересчёт (в работе или правка завершённой)
+  // Шаг 2: результат стирки — вес/мешки + пересчёт (в работе или правка завершённой).
+  // Набор блоков зависит от учёта клиента (accounting): weight / count / both.
   if (w.status === 'in_progress' || canEdit) {
-    if (w.status === 'in_progress') {
-      html += '<div class="meta">Вес чистого белья, кг:</div>' +
+    var acc = w.client_accounting || 'both';
+    if (w.status === 'in_progress' && acc !== 'count') {
+      html += '<div class="meta res-label">Вес чистого белья</div>' +
         '<div class="row"><div class="stepper">' +
         '<button data-w="-1">−1</button><button data-w="-0.1">−0.1</button>' +
-        '<div class="val" id="weightVal">' + (weight || 0) + '</div>' +
+        '<div class="val tap" id="weightVal" title="Нажмите для ввода вручную">' + (weight || 0) + '</div>' +
         '<button data-w="0.1">+0.1</button><button data-w="1">+1</button><button data-w="5">+5</button></div></div>' +
-        '<div class="meta">Мешков получилось:</div>' +
-        '<div class="row"><div class="stepper">' +
+        '<div class="meta res-label-sm">Мешки</div>' +
+        '<div class="row"><div class="stepper stepper-sm">' +
         '<button data-b="-1">−</button>' +
-        '<div class="val" id="bagsVal">' + ((state.bags || {})[id] || 0) + '</div>' +
+        '<div class="val tap" id="bagsVal" title="Нажмите для ввода вручную">' + ((state.bags || {})[id] || 0) + '</div>' +
         '<button data-b="1">+</button></div></div>';
-    } else {
+    } else if (canEdit) {
       html += '<div class="meta">Вес: <b>' + esc(w.dirty_weight_kg) + ' кг</b>' +
         (Number(w.bags) > 0 ? ' · Мешков: <b>' + esc(w.bags) + '</b>' : '') + '</div>';
     }
-    html += '</div><div class="card"><h2>Пересчёт чистого</h2><div id="countList">' +
-      types.map(function (t) {
-        var q = counts[t.id] || 0;
-        return '<div class="item-row"><span class="name">' + esc(t.name) + '</span>' +
-          '<div class="stepper"><button data-t="' + t.id + '" data-d="-1">−</button>' +
-          '<span class="val" id="q_' + t.id + '">' + q + '</span>' +
-          '<button data-t="' + t.id + '" data-d="1">+</button></div></div>';
-      }).join('') + '</div>' +
-      '<div class="meta" style="margin-top:10px;font-size:20px">Всего: <b id="totalQty">' + totalQty(counts) + '</b> шт</div>';
+    html += '</div>';
+    if (acc !== 'weight') {
+      // Показываем только актуальные для клиента виды белья (его список),
+      // плюс добавленные вручную в этой сессии и типы с ненулевым пересчётом.
+      var vis = w.client_item_types && w.client_item_types.length
+        ? types.filter(function (t) { return w.client_item_types.indexOf(t.id) !== -1; })
+        : types.slice();
+      var extra = (state.extraTypes || {})[id] || [];
+      types.forEach(function (t) {
+        if (vis.indexOf(t) === -1 && (extra.indexOf(t.id) !== -1 || (counts[t.id] || 0) > 0)) vis.push(t);
+      });
+      html += '<div class="card"><h2>Количество вещей</h2><div id="countList">' +
+        vis.map(function (t) {
+          var q = counts[t.id] || 0;
+          return '<div class="item-row"><span class="name">' + esc(t.name) + '</span>' +
+            '<div class="stepper"><button data-t="' + t.id + '" data-d="-1">−</button>' +
+            '<span class="val tap" id="q_' + t.id + '" data-tm="' + t.id + '" title="Нажмите для ввода вручную">' + q + '</span>' +
+            '<button data-t="' + t.id + '" data-d="1">+</button></div></div>';
+        }).join('') + '</div>' +
+        '<div class="meta" style="margin-top:10px;font-size:20px">Всего: <b id="totalQty">' + totalQty(counts) + '</b> шт</div>';
+      if (w.status === 'in_progress') {
+        html += '<div class="row"><button class="btn btn-ghost" id="addTypeForWash">+ Добавить вид белья</button></div>';
+      }
+      if (canEdit) {
+        html += '<div class="row"><button class="btn btn-ghost btn-big" id="editBtn">Изменить данные</button></div>';
+      }
+      html += '</div>';
+    } else if (canEdit) {
+      html += '<div class="card"><div class="row">' +
+        '<button class="btn btn-ghost btn-big" id="editBtn">Изменить данные</button></div></div>';
+    }
     if (w.status === 'in_progress') {
-      html += '<div class="row"><button class="btn btn-primary btn-big" id="completeBtn">Завершить стирку</button></div>';
+      html += '<div class="card"><h2>Результат</h2>' +
+        '<label class="res-opt"><input type="radio" name="wmode" value="full" checked>' +
+        '<span><b>Выполнено полностью</b><div class="cm">Всё обработано, клиент готов к развозу</div></span></label>' +
+        '<label class="res-opt"><input type="radio" name="wmode" value="partial">' +
+        '<span><b>Выполнено частично</b><div class="cm">Часть белья ещё требует обработки — чистое уйдёт на склад</div></span></label>' +
+        '<div class="row"><button class="btn btn-primary btn-big" id="completeBtn">Сохранить результат</button></div></div>';
     }
-    if (canEdit) {
-      html += '<div class="row"><button class="btn btn-ghost btn-big" id="editBtn">Изменить данные</button></div>';
-    }
+  } else {
+    html += '</div>';
   }
 
-  // Перенос (planned/in_progress)
+  // Перенос (planned/in_progress) — второстепенная операция
   if (w.status === 'planned' || w.status === 'in_progress') {
-    html += '<div class="row"><button class="btn btn-ghost btn-big" id="deferBtn">Перенести</button></div>';
+    html += '<div class="row"><button class="btn btn-ghost" id="deferBtn">Перенести на другой день</button></div>';
   }
-  html += '</div></div>';
+  html += '</div>';
   document.getElementById('app').innerHTML = html;
 
   document.getElementById('backBtn').onclick = renderDay;
@@ -508,7 +558,7 @@ function renderWashCard(id) {
     if (checkBtn) checkBtn.onclick = function () { openStorageCheck(w); };
   }
 
-  // Вес чистого (в работе)
+  // Вес чистого (в работе): степпер + ручной ввод по нажатию на значение
   if (w.status === 'in_progress') {
     Array.prototype.forEach.call(document.querySelectorAll('[data-w]'), function (b) {
       b.onclick = function () {
@@ -526,9 +576,23 @@ function renderWashCard(id) {
         (state.bags = state.bags || {})[id] = next;
       };
     });
+    var weightVal = document.getElementById('weightVal');
+    if (weightVal) weightVal.onclick = function () {
+      openNumInput('Вес чистого белья, кг', weightVal.textContent, true, function (v) {
+        weightVal.textContent = v;
+        state.weights[id] = v;
+      });
+    };
+    var bagsVal = document.getElementById('bagsVal');
+    if (bagsVal) bagsVal.onclick = function () {
+      openNumInput('Мешков получилось', bagsVal.textContent, false, function (v) {
+        bagsVal.textContent = v;
+        (state.bags = state.bags || {})[id] = v;
+      });
+    };
   }
 
-  // Пересчёт
+  // Пересчёт: степперы + ручной ввод по нажатию на число
   Array.prototype.forEach.call(document.querySelectorAll('[data-t]'), function (b) {
     b.onclick = function () {
       var tid = b.dataset.t;
@@ -539,9 +603,23 @@ function renderWashCard(id) {
       document.getElementById('totalQty').textContent = totalQty(state.counts[id]);
     };
   });
+  Array.prototype.forEach.call(document.querySelectorAll('[data-tm]'), function (v) {
+    v.onclick = function () {
+      var tid = v.dataset.tm;
+      openNumInput('Количество, шт', v.textContent, false, function (q) {
+        state.counts[id] = state.counts[id] || {};
+        state.counts[id][tid] = q;
+        v.textContent = q;
+        document.getElementById('totalQty').textContent = totalQty(state.counts[id]);
+      });
+    };
+  });
+
+  var addTypeBtn2 = document.getElementById('addTypeForWash');
+  if (addTypeBtn2) addTypeBtn2.onclick = function () { openAddItemType(w); };
 
   var completeBtn = document.getElementById('completeBtn');
-  if (completeBtn) completeBtn.onclick = function () { confirmComplete(w); };
+  if (completeBtn) completeBtn.onclick = function () { saveResult(w, completeBtn); };
 
   var editBtn = document.getElementById('editBtn');
   if (editBtn) editBtn.onclick = function () { confirmEdit(w); };
@@ -564,40 +642,106 @@ function loadDayAndCard(id) {
   }).catch(function () {});
 }
 
-// Подтверждение завершения: клиент, вес чистого, позиции, итог
-function confirmComplete(w) {
+// Ручной ввод числа (вес/мешки/количество) — по нажатию на значение степпера.
+function openNumInput(title, cur, isFloat, onOk) {
+  showDialog('<h2>' + esc(title) + '</h2>' +
+    '<div class="row"><input type="number" inputmode="decimal" id="numInp" value="' + esc(cur) + '"' +
+    (isFloat ? ' step="0.1" min="0"' : ' step="1" min="0"') + '></div>' +
+    '<div class="actions"><button class="btn btn-ghost" id="dlgCancel">Отмена</button>' +
+    '<button class="btn btn-primary" id="dlgOk">Сохранить</button></div>');
+  document.getElementById('dlgCancel').onclick = hideDialog;
+  document.getElementById('numInp').focus();
+  document.getElementById('dlgOk').onclick = function () {
+    var v = parseFloat(String(document.getElementById('numInp').value).replace(',', '.')) || 0;
+    v = isFloat ? Math.max(0, Math.round(v * 10) / 10) : Math.max(0, Math.floor(v));
+    hideDialog();
+    onOk(v);
+  };
+}
+
+// Сохранение результата стирки: режим (полностью/частично) выбран радио на экране.
+function saveResult(w, btn) {
+  var acc = w.client_accounting || 'both';
   var counts = state.counts[w.id] || {};
   var kg = state.weights[w.id] != null ? state.weights[w.id] : (parseFloat(w.dirty_weight_kg) || 0);
-  if (kg <= 0) return toast('Укажите вес чистого белья', true);
+  if (acc !== 'count' && kg <= 0) return toast('Укажите вес чистого белья', true);
   var bags = (state.bags || {})[w.id] || 0;
-  var types = {};
-  (state.day.itemTypes || []).forEach(function (t) { types[t.id] = t.name; });
-  var lines = countsToItems(counts).map(function (it) {
-    return '<div>' + esc(types[it.item_type_id] || it.item_type_id) + ' ×' + it.qty + '</div>';
-  }).join('');
-  showDialog('<h2>Завершить стирку?</h2>' +
-    '<div class="meta"><b>' + esc(w.client_name) + '</b> · ' + esc(kg) + ' кг · ' + bags + ' меш.</div>' +
-    (lines || '<div class="meta">Позиций нет</div>') +
-    '<div class="meta" style="margin-top:8px">Итого: <b>' + totalQty(counts) + ' шт</b></div>' +
-    '<div class="row" style="margin-top:8px">' +
-    '<label><input type="radio" name="wmode" value="full" checked> Полностью — клиент готов к развозу</label></div>' +
-    '<div class="row"><label><input type="radio" name="wmode" value="partial"> Частично — чистое на склад, клиент НЕ готов</label></div>' +
-    '<div class="actions"><button class="btn btn-ghost" id="dlgCancel">Назад</button>' +
-    '<button class="btn btn-primary" id="dlgOk">Подтвердить</button></div>');
+  var modeEl = document.querySelector('input[name="wmode"]:checked');
+  var mode = modeEl ? modeEl.value : 'full';
+  busy(btn, 'Сохраняем…');
+  api('completeWash', state.token, w.id, countsToItems(counts), kg, mode, bags).then(function (res) {
+    delete state.counts[w.id];
+    delete state.weights[w.id];
+    if (state.bags) delete state.bags[w.id];
+    if (state.extraTypes) delete state.extraTypes[w.id];
+    toast(res.wash.status === 'partial' ? 'Частично завершено: чистое на складе' :
+      res.wash.status === 'stored' ? 'Стирка завершена ✓ бельё на склад' : 'Стирка завершена ✓');
+    loadDay();
+  }).catch(function (e) { unbusy(btn); toast(e.message, true); });
+}
+
+// Добавить вид белья на экран стирки: поиск по справочнику, «Другое…» создаёт
+// новый тип. Если у клиента настроен свой список — можно запомнить тип для него.
+function openAddItemType(w) {
+  var types = state.day.itemTypes || [];
+  var counts = state.counts[w.id] || {};
+  var extra = (state.extraTypes || {})[w.id] || [];
+  var shown = {};
+  (w.client_item_types && w.client_item_types.length
+    ? w.client_item_types
+    : types.map(function (t) { return t.id; })
+  ).concat(extra).forEach(function (tid) { shown[tid] = true; });
+  Object.keys(counts).forEach(function (tid) { if (counts[tid] > 0) shown[tid] = true; });
+  var hiddenTypes = types.filter(function (t) { return !shown[t.id]; });
+
+  var canRemember = !!(w.client_item_types && w.client_item_types.length);
+  showDialog('<h2>Добавить вид белья</h2>' +
+    '<div class="row"><input class="search-input" id="atSearch" placeholder="Поиск…"></div>' +
+    '<div id="atList" style="max-height:220px;overflow:auto">' +
+    hiddenTypes.map(function (t) {
+      return '<div class="item-row at-row"><span class="name">' + esc(t.name) + '</span>' +
+        '<button class="btn btn-ghost" data-addt="' + t.id + '">Добавить</button></div>';
+    }).join('') +
+    '<div class="item-row at-row"><span class="name"><input type="text" id="atOtherName" placeholder="Другое: название…" style="width:100%"></span>' +
+    '<button class="btn btn-ghost" id="atOther">Создать</button></div>' +
+    '</div>' +
+    (canRemember
+      ? '<label style="display:block;margin-top:8px"><input type="checkbox" id="atRemember" checked> Запомнить для этого клиента</label>'
+      : '') +
+    '<div class="actions"><button class="btn btn-ghost" id="dlgCancel">Назад</button></div>');
   document.getElementById('dlgCancel').onclick = hideDialog;
-  var okBtn = document.getElementById('dlgOk');
-  okBtn.onclick = function () {
-    busy(okBtn, 'Завершаем…');
-    var mode = document.querySelector('input[name="wmode"]:checked').value;
-    api('completeWash', state.token, w.id, countsToItems(counts), kg, mode, bags).then(function (res) {
-      delete state.counts[w.id];
-      delete state.weights[w.id];
-      if (state.bags) delete state.bags[w.id];
-      hideDialog();
-      toast(res.wash.status === 'partial' ? 'Частично завершено: чистое на складе' :
-        res.wash.status === 'stored' ? 'Стирка завершена ✓ бельё на склад' : 'Стирка завершена ✓');
-      loadDay();
-    }).catch(function (e) { hideDialog(); toast(e.message, true); });
+  document.getElementById('atSearch').oninput = function () {
+    var q = this.value.trim().toLowerCase();
+    Array.prototype.forEach.call(document.querySelectorAll('#atList .at-row'), function (r) {
+      var nm = r.querySelector('.name').textContent.toLowerCase();
+      var other = r.querySelector('#atOtherName') ? 'другое' : '';
+      r.style.display = !q || nm.indexOf(q) !== -1 || other.indexOf(q) !== -1 ? '' : 'none';
+    });
+  };
+
+  function pick(tid) {
+    var remEl = document.getElementById('atRemember');
+    var remember = !!(remEl && remEl.checked);
+    (state.extraTypes = state.extraTypes || {})[w.id] = extra.concat([tid]);
+    hideDialog();
+    if (remember) {
+      api('rememberClientItemType', state.token, w.client_id, tid)
+        .catch(function (e) { toast(e.message, true); });
+    }
+    renderWashCard(w.id);
+  }
+  Array.prototype.forEach.call(document.querySelectorAll('[data-addt]'), function (b) {
+    b.onclick = function () { pick(b.dataset.addt); };
+  });
+  document.getElementById('atOther').onclick = function () {
+    var name = document.getElementById('atOtherName').value.trim();
+    if (!name) return toast('Укажите название', true);
+    var btn = this;
+    busy(btn, 'Создаём…');
+    api('saveItemType', state.token, { name: name }).then(function (res) {
+      (state.day.itemTypes = state.day.itemTypes || []).push(res.itemType);
+      pick(res.itemType.id);
+    }).catch(function (e) { unbusy(btn); toast(e.message, true); });
   };
 }
 
@@ -771,27 +915,62 @@ function loadDriver(date) {
 
 function renderDriver() {
   var route = state.route;
+  var cargo = route.cargo || { clean_bags: 0, clean_points: 0, dirty_points: 0 };
+  state.drvFilter = state.drvFilter || 'all';
+  // Сводка по точкам дня
+  var needDeliver = 0, needPickup = 0, bothCnt = 0;
+  route.visits.forEach(function (v) {
+    if (v.status !== 'planned') return;
+    var d = (v.has_clean && !v.clean_taken_at) || (v.clean_taken_at && !v.delivered_at);
+    var p = !v.picked_at;
+    if (d && p) bothCnt++; else if (d) needDeliver++; else if (p) needPickup++;
+  });
   var html = '<div class="app-header"><h1>' + esc(route.laundryName || 'Прачка360') + '</h1>' +
     '<div class="spacer"></div>' +
     '<button class="btn btn-ghost" id="logoutBtn">Выход</button></div>' +
     '<div class="container">' +
     '<div class="date-nav"><button id="prevDay">‹</button><button class="date-jump" id="dateJump">' + esc(state.date) + '</button><button id="nextDay">›</button>' +
     (state.date !== state.today ? '<button class="today-btn" id="todayBtn">Сегодня</button>' : '') + '</div>';
+
+  // Мой груз: бельё, которое физически у водителя (по всем дням)
+  if (cargo.clean_points || cargo.dirty_points) {
+    html += '<div class="card"><h2>🚚 Мой груз</h2>' +
+      '<div class="meta">🟦 Чистое: <b>' + cargo.clean_bags + ' меш.</b> (' + cargo.clean_points + ' точек)</div>' +
+      '<div class="meta">🟥 Грязное: <b>' + cargo.dirty_points + ' точек</b></div>' +
+      (cargo.dirty_points
+        ? '<div class="row"><button class="btn btn-primary btn-big" id="handoverBtn">Передать грязное на склад</button></div>'
+        : '') + '</div>';
+  }
+
   if (!route.visits.length) {
     html += '<div class="empty">На ' + esc(state.date) + ' развоза нет</div>';
   } else {
-    html += route.visits.map(function (v) {
-      var done = v.status !== 'planned';
-      var meta = [];
-      if (v.address) meta.push(esc(v.address));
-      if (v.has_clean) meta.push('✨ чистое: ' + v.clean_kg + ' кг / ' + v.clean_items + ' шт');
-      if (v.has_dirty) meta.push('🧺 грязное в цеху');
-      return '<div class="wcard' + (done ? ' done' : ' drv') + '"' + (done ? '' : ' data-open="' + v.id + '"') + '>' +
-        '<div class="nm">' + esc(v.client_name) + '</div>' +
-        (meta.length ? '<div class="cm">' + meta.join(' · ') + '</div>' : '') +
-        (done ? '<div class="cm">' + (STATUS_LABELS[v.status] || v.status) + ' ✓</div>' : '') +
-        '</div>';
-    }).join('');
+    html += '<div class="meta" style="margin-bottom:6px">Точек: <b>' + route.visits.length + '</b>' +
+      (bothCnt ? ' · оба действия: ' + bothCnt : '') +
+      (needDeliver ? ' · отвезти: ' + needDeliver : '') +
+      (needPickup ? ' · забрать: ' + needPickup : '') + '</div>' +
+      '<div class="view-toggle" style="margin:0 0 10px">' +
+      [['all', 'Все'], ['deliver', 'Отвезти'], ['pickup', 'Забрать']].map(function (f) {
+        return '<button data-dfilter="' + f[0] + '" class="' + (state.drvFilter === f[0] ? 'on' : '') + '">' + f[1] + '</button>';
+      }).join('') + '</div>' +
+      route.visits.map(function (v) {
+        var done = v.status !== 'planned';
+        var meta = [];
+        if (v.address) meta.push(esc(v.address));
+        var needD = false, needP = false;
+        if (!done) {
+          if (v.clean_taken_at && !v.delivered_at) { meta.push('🚚 чистое у вас' + (Number(v.clean_bags) ? ': ' + v.clean_bags + ' меш.' : '')); needD = true; }
+          else if (v.has_clean) { meta.push('✨ чистое: ' + v.clean_kg + ' кг / ' + v.clean_items + ' шт'); needD = true; }
+          if (v.picked_at) meta.push('🟥 грязное у вас');
+          else { needP = true; meta.push('🧺 забрать грязное'); }
+        }
+        return '<div class="wcard' + (done ? ' done' : ' drv') + '"' + (done ? '' : ' data-open="' + v.id + '"') +
+          ' data-needd="' + (needD ? 1 : 0) + '" data-needp="' + (needP ? 1 : 0) + '">' +
+          '<div class="nm">' + esc(v.client_name) + '</div>' +
+          (meta.length ? '<div class="cm">' + meta.join(' · ') + '</div>' : '') +
+          (done ? '<div class="cm">' + (STATUS_LABELS[v.status] || v.status) + ' ✓</div>' : '') +
+          '</div>';
+      }).join('');
   }
   html += '</div>';
   document.getElementById('app').innerHTML = html;
@@ -803,6 +982,26 @@ function renderDriver() {
   document.getElementById('logoutBtn').onclick = function () {
     api('logout', state.token).finally(backToPin);
   };
+  var handoverBtn = document.getElementById('handoverBtn');
+  if (handoverBtn) handoverBtn.onclick = function () {
+    confirmDialog('Передать всё грязное бельё на склад?', 'Передать', function () {
+      api('driverHandover', state.token).then(function (res) {
+        toast('Передано на склад: ' + res.handed + ' ✓');
+        loadDriver(state.date);
+      }).catch(function (e) { toast(e.message, true); });
+    });
+  };
+  Array.prototype.forEach.call(document.querySelectorAll('[data-dfilter]'), function (b) {
+    b.onclick = function () {
+      state.drvFilter = b.dataset.dfilter;
+      renderDriver();
+    };
+  });
+  // Фильтрация карточек по выбранному фильтру
+  Array.prototype.forEach.call(document.querySelectorAll('.wcard[data-needd]'), function (c) {
+    if (state.drvFilter === 'deliver' && c.dataset.needd !== '1') c.style.display = 'none';
+    if (state.drvFilter === 'pickup' && c.dataset.needp !== '1') c.style.display = 'none';
+  });
   Array.prototype.forEach.call(document.querySelectorAll('[data-open]'), function (el) {
     el.onclick = function () {
       var v = route.visits.filter(function (x) { return x.id === el.dataset.open; })[0];
@@ -811,26 +1010,46 @@ function renderDriver() {
   });
 }
 
-// Диалог действий водителя: тап по карточке → крупные кнопки (защита от промахов).
+// Диалог действий водителя: кнопки по состоянию точки и белья.
 function openDriverVisit(v) {
   var meta = [];
   if (v.address) meta.push(esc(v.address));
-  if (v.has_clean) meta.push('✨ чистое: ' + v.clean_kg + ' кг / ' + v.clean_items + ' шт');
-  if (v.has_dirty) meta.push('🧺 грязное в цеху');
+  var rows = '';
+  if (v.clean_taken_at && !v.delivered_at) {
+    meta.push('🚚 чистое у вас' + (Number(v.clean_bags) ? ': ' + v.clean_bags + ' меш.' : ''));
+    rows += '<div class="row"><button class="btn btn-primary btn-big" data-act="deliver_clean">Отдал чистое</button></div>';
+  } else if (v.has_clean) {
+    meta.push('✨ чистое на складе: ' + v.clean_kg + ' кг / ' + v.clean_items + ' шт');
+    rows += '<div class="row"><button class="btn btn-primary btn-big" data-act="take_clean">Взял чистое</button></div>';
+  }
+  if (v.picked_at) {
+    meta.push('🟥 грязное у вас');
+  } else {
+    rows += '<div class="row"><button class="btn btn-primary btn-big" data-act="pickup_dirty">Забрал грязное</button></div>';
+  }
+  if (!v.clean_taken_at && !v.picked_at) {
+    rows += '<div class="row"><button class="btn btn-ghost btn-big" data-act="empty">Ничего нет</button></div>';
+  }
   showDialog('<h2>' + esc(v.client_name) + '</h2>' +
     (meta.length ? '<div class="meta" style="margin-bottom:8px">' + meta.join(' · ') + '</div>' : '') +
-    (v.has_clean ? '<div class="row"><button class="btn btn-primary btn-big" data-act="deliver">Выдал чистое</button></div>' : '') +
-    '<div class="row"><button class="btn btn-primary btn-big" data-act="pickup">Забрал грязное</button></div>' +
-    (v.has_clean ? '<div class="row"><button class="btn btn-primary btn-big" data-act="both">И то и другое</button></div>' : '') +
-    '<div class="row"><button class="btn btn-ghost btn-big" data-act="empty">Ничего нет</button></div>' +
+    rows +
     '<div class="actions"><button class="btn btn-ghost" id="dlgCancel">Назад</button></div>');
   document.getElementById('dlgCancel').onclick = hideDialog;
   Array.prototype.forEach.call(document.querySelectorAll('[data-act]'), function (b) {
     b.onclick = function () {
-      busy(b, '…');
-      api('driverVisit', state.token, v.id, b.dataset.act)
-        .then(function () { hideDialog(); toast('Отмечено ✓'); loadDriver(state.date); })
-        .catch(function (e) { hideDialog(); toast(e.message, true); loadDriver(state.date); });
+      var act = b.dataset.act;
+      var run = function () {
+        api('driverAction', state.token, v.id, act)
+          .then(function () { hideDialog(); toast('Отмечено ✓'); loadDriver(state.date); })
+          .catch(function (e) { hideDialog(); toast(e.message, true); loadDriver(state.date); });
+      };
+      if (act === 'take_clean') {
+        hideDialog();
+        confirmDialog('Чистое бельё взято со склада?', 'Да, взял', run);
+      } else {
+        busy(b, '…');
+        run();
+      }
     };
   });
 }
@@ -1087,62 +1306,157 @@ function renderStorage() {
     var types = {};
     (res.itemTypes || []).forEach(function (t) { types[t.id] = t.name; });
 
-    // Чистое бельё: stored-стирки + чистое полностью завершённых (done) —
-    // оно сразу идёт на склад на хранение.
-    var clean = [];
+    // Единый список белья: у каждой карточки состояние (грязное/чистое/внимание),
+    // а не принадлежность к списку. Статусы дней до выдачи считаем в датах.
+    function daysDiff(dateStr) { // сколько дней от dateStr до сегодня (просрочка > 0)
+      if (!dateStr) return 0;
+      var p = dateStr.split('-').map(Number), t = state.today.split('-').map(Number);
+      return Math.round((Date.UTC(t[0], t[1] - 1, t[2]) - Date.UTC(p[0], p[1] - 1, p[2])) / 86400000);
+    }
+
+    var entries = [];
     res.stored.forEach(function (w) {
-      clean.push({ kind: 'clean', id: w.id, client_name: w.client_name,
-        kg: w.dirty_weight_kg, total: w.items_total, bags: Number(w.bags) || 0, items: w.items || [], issue_date: w.issue_date });
+      entries.push({ kind: 'clean', id: w.id, client_id: w.client_id, client_name: w.client_name,
+        kg: w.dirty_weight_kg, total: w.items_total, bags: Number(w.bags) || 0,
+        items: w.items || [], issue_date: w.issue_date });
     });
     (res.cleanReady || []).forEach(function (s) {
-      clean.push({ kind: 'clean', id: s.wash_id, client_name: s.client_name,
-        kg: s.weight_kg, total: s.items_total, bags: Number(s.bags) || 0, items: [], issue_date: s.issue_date || '' });
+      entries.push({ kind: 'clean', id: s.wash_id, client_id: s.client_id, client_name: s.client_name,
+        kg: s.weight_kg, total: s.items_total, bags: Number(s.bags) || 0,
+        items: [], issue_date: s.issue_date || '' });
     });
-    clean.sort(function (a, b) { return a.issue_date < b.issue_date ? -1 : 1; });
+    (res.partialClean || []).forEach(function (s) {
+      entries.push({ kind: 'partial', id: s.id, client_id: s.client_id, client_name: s.client_name,
+        kg: s.weight_kg, total: s.items_total, bags: Number(s.bags) || 0,
+        since: (s.created_at || '').slice(0, 10) });
+    });
+    (res.dirty || []).forEach(function (s) {
+      entries.push({ kind: 'dirty', id: s.id, client_id: s.client_id, client_name: s.client_name,
+        since: (s.created_at || '').slice(0, 10) });
+    });
 
-    var partial = (res.partialClean || []).map(function (s) {
-      return { kind: 'partial', id: s.id, client_name: s.client_name,
-        kg: s.weight_kg, total: s.items_total, bags: Number(s.bags) || 0, since: (s.created_at || '').slice(0, 10) };
+    // Статус и раскраска карточки
+    entries.forEach(function (e) {
+      if (e.kind === 'dirty') {
+        e.cls = 'st-dirty';
+        e.attn = false;
+        e.status = '🟠 Ждёт стирки · принято ' + esc(e.since);
+        e.rank = 1;
+      } else if (e.kind === 'partial') {
+        e.cls = 'st-partial';
+        e.attn = true;
+        e.status = '⚠ Частичная стирка — клиент не готов · с ' + esc(e.since);
+        e.rank = 0;
+      } else {
+        var d = daysDiff(e.issue_date);
+        if (d > 0) {
+          e.cls = 'st-attn';
+          e.attn = true;
+          e.badge = '⚠ ' + d + ' дн.';
+          e.status = '⚠ Просрочено на ' + d + ' дн.';
+          e.rank = 0;
+        } else if (d === 0) {
+          e.cls = 'st-clean';
+          e.attn = false;
+          e.status = '⏱ Выдача сегодня';
+          e.rank = 2;
+        } else {
+          e.cls = 'st-clean';
+          e.attn = false;
+          e.status = '✓ Готово к выдаче';
+          e.rank = 3;
+        }
+      }
     });
-    var dirty = (res.dirty || []).map(function (s) {
-      return { kind: 'dirty', id: s.id, client_name: s.client_name,
-        since: (s.created_at || '').slice(0, 10) };
+    entries.sort(function (a, b) {
+      if (a.rank !== b.rank) return a.rank - b.rank;
+      return String(a.issue_date || a.since) < String(b.issue_date || b.since) ? -1 : 1;
     });
 
+    var dirtyN = 0, readyN = 0, attnN = 0, totalKg = 0;
+    entries.forEach(function (e) {
+      if (e.kind === 'dirty') dirtyN++;
+      if (e.kind === 'clean') { readyN += e.attn ? 0 : 1; totalKg += Number(e.kg) || 0; }
+      if (e.attn) attnN++;
+    });
+
+    state.stFilter = state.stFilter || 'all';
+    function kindLabel(e) {
+      if (e.kind === 'dirty') return '🟠 Грязное';
+      if (e.kind === 'partial') return '🟡 Частично';
+      return '🟢 Чистое';
+    }
     function metaOf(e) {
-      if (e.kind === 'dirty') return '🧺 Принято: ' + esc(e.since) + ' · ждёт стирки';
+      if (e.kind === 'dirty') return 'принято ' + esc(e.since);
       var m = (e.kg || 0) + ' кг · ' + (e.total || 0) + ' шт' + (e.bags > 0 ? ' · ' + e.bags + ' меш.' : '');
       if (e.kind === 'partial') return m + ' · с ' + esc(e.since);
-      var overdue = e.issue_date && e.issue_date < state.today;
-      return m + ' · Выдача: <b>' + esc(e.issue_date) + '</b>' +
-        (overdue ? ' · <span class="overdue">просрочена!</span>' : '');
+      return m + (e.issue_date ? ' · выдача ' + esc(e.issue_date) : '');
     }
-    function cardsHtml(list, cls) {
-      return list.map(function (e, i) {
-        return '<div class="wcard st ' + cls + '" data-sec="' + e.kind + '" data-i="' + i + '">' +
-          '<div class="nm">' + esc(e.client_name) + '</div>' +
-          '<div class="cm">' + metaOf(e) + '</div></div>';
-      }).join('');
-    }
+    var cardsHtml = entries.map(function (e, i) {
+      var action = '';
+      if (e.kind === 'dirty') action = '<button class="btn btn-primary" data-act="wash" data-i="' + i + '">Поставить в стирку</button>';
+      else if (e.kind === 'clean') action = '<button class="btn btn-primary" data-act="deliv" data-i="' + i + '">В развоз</button>';
+      return '<div class="wcard st ' + e.cls + '" data-i="' + i + '" data-kind="' + e.kind + '" data-attn="' + (e.attn ? 1 : 0) + '">' +
+        '<div class="nm">' + esc(e.client_name) + (e.badge ? ' <span class="overdue" style="float:right">' + e.badge + '</span>' : '') + '</div>' +
+        '<div class="cm">' + kindLabel(e) + ' · ' + metaOf(e) + '</div>' +
+        '<div class="cm">' + e.status + '</div>' +
+        (action ? '<div class="row" style="margin-top:4px">' + action + '</div>' : '') +
+        '</div>';
+    }).join('');
 
     setContainer(
+      '<div class="dash">' +
+      '<div class="dash-tile"><div class="dash-n" style="color:#e8a13a">' + dirtyN + '</div><div class="dash-l">ждут стирки</div></div>' +
+      '<div class="dash-tile"><div class="dash-n" style="color:#1c6b2a">' + readyN + '</div><div class="dash-l">готовы к развозу</div></div>' +
+      '<div class="dash-tile"><div class="dash-n" style="color:#c0392b">' + attnN + '</div><div class="dash-l">требуют внимания</div></div>' +
+      '<div class="dash-tile"><div class="dash-n">' + Math.round(totalKg * 10) / 10 + '</div><div class="dash-l">кг чистого</div></div>' +
+      '</div>' +
       '<input class="search-input" id="stSearch" placeholder="Поиск по клиенту…">' +
-      '<h1>Чистое бельё</h1>' + (cardsHtml(clean, 'st-clean') || '<div class="empty">Чистого белья нет</div>') +
-      (partial.length ? '<h1 style="margin-top:16px">Остатки частичных стирок</h1>' + cardsHtml(partial, 'st-partial') : '') +
-      '<h1 style="margin-top:16px">Грязное бельё</h1>' + (cardsHtml(dirty, 'st-dirty') || '<div class="empty">Грязного белья нет</div>'));
+      '<div class="view-toggle" style="margin:0 0 10px">' +
+      [['all', 'Все'], ['dirty', '🟠 Грязное'], ['clean', '🟢 Чистое'], ['attn', '🔴 Внимание']].map(function (f) {
+        return '<button data-sfilter="' + f[0] + '" class="' + (state.stFilter === f[0] ? 'on' : '') + '">' + f[1] + '</button>';
+      }).join('') + '</div>' +
+      '<div id="stList">' + (cardsHtml || '<div class="empty">Склад пуст</div>') + '</div>');
 
-    document.getElementById('stSearch').oninput = function () {
-      var q = this.value.trim().toLowerCase();
-      Array.prototype.forEach.call(document.querySelectorAll('[data-sec]'), function (c) {
-        var nm = c.querySelector('.nm').textContent.toLowerCase();
-        c.style.display = !q || nm.indexOf(q) !== -1 ? '' : 'none';
+    function applyFilter() {
+      var q = (document.getElementById('stSearch').value || '').trim().toLowerCase();
+      Array.prototype.forEach.call(document.querySelectorAll('#stList .wcard'), function (c) {
+        var okKind = state.stFilter === 'all' ||
+          (state.stFilter === 'attn' ? c.dataset.attn === '1' : c.dataset.kind === state.stFilter);
+        var okQ = !q || c.querySelector('.nm').textContent.toLowerCase().indexOf(q) !== -1;
+        c.style.display = okKind && okQ ? '' : 'none';
       });
-    };
+    }
+    document.getElementById('stSearch').oninput = applyFilter;
+    Array.prototype.forEach.call(document.querySelectorAll('[data-sfilter]'), function (b) {
+      b.onclick = function () {
+        state.stFilter = b.dataset.sfilter;
+        Array.prototype.forEach.call(document.querySelectorAll('[data-sfilter]'), function (x) {
+          x.className = x.dataset.sfilter === state.stFilter ? 'on' : '';
+        });
+        applyFilter();
+      };
+    });
+    applyFilter();
 
-    var bySec = { clean: clean, partial: partial, dirty: dirty };
-    Array.prototype.forEach.call(document.querySelectorAll('[data-sec]'), function (el) {
-      el.onclick = function () {
-        openStorageCard(bySec[el.dataset.sec][Number(el.dataset.i)], types);
+    Array.prototype.forEach.call(document.querySelectorAll('#stList .wcard'), function (el) {
+      el.onclick = function () { openStorageCard(entries[Number(el.dataset.i)], types); };
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('[data-act]'), function (b) {
+      b.onclick = function (ev) {
+        ev.stopPropagation();
+        var e = entries[Number(b.dataset.i)];
+        if (b.dataset.act === 'wash') {
+          busy(b, '…');
+          api('addUnplannedWash', state.token, e.client_id, 'со склада')
+            .then(function () { toast('В плане на сегодня ✓'); renderStorage(); })
+            .catch(function (err) { unbusy(b); toast(err.message, true); });
+        } else {
+          busy(b, '…');
+          api('addDeliveryVisit', state.token, e.client_id, shiftDateStr(state.today, 1))
+            .then(function () { toast('В развозе на завтра ✓'); })
+            .catch(function (err) { unbusy(b); toast(err.message, true); });
+        }
       };
     });
   }).catch(function (e) { setContainer('<div class="empty">' + esc(e.message) + '</div>'); });
@@ -1164,12 +1478,16 @@ function openStorageCard(e, types) {
     var positions = (e.items || []).map(function (it) {
       return esc(types[it.item_type_id] || it.item_type_id) + ' ×' + it.qty;
     }).join(', ');
-    var overdue = e.issue_date && e.issue_date < state.today;
+    var overdueDays = 0;
+    if (e.issue_date) {
+      var p = e.issue_date.split('-').map(Number), t = state.today.split('-').map(Number);
+      overdueDays = Math.round((Date.UTC(t[0], t[1] - 1, t[2]) - Date.UTC(p[0], p[1] - 1, p[2])) / 86400000);
+    }
     html += '<div class="meta"><b>' + (e.kg || 0) + ' кг · ' + (e.total || 0) + ' шт' +
       (e.bags > 0 ? ' · ' + e.bags + ' меш.' : '') + '</b></div>' +
       (positions ? '<div class="meta">' + positions + '</div>' : '') +
       '<div class="meta">Выдача: <b>' + esc(e.issue_date) + '</b>' +
-      (overdue ? ' · <span class="overdue">просрочена!</span>' : '') + '</div>' +
+      (overdueDays > 0 ? ' · <span class="overdue">⚠ просрочено на ' + overdueDays + ' дн.</span>' : '') + '</div>' +
       '<div class="row"><button class="btn btn-primary btn-big" id="stIssue">Выдано</button></div>' +
       '<div class="row"><button class="btn btn-ghost btn-big" id="stEditDate">Изменить дату</button></div>' +
       '<div class="actions"><button class="btn btn-ghost" id="dlgCancel">Назад</button></div>';
@@ -1300,71 +1618,122 @@ function openEditDialog(w, onSaved) {
   };
 }
 
-// ===== Справочники =====
-function renderRefs() {
+// ===== Справочники: две вкладки — Клиенты и Виды белья =====
+function renderRefs(tab) {
+  state.refsTab = tab || state.refsTab || 'clients';
+  state.refsFilter = state.refsFilter || 'active'; // all | active | archived
   appShell('Справочники', 'refs', '<div class="empty">Загружаем…</div>');
   api('getRefs', state.token).then(function (res) {
-    var html = '<h2>Клиенты</h2>' + res.clients.map(function (c) {
-      var inactive = c.active !== 'да';
-      return '<div class="card"' + (inactive ? ' style="opacity:.55"' : '') + '>' +
-        '<div class="client">' + esc(c.name) + (inactive ? ' (архив)' : '') + '</div>' +
-        '<div class="meta">' + esc(c.type) + (c.storage === 'да' ? ' · склад' : '') +
-        (c.contact ? ' · ' + esc(c.contact) : '') + (c.address ? ' · ' + esc(c.address) : '') + '</div>' +
-        (c.comment ? '<div class="meta">💬 ' + esc(c.comment) + '</div>' : '') +
-        '<div class="row"><button class="btn btn-ghost" data-cedit="' + c.id + '">Изменить</button>' +
-        (!inactive ? '<button class="btn btn-danger" data-carch="' + c.id + '">В архив</button>' : '') +
-        '</div></div>';
-    }).join('') +
-    '<div class="row"><button class="btn btn-primary btn-big" id="addClientBtn">+ Добавить клиента</button></div>';
+    state.refs = res;
+    renderRefsBody();
+  }).catch(function (e) { setContainer('<div class="empty">' + esc(e.message) + '</div>'); });
+}
 
-    html += '<h2>Типы белья</h2>' + res.itemTypes.map(function (t) {
-      var inactive = t.active !== 'да';
-      return '<div class="item-row"' + (inactive ? ' style="opacity:.55"' : '') + '>' +
-        '<span class="name">' + esc(t.sort) + '. ' + esc(t.name) + (inactive ? ' (выкл)' : '') + '</span>' +
-        '<button class="btn btn-ghost" data-tedit="' + t.id + '">Переименовать</button>' +
-        '<button class="btn btn-ghost" data-ttoggle="' + t.id + '" data-active="' + esc(t.active) + '">' +
-        (inactive ? 'Включить' : 'Выключить') + '</button></div>';
-    }).join('') +
-    '<div class="row"><button class="btn btn-primary btn-big" id="addTypeBtn">+ Добавить тип</button></div>';
-    setContainer(html);
+function renderRefsBody() {
+  var res = state.refs;
+  var html = '<div class="subtabs">' +
+    '<button id="refsTabClients" class="' + (state.refsTab === 'clients' ? 'on' : '') + '">Клиенты</button>' +
+    '<button id="refsTabTypes" class="' + (state.refsTab === 'types' ? 'on' : '') + '">Виды белья</button></div>';
 
-    document.getElementById('addClientBtn').onclick = function () { openClientForm(null); };
-    Array.prototype.forEach.call(document.querySelectorAll('[data-cedit]'), function (b) {
-      b.onclick = function () {
-        openClientForm(res.clients.find(function (c) { return c.id === b.dataset.cedit; }));
-      };
+  if (state.refsTab === 'clients') {
+    html += '<input class="search-input" id="rcSearch" placeholder="Поиск по названию, адресу, контакту…">' +
+      '<div class="view-toggle" style="margin:0 0 10px">' +
+      [['all', 'Все'], ['active', 'Активные'], ['archived', 'Архив']].map(function (f) {
+        return '<button data-cfilter="' + f[0] + '" class="' + (state.refsFilter === f[0] ? 'on' : '') + '">' + f[1] + '</button>';
+      }).join('') + '</div>' +
+      '<div id="rcList">' + res.clients.filter(function (c) {
+        if (state.refsFilter === 'active') return c.active === 'да';
+        if (state.refsFilter === 'archived') return c.active !== 'да';
+        return true;
+      }).map(function (c) {
+        var n = 0;
+        try { n = (JSON.parse(c.item_types || '[]') || []).length; } catch (e) {}
+        return '<div class="card ref-row" data-copen="' + c.id + '"' + (c.active !== 'да' ? ' style="opacity:.55"' : '') + '>' +
+          '<div class="client">' + esc(c.name) + (c.active !== 'да' ? ' (архив)' : '') + '</div>' +
+          '<div class="meta">' + esc(c.type) + (c.address ? ' · ' + esc(c.address) : '') +
+          (c.contact ? ' · ' + esc(c.contact) : '') + '</div>' +
+          '<div class="meta">' + (n ? n + ' видов белья' : 'все виды белья') + ' →</div></div>';
+      }).join('') + '</div>' +
+      '<div class="row"><button class="btn btn-primary btn-big" id="addClientBtn">+ Добавить клиента</button></div>';
+  } else {
+    var usage = {};
+    res.clients.forEach(function (c) {
+      try {
+        (JSON.parse(c.item_types || '[]') || []).forEach(function (tid) {
+          usage[tid] = (usage[tid] || 0) + 1;
+        });
+      } catch (e) {}
     });
-    Array.prototype.forEach.call(document.querySelectorAll('[data-carch]'), function (b) {
-      b.onclick = function () {
-        busy(b, 'Архивируем…');
-        api('deleteClient', state.token, b.dataset.carch)
-          .then(function () { toast('Клиент в архиве'); renderRefs(); })
-          .catch(function (e) { unbusy(b); toast(e.message, true); });
-      };
+    html += '<input class="search-input" id="rtSearch" placeholder="Поиск вида белья…">' +
+      '<div id="rtList"><div class="item-row" style="font-weight:700;color:#777">' +
+      '<span class="name">Название</span><span>Клиентов</span></div>' +
+      res.itemTypes.map(function (t) {
+        var inactive = t.active !== 'да';
+        return '<div class="item-row rt-row"' + (inactive ? ' style="opacity:.55"' : '') + '>' +
+          '<span class="name">' + esc(t.name) + '</span>' +
+          '<span>' + (usage[t.id] || 0) + '</span>' +
+          '<span><button class="btn btn-ghost" data-tedit="' + t.id + '">Изменить</button>' +
+          '<button class="btn btn-ghost" data-ttoggle="' + t.id + '" data-active="' + esc(t.active) + '">' +
+          (inactive ? 'Вернуть' : 'Архивировать') + '</button></span></div>';
+      }).join('') + '</div>' +
+      '<div class="row"><button class="btn btn-primary btn-big" id="addTypeBtn">+ Добавить вид</button></div>';
+  }
+  setContainer(html);
+
+  document.getElementById('refsTabClients').onclick = function () { state.refsTab = 'clients'; renderRefsBody(); };
+  document.getElementById('refsTabTypes').onclick = function () { state.refsTab = 'types'; renderRefsBody(); };
+
+  if (state.refsTab === 'clients') {
+    document.getElementById('rcSearch').oninput = function () {
+      var q = this.value.trim().toLowerCase();
+      Array.prototype.forEach.call(document.querySelectorAll('#rcList .ref-row'), function (r) {
+        r.style.display = !q || r.textContent.toLowerCase().indexOf(q) !== -1 ? '' : 'none';
+      });
+    };
+    Array.prototype.forEach.call(document.querySelectorAll('[data-cfilter]'), function (b) {
+      b.onclick = function () { state.refsFilter = b.dataset.cfilter; renderRefsBody(); };
     });
+    Array.prototype.forEach.call(document.querySelectorAll('[data-copen]'), function (r) {
+      r.onclick = function () { renderClientDetail(r.dataset.copen); };
+    });
+    document.getElementById('addClientBtn').onclick = function () { renderClientDetail(null); };
+  } else {
+    document.getElementById('rtSearch').oninput = function () {
+      var q = this.value.trim().toLowerCase();
+      Array.prototype.forEach.call(document.querySelectorAll('#rtList .rt-row'), function (r) {
+        r.style.display = !q || r.textContent.toLowerCase().indexOf(q) !== -1 ? '' : 'none';
+      });
+    };
     document.getElementById('addTypeBtn').onclick = function () { openTypeForm(null); };
     Array.prototype.forEach.call(document.querySelectorAll('[data-tedit]'), function (b) {
       b.onclick = function () {
-        openTypeForm(res.itemTypes.find(function (t) { return t.id === b.dataset.tedit; }));
+        openTypeForm(state.refs.itemTypes.find(function (t) { return t.id === b.dataset.tedit; }));
       };
     });
     Array.prototype.forEach.call(document.querySelectorAll('[data-ttoggle]'), function (b) {
       b.onclick = function () {
         busy(b, 'Сохраняем…');
         api('saveItemType', state.token, { id: b.dataset.ttoggle, active: b.dataset.active === 'да' ? 'нет' : 'да' })
-          .then(function () { renderRefs(); })
+          .then(function () { renderRefs('types'); })
           .catch(function (e) { unbusy(b); toast(e.message, true); });
       };
     });
-  }).catch(function (e) { setContainer('<div class="empty">' + esc(e.message) + '</div>'); });
+  }
 }
 
-function openClientForm(c) {
-  c = c || {};
-  showDialog('<h2>' + (c.id ? 'Изменить клиента' : 'Новый клиент') + '</h2>' +
-    '<div class="row"><input type="text" id="cfName" placeholder="Название" value="' + esc(c.name || '') + '"></div>' +
-    '<div class="row"><input type="text" id="cfContact" placeholder="Контакт" value="' + esc(c.contact || '') + '"></div>' +
-    '<div class="row"><input type="text" id="cfAddress" placeholder="Адрес" value="' + esc(c.address || '') + '"></div>' +
+// Страница клиента: основные поля + виды белья + режим учёта (id=null — новый).
+function renderClientDetail(clientId) {
+  var c = clientId ? state.refs.clients.find(function (x) { return x.id === clientId; }) : {};
+  if (!c) return renderRefs('clients');
+  var types = (state.refs.itemTypes || []).filter(function (t) { return t.active === 'да'; });
+  var picked = {};
+  try { (JSON.parse(c.item_types || '[]') || []).forEach(function (id) { picked[id] = true; }); } catch (e) {}
+  var acc = c.accounting === 'weight' || c.accounting === 'count' ? c.accounting : 'both';
+
+  appShell('Справочники', 'refs',
+    '<div class="row"><button class="btn btn-ghost" id="backRefs">← Клиенты</button></div>' +
+    '<div class="card"><h2>' + (c.id ? esc(c.name) : 'Новый клиент') + '</h2>' +
+    '<div class="row"><input type="text" id="cfName" placeholder="Название *" value="' + esc(c.name || '') + '"></div>' +
     '<div class="row"><select id="cfType">' +
       ['отель', 'ресторан', 'спа', 'прочее'].map(function (t) {
         return '<option' + (c.type === t ? ' selected' : '') + '>' + t + '</option>';
@@ -1373,30 +1742,63 @@ function openClientForm(c) {
       '<option value="нет"' + (c.storage !== 'да' ? ' selected' : '') + '>без склада</option>' +
       '<option value="да"' + (c.storage === 'да' ? ' selected' : '') + '>складской</option>' +
     '</select></div>' +
-    '<div class="row"><input type="text" id="cfComment" placeholder="Комментарий" value="' + esc(c.comment || '') + '"></div>' +
-    '<div class="actions"><button class="btn btn-ghost" id="dlgCancel">Назад</button>' +
-    '<button class="btn btn-primary" id="dlgOk">Сохранить</button></div>');
-  document.getElementById('dlgCancel').onclick = hideDialog;
-  var okBtn = document.getElementById('dlgOk');
-  okBtn.onclick = function () {
+    '<div class="row"><input type="text" id="cfAddress" placeholder="Адрес" value="' + esc(c.address || '') + '"></div>' +
+    '<div class="row"><input type="text" id="cfContact" placeholder="Контакт" value="' + esc(c.contact || '') + '"></div>' +
+    '<div class="row"><input type="text" id="cfComment" placeholder="Комментарий" value="' + esc(c.comment || '') + '"></div></div>' +
+
+    '<div class="card"><h2>Виды белья</h2>' +
+    '<div class="meta">Ничего не отмечено — работник увидит все виды.</div>' +
+    types.map(function (t) {
+      return '<label style="display:block;padding:6px 0;font-size:16px"><input type="checkbox" class="cfType" value="' + t.id + '"' +
+        (picked[t.id] ? ' checked' : '') + '> ' + esc(t.name) + '</label>';
+    }).join('') + '</div>' +
+
+    '<div class="card"><h2>Учёт результата</h2>' +
+    [['both', 'Вес + количество'], ['weight', 'Только вес'], ['count', 'Только количество']].map(function (o) {
+      return '<label class="res-opt"><input type="radio" name="cfAcc" value="' + o[0] + '"' +
+        (acc === o[0] ? ' checked' : '') + '><span><b>' + o[1] + '</b></span></label>';
+    }).join('') + '</div>' +
+
+    '<div class="row"><button class="btn btn-primary btn-big" id="cfSave">Сохранить клиента</button></div>' +
+    (c.id && c.active === 'да'
+      ? '<div class="row"><button class="btn btn-danger" id="cfArchive">В архив</button></div>'
+      : ''));
+  document.getElementById('backRefs').onclick = function () { renderRefs('clients'); };
+
+  document.getElementById('cfSave').onclick = function () {
     var name = document.getElementById('cfName').value.trim();
-    if (!name) return toast('Укажите название');
-    busy(okBtn, 'Сохраняем…');
+    if (!name) return toast('Укажите название', true);
+    var itemTypeIds = [];
+    Array.prototype.forEach.call(document.querySelectorAll('.cfType:checked'), function (cb) {
+      itemTypeIds.push(cb.value);
+    });
+    var accEl = document.querySelector('input[name="cfAcc"]:checked');
     var payload = {
       name: name,
-      contact: document.getElementById('cfContact').value,
-      address: document.getElementById('cfAddress').value,
       type: document.getElementById('cfType').value,
       storage: document.getElementById('cfStorage').value,
-      comment: document.getElementById('cfComment').value
+      address: document.getElementById('cfAddress').value,
+      contact: document.getElementById('cfContact').value,
+      comment: document.getElementById('cfComment').value,
+      item_types: itemTypeIds,
+      accounting: accEl ? accEl.value : 'both'
     };
     if (c.id) payload.id = c.id;
+    var btn = this;
+    busy(btn, 'Сохраняем…');
     api('saveClient', state.token, payload)
-      .then(function () { hideDialog(); toast('Сохранено ✓'); renderRefs(); })
-      .catch(function (e) { hideDialog(); toast(e.message, true); });
+      .then(function () { toast('Сохранено ✓'); renderRefs('clients'); })
+      .catch(function (e) { unbusy(btn); toast(e.message, true); });
+  };
+
+  var archBtn = document.getElementById('cfArchive');
+  if (archBtn) archBtn.onclick = function () {
+    busy(archBtn, 'Архивируем…');
+    api('deleteClient', state.token, c.id)
+      .then(function () { toast('Клиент в архиве'); renderRefs('clients'); })
+      .catch(function (e) { unbusy(archBtn); toast(e.message, true); });
   };
 }
-
 function openTypeForm(t) {
   showDialog('<h2>' + (t ? 'Переименовать тип' : 'Новый тип белья') + '</h2>' +
     '<div class="row"><input type="text" id="tfName" placeholder="Название" value="' + esc(t ? t.name : '') + '"></div>' +

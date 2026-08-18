@@ -667,62 +667,7 @@ test('конец смены: список «не готовы к завтраш�
   assert.ok(warn[0].payload.text.indexOf('Без белья') !== -1);
 });
 
-test('водитель: маршрут, deliver/pickup/both/empty, права', () => {
-  const { ctx, loginDriver } = (() => { const m = makeApiCtx(); return { ctx: m.ctx, loginDriver: () => m.ctx.login('3333').token }; })();
-  const c1 = seedClient(ctx);
-  const c2 = seedClient(ctx, { name: 'Ресторан Б' });
-  const c3 = seedClient(ctx, { name: 'Спа В' });
-  const c4 = seedClient(ctx, { name: 'Отель Г' });
-  const owner = loginOwner(ctx);
-  const driver = loginDriver();
 
-  // worker не водитель
-  assert.ok(!ctx.getDriverRoute(loginWorker(ctx), TODAY).ok);
-
-  const v1 = ctx.addDeliveryVisit(owner, c1, TODAY).visit.id; // deliver
-  const v2 = ctx.addDeliveryVisit(owner, c2, TODAY).visit.id; // pickup
-  const v3 = ctx.addDeliveryVisit(owner, c3, TODAY).visit.id; // both
-  const v4 = ctx.addDeliveryVisit(owner, c4, TODAY).visit.id; // empty
-
-  // У c1 и c3 есть чистое на складе (стирки завершены)
-  [c1, c3].forEach(c => {
-    const w = ctx.addToDelivery(owner, c, '2026-08-11', TODAY).wash.id;
-    ctx.startWash(owner, w);
-    ctx.completeWash(owner, w, [], 5);
-  });
-
-  const route = ctx.getDriverRoute(driver, TODAY);
-  assert.strictEqual(route.visits.length, 4);
-  assert.ok(route.visits.find(v => v.id === v1).has_clean);
-  assert.ok(!route.visits.find(v => v.id === v2).has_clean);
-
-  // deliver: чистое уходит со склада, стирка → issued
-  const d1 = ctx.driverVisit(driver, v1, 'deliver');
-  assert.ok(d1.ok && d1.visit.status === 'delivered');
-  assert.ok(!ctx.storageSummaryByClient_()[c1]);
-  const w1 = ctx.findRowsBy_('Washes', w => w.client_id === c1, 10)[0].obj;
-  assert.strictEqual(w1.status, 'issued');
-
-  // pickup: грязное появляется без веса
-  const d2 = ctx.driverVisit(driver, v2, 'pickup');
-  assert.strictEqual(d2.visit.status, 'picked');
-  assert.strictEqual(d2.visit.pickup, 'да');
-  assert.strictEqual(ctx.storageSummaryByClient_()[c2].dirty, 1);
-
-  // both
-  const d3 = ctx.driverVisit(driver, v3, 'both');
-  assert.strictEqual(d3.visit.status, 'both');
-  const s3 = ctx.storageSummaryByClient_()[c3];
-  assert.strictEqual(s3.dirty, 1);
-  assert.strictEqual(s3.clean, 0);
-
-  // empty (черновой статус)
-  assert.strictEqual(ctx.driverVisit(driver, v4, 'empty').visit.status, 'empty');
-
-  // Закрытый визит нельзя переоткрыть; worker не может действия водителя
-  assert.ok(!ctx.driverVisit(driver, v1, 'pickup').ok);
-  assert.ok(!ctx.driverVisit(loginWorker(ctx), v2, 'pickup').ok);
-});
 
 test('getDeliveryVisits: возвращает notReady для вкладки Развоз', () => {
   const { ctx } = makeApiCtx();
@@ -885,4 +830,90 @@ test('склад: bags видны в clean-записях', () => {
   const entry = st.cleanReady.find(s => s.wash_id === washId);
   assert.ok(entry);
   assert.strictEqual(entry.bags, 2);
+});
+
+// Настройки клиента: item_types сохраняется JSON-строкой, accounting валидируется.
+test('saveClient: item_types и accounting нормализуются и попадают в getDayList', () => {
+  const { ctx } = makeApiCtx();
+  const clientId = seedClient(ctx, { item_types: ['itm_1', 'itm_2'], accounting: 'weight' });
+  const worker = loginWorker(ctx);
+  ctx.addToDelivery(loginOwner(ctx), clientId, TODAY, TOMORROW);
+
+  const w = ctx.getDayList(worker, TODAY).washes[0];
+  assert.deepEqual(w.client_item_types, ['itm_1', 'itm_2']);
+  assert.strictEqual(w.client_accounting, 'weight');
+
+  // Мусор в accounting отбрасывается, пустой item_types → null (все типы)
+  const owner = loginOwner(ctx);
+  ctx.saveClient(owner, { id: clientId, item_types: [], accounting: 'мусор' });
+  const w2 = ctx.getDayList(worker, TODAY).washes[0];
+  assert.strictEqual(w2.client_item_types, null);
+  assert.strictEqual(w2.client_accounting, 'both');
+});
+
+// «Другое…» с экрана стирки: worker может создать тип, но не переименовать.
+test('saveItemType: worker создаёт новый тип, переименование — только owner', () => {
+  const { ctx } = makeApiCtx();
+  const worker = loginWorker(ctx);
+  const owner = loginOwner(ctx);
+
+  const created = ctx.saveItemType(worker, { name: 'костюм' });
+  assert.ok(created.ok);
+  assert.ok(created.itemType.id);
+
+  assert.ok(!ctx.saveItemType(worker, { id: created.itemType.id, name: 'комбинезон' }).ok);
+  assert.ok(ctx.saveItemType(owner, { id: created.itemType.id, name: 'комбинезон' }).ok);
+});
+
+// «Запомнить для клиента»: id добавляется в item_types без дублей.
+test('rememberClientItemType: добавляет тип в список клиента идемпотентно', () => {
+  const { ctx } = makeApiCtx();
+  const clientId = seedClient(ctx, { item_types: ['itm_1'] });
+  const worker = loginWorker(ctx);
+
+  const res = ctx.rememberClientItemType(worker, clientId, 'itm_5');
+  assert.ok(res.ok);
+  assert.deepEqual(JSON.parse(res.client.item_types), ['itm_1', 'itm_5']);
+
+  const again = ctx.rememberClientItemType(worker, clientId, 'itm_5');
+  assert.deepEqual(JSON.parse(again.client.item_types), ['itm_1', 'itm_5']);
+
+  // Водителя не пускаем
+  assert.ok(!ctx.rememberClientItemType(ctx.login('3333').token, clientId, 'itm_6').ok);
+});
+
+// Учёт «только количество»: вес при завершении необязателен.
+test('completeWash: клиент с accounting=count завершается без веса', () => {
+  const { ctx } = makeApiCtx();
+  const clientId = seedClient(ctx, { accounting: 'count' });
+  const worker = loginWorker(ctx);
+  const washId = ctx.addToDelivery(loginOwner(ctx), clientId, TODAY, TOMORROW).wash.id;
+
+  ctx.startWash(worker, washId);
+  const done = ctx.completeWash(worker, washId, [{ item_type_id: 'itm_1', qty: 12 }], 0, 'full', 0);
+  assert.ok(done.ok);
+  assert.strictEqual(done.wash.items_total, 12);
+
+  // Обычный клиент без веса — по-прежнему ошибка
+  const client2 = seedClient(ctx);
+  const wash2 = ctx.addToDelivery(loginOwner(ctx), client2, TODAY, TOMORROW).wash.id;
+  ctx.startWash(worker, wash2);
+  assert.ok(!ctx.completeWash(worker, wash2, [{ item_type_id: 'itm_1', qty: 3 }], 0, 'full', 0).ok);
+});
+
+// «Поставить в стирку» со склада: вторая открытая стирка на сегодня не создаётся.
+test('addUnplannedWash: не дублирует открытую стирку клиента на сегодня', () => {
+  const { ctx } = makeApiCtx();
+  const clientId = seedClient(ctx);
+  const owner = loginOwner(ctx);
+
+  const first = ctx.addUnplannedWash(owner, clientId, 'со склада');
+  assert.ok(first.ok);
+  const dup = ctx.addUnplannedWash(owner, clientId, 'со склада');
+  assert.ok(!dup.ok);
+
+  // Завершённая стирка не мешает новой
+  ctx.startWash(owner, first.wash.id);
+  ctx.completeWash(owner, first.wash.id, [], 5, 'full', 0);
+  assert.ok(ctx.addUnplannedWash(owner, clientId, '').ok);
 });

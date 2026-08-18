@@ -106,6 +106,15 @@ function deleteRow_(sheetName, rowNumber) {
   getSheet_(sheetName).deleteRow(rowNumber);
 }
 
+// JSON-массив строк из ячейки (Clients.item_types): битый/пустой → null.
+function parseJsonList_(raw) {
+  if (!raw) return null;
+  try {
+    var v = JSON.parse(raw);
+    return Array.isArray(v) && v.length ? v : null;
+  } catch (e) { return null; }
+}
+
 // --- Кэш справочников (Settings/Clients/ItemTypes), TTL 5 мин, сброс при записи ---
 
 function cacheGet_(key) {

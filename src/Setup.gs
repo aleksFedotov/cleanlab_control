@@ -31,6 +31,41 @@ function migrateAddBagsColumn() {
   Logger.log('migrateAddBagsColumn: колонка bags добавлена');
 }
 
+// Одноразовая миграция: добавить колонки item_types и accounting в Clients
+// (запустить вручную после деплоя). Идемпотентна. Db читает строки по заголовкам.
+// item_types — JSON-массив id типов белья клиента (пусто = все типы);
+// accounting — weight | count | both (пусто = both).
+function migrateAddClientSettings() {
+  var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEETS.CLIENTS);
+  var headers = getHeaders_(sh);
+  ['item_types', 'accounting'].forEach(function (col) {
+    if (headers.indexOf(col) !== -1) {
+      Logger.log('migrateAddClientSettings: колонка ' + col + ' уже есть');
+      return;
+    }
+    sh.getRange(1, headers.length + 1).setValue(col);
+    headers.push(col);
+    Logger.log('migrateAddClientSettings: колонка ' + col + ' добавлена');
+  });
+}
+
+// Одноразовая миграция: добавить колонки груза водителя в Deliveries
+// (запустить вручную после деплоя). Идемпотентна.
+// clean_taken_at/clean_bags — чистое у водителя; picked_at/dirty_handed_at — грязное у водителя.
+function migrateAddVisitCargo() {
+  var sh = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEETS.DELIVERIES);
+  var headers = getHeaders_(sh);
+  ['clean_taken_at', 'clean_bags', 'picked_at', 'dirty_handed_at'].forEach(function (col) {
+    if (headers.indexOf(col) !== -1) {
+      Logger.log('migrateAddVisitCargo: колонка ' + col + ' уже есть');
+      return;
+    }
+    sh.getRange(1, headers.length + 1).setValue(col);
+    headers.push(col);
+    Logger.log('migrateAddVisitCargo: колонка ' + col + ' добавлена');
+  });
+}
+
 // Дефолтные настройки (без секретов — они в Script Properties, spec §3.2).
 function seedSettings_() {
   var defaults = {
