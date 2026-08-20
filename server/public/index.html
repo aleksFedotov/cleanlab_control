@@ -1086,12 +1086,28 @@ function renderDriver() {
         : '') + '</div>';
   }
 
-  // Массовое действие: взять чистое сразу по всем точкам, где оно есть на складе
+  // Чистое на складе: отдельный блок сверху — какие точки взять с собой.
+  // По каждой точке главное — количество мешков; можно выбрать часть или взять всё.
   var toTake = route.visits.filter(function (v) {
     return v.status === 'planned' && v.has_clean && !v.clean_taken_at;
   });
-  if (toTake.length >= 2) {
-    html += '<div class="row"><button class="btn btn-primary btn-big" id="takeAllBtn">📦 Взять всё чистое со склада (' + toTake.length + ' точек)</button></div>';
+  if (toTake.length) {
+    var totalBags = 0;
+    toTake.forEach(function (v) { totalBags += Number(v.clean_stock_bags) || 0; });
+    html += '<div class="card"><h2>✨ Чистое на складе — развезти (' + toTake.length + ' точек' +
+      (totalBags ? ', ' + totalBags + ' меш.' : '') + ')</h2>' +
+      toTake.map(function (v) {
+        var bags = Number(v.clean_stock_bags) || 0;
+        return '<label class="item-row" style="cursor:pointer">' +
+          '<input type="checkbox" class="takeChk" data-v="' + v.id + '" checked style="width:22px;height:22px;flex:none">' +
+          '<span class="name">' + esc(v.client_name) +
+          (v.address ? '<div class="cm">' + esc(v.address) + '</div>' : '') + '</span>' +
+          '<b style="font-size:20px;flex:none">' + (bags ? bags + ' меш.' : '—') + '</b></label>';
+      }).join('') +
+      '<div class="row"><button class="btn btn-primary btn-big" id="takeSelBtn">Забрать выбранные</button></div>' +
+      (toTake.length >= 2
+        ? '<div class="row"><button class="btn btn-ghost btn-big" id="takeAllBtn">Забрать всё (' + toTake.length + ' точек' + (totalBags ? ', ' + totalBags + ' меш.' : '') + ')</button></div>'
+        : '') + '</div>';
   }
 
   if (!route.visits.length) {
@@ -1112,7 +1128,7 @@ function renderDriver() {
         var needD = false, needP = false;
         if (!done) {
           if (v.clean_taken_at && !v.delivered_at) { meta.push('🚚 чистое у вас' + (Number(v.clean_bags) ? ': ' + v.clean_bags + ' меш.' : '')); needD = true; }
-          else if (v.has_clean) { meta.push('✨ чистое на складе: ' + v.clean_kg + ' кг' + (Number(v.clean_stock_bags) ? ' / ' + v.clean_stock_bags + ' меш.' : '')); needD = true; }
+          else if (v.has_clean) { meta.push('✨ чистое на складе: ' + (Number(v.clean_stock_bags) ? v.clean_stock_bags + ' меш.' : 'есть')); needD = true; }
           if (v.picked_at) meta.push('🟥 грязное у вас');
           else { needP = true; meta.push('🧺 забрать грязное'); }
         }
@@ -1155,6 +1171,24 @@ function renderDriver() {
       }).catch(function (e) { toast(e.message, true); });
     });
   };
+  // Выборочно: «Забрать выбранные» — take_clean по каждой отмеченной точке
+  var takeSelBtn = document.getElementById('takeSelBtn');
+  if (takeSelBtn) takeSelBtn.onclick = function () {
+    var ids = Array.prototype.map.call(document.querySelectorAll('.takeChk:checked'), function (c) { return c.dataset.v; });
+    if (!ids.length) return toast('Выберите точки', true);
+    var sel = route.visits.filter(function (v) { return ids.indexOf(v.id) !== -1; });
+    var bags = 0;
+    sel.forEach(function (v) { bags += Number(v.clean_stock_bags) || 0; });
+    confirmDialog('Забрать чистое: ' + sel.length + ' точек' + (bags ? ', ' + bags + ' меш.' : '') + '?', 'Да, взял', function () {
+      var chain = Promise.resolve();
+      ids.forEach(function (id) {
+        chain = chain.then(function () { return api('driverAction', state.token, id, 'take_clean'); });
+      });
+      chain.then(function () {
+        hideDialog(); toast('Взято: ' + ids.length + ' точек, ' + bags + ' меш. ✓'); loadDriver(state.date);
+      }).catch(function (e) { hideDialog(); toast(e.message, true); loadDriver(state.date); });
+    });
+  };
   Array.prototype.forEach.call(document.querySelectorAll('[data-dfilter]'), function (b) {
     b.onclick = function () {
       state.drvFilter = b.dataset.dfilter;
@@ -1187,8 +1221,9 @@ function openDriverVisit(v) {
     }
     rows += '<div class="row"><button class="btn btn-primary btn-big" data-act="deliver_clean">Отдал чистое</button></div>';
   } else if (v.has_clean) {
-    meta.push('✨ чистое на складе: ' + v.clean_kg + ' кг' + (Number(v.clean_stock_bags) ? ' / ' + v.clean_stock_bags + ' меш.' : ''));
-    rows += '<div class="row"><button class="btn btn-primary btn-big" data-act="take_clean">Взял чистое</button></div>';
+    meta.push('✨ чистое на складе: ' + (Number(v.clean_stock_bags) ? v.clean_stock_bags + ' меш.' : 'есть'));
+    rows += '<div class="row"><button class="btn btn-primary btn-big" data-act="take_clean">Взял чистое' +
+      (Number(v.clean_stock_bags) ? ' (' + v.clean_stock_bags + ' меш.)' : '') + '</button></div>';
   }
   if (v.picked_at) {
     meta.push('🟥 грязное у вас');
