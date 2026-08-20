@@ -60,7 +60,7 @@ test('deleteWash: удаляет ошибочную стирку совсем; �
   // завершённую стирку удалить нельзя
   const w2 = ctx.api.addToDelivery(owner, clientId, TODAY, TOMORROW).wash.id;
   ctx.api.startWash(worker, w2, 10);
-  ctx.api.completeWash(worker, w2, [], 10);
+  ctx.api.completeWash(worker, w2, [], 10, null, 1);
   const del = ctx.api.deleteWash(owner, w2);
   assert.ok(!del.ok);
   assert.ok(/незавершённую/.test(del.error));
@@ -82,9 +82,14 @@ test('полный цикл: постановка → в работу → зав
   // Без веса чистого завершение отклоняется
   assert.ok(!ctx.api.completeWash(worker, washId, [{ item_type_id: 'itm_1', qty: 1 }]).ok);
 
+  // Без мешков завершение отклоняется (даже с весом)
+  const noBags = ctx.api.completeWash(worker, washId, [{ item_type_id: 'itm_1', qty: 1 }], 11.5);
+  assert.ok(!noBags.ok);
+  assert.ok(/мешков/.test(noBags.error));
+
   const done = ctx.api.completeWash(worker, washId, [
     { item_type_id: 'itm_1', qty: 10 }, { item_type_id: 'itm_2', qty: 0 }, { item_type_id: 'itm_3', qty: 5 }
-  ], 11.5);
+  ], 11.5, null, 2);
   assert.ok(done.ok);
   assert.strictEqual(done.wash.status, 'done');
   assert.strictEqual(done.wash.items_total, 15);
@@ -107,7 +112,7 @@ test('клиент с учётом «только количество»: вес
   const worker = loginWorker();
   const washId = ctx.api.addToDelivery(loginOwner(), clientId, TODAY, TOMORROW).wash.id;
   ctx.api.startWash(worker, washId);
-  const done = ctx.api.completeWash(worker, washId, [{ item_type_id: 'itm_1', qty: 3 }]);
+  const done = ctx.api.completeWash(worker, washId, [{ item_type_id: 'itm_1', qty: 3 }], null, null, 1);
   assert.ok(done.ok);
 });
 
@@ -202,7 +207,7 @@ test('deferWash: из done/stored по-прежнему запрещён', () =>
   const owner = loginOwner();
   const washId = ctx.api.addToDelivery(owner, clientId, TODAY, TOMORROW).wash.id;
   ctx.api.startWash(owner, washId);
-  ctx.api.completeWash(owner, washId, [{ item_type_id: 'itm_1', qty: 2 }], 5);
+  ctx.api.completeWash(owner, washId, [{ item_type_id: 'itm_1', qty: 2 }], 5, null, 1);
   const res = ctx.api.deferWash(owner, washId, '2026-08-14', 'поздно');
   assert.ok(!res.ok);
   assert.strictEqual(res.error, 'Нельзя defer из статуса done');
@@ -218,7 +223,7 @@ test('notReady: обслуженные точки (выдано/чистое у 
   const v1 = ctx.api.addDeliveryVisit(owner, c1, TOMORROW).visit;
   const w1 = ctx.api.addToDelivery(owner, c1, TODAY, TOMORROW).wash.id;
   ctx.api.startWash(worker, w1);
-  ctx.api.completeWash(worker, w1, [{ item_type_id: 'itm_1', qty: 2 }], 5);
+  ctx.api.completeWash(worker, w1, [{ item_type_id: 'itm_1', qty: 2 }], 5, null, 1);
   assert.ok(ctx.api.driverAction(driver, v1.id, 'take_clean').ok);
   assert.ok(ctx.api.driverAction(driver, v1.id, 'deliver_clean').ok);
   // Клиент 2: чистое у водителя, визит ещё открыт
@@ -226,7 +231,7 @@ test('notReady: обслуженные точки (выдано/чистое у 
   const v2 = ctx.api.addDeliveryVisit(owner, c2, TOMORROW).visit;
   const w2 = ctx.api.addToDelivery(owner, c2, TODAY, TOMORROW).wash.id;
   ctx.api.startWash(worker, w2);
-  ctx.api.completeWash(worker, w2, [{ item_type_id: 'itm_1', qty: 2 }], 5);
+  ctx.api.completeWash(worker, w2, [{ item_type_id: 'itm_1', qty: 2 }], 5, null, 1);
   assert.ok(ctx.api.driverAction(driver, v2.id, 'take_clean').ok);
   // Клиент 3: чистого нет вообще — должен остаться в предупреждении
   const c3 = seedClient(ctx);
@@ -305,7 +310,7 @@ test('closeShift: блокируют незавершённые; после за
   assert.ok(blocked.error.includes(washId));
 
   ctx.api.startWash(worker, washId);
-  ctx.api.completeWash(worker, washId, [{ item_type_id: 'itm_1', qty: 10 }], 11.5);
+  ctx.api.completeWash(worker, washId, [{ item_type_id: 'itm_1', qty: 10 }], 11.5, null, 1);
 
   // OWNER_CHAT_ID не задан → дайджест не уходит, digest_sent остаётся пустым
   const closed = await ctx.api.closeShift(worker);
@@ -327,7 +332,7 @@ test('closeShift с OWNER_CHAT_ID: дайджест отправлен, digest_s
   const owner = loginOwner();
   const washId = ctx.api.addToDelivery(owner, clientId, TODAY, TOMORROW).wash.id;
   ctx.api.startWash(owner, washId);
-  ctx.api.completeWash(owner, washId, [{ item_type_id: 'itm_1', qty: 10 }], 11.5);
+  ctx.api.completeWash(owner, washId, [{ item_type_id: 'itm_1', qty: 10 }], 11.5, null, 1);
 
   const closed = await ctx.api.closeShift(owner);
   assert.ok(closed.ok);
@@ -389,7 +394,7 @@ test('markIssued: выдача списывает clean-запись склад�
   const owner = loginOwner();
   const washId = ctx.api.addToDelivery(owner, clientId, TODAY, TOMORROW).wash.id;
   ctx.api.startWash(owner, washId);
-  ctx.api.completeWash(owner, washId, [{ item_type_id: 'itm_1', qty: 5 }], 8);
+  ctx.api.completeWash(owner, washId, [{ item_type_id: 'itm_1', qty: 5 }], 8, null, 1);
   const issued = ctx.api.markIssued(owner, washId);
   assert.ok(issued.ok);
   assert.strictEqual(issued.wash.status, 'issued');
@@ -406,7 +411,7 @@ test('updateIssueDate: только у done/stored; меняет дату без
   const washId = ctx.api.addToDelivery(owner, clientId, TODAY, TOMORROW).wash.id;
   assert.ok(!ctx.api.updateIssueDate(owner, washId, '2026-08-15').ok); // planned
   ctx.api.startWash(owner, washId);
-  ctx.api.completeWash(owner, washId, [{ item_type_id: 'itm_1', qty: 5 }], 8);
+  ctx.api.completeWash(owner, washId, [{ item_type_id: 'itm_1', qty: 5 }], 8, null, 1);
   const upd = ctx.api.updateIssueDate(owner, washId, '2026-08-15');
   assert.ok(upd.ok);
   assert.strictEqual(upd.wash.issue_date, '2026-08-15');

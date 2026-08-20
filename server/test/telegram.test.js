@@ -131,7 +131,7 @@ test('fallbackDigestTrigger: шлёт, только если смена не з�
   const clientId = ctx.api.saveClient(owner, { name: 'Отель А' }).client.id;
   const washId = ctx.api.addToDelivery(owner, clientId, TODAY, '2026-08-13').wash.id;
   ctx.api.startWash(owner, washId);
-  ctx.api.completeWash(owner, washId, [{ item_type_id: 'itm_1', qty: 1 }], 5);
+  ctx.api.completeWash(owner, washId, [{ item_type_id: 'itm_1', qty: 1 }], 5, null, 1);
 
   // Смена не закрыта → fallback отправляет дайджест
   await ctx.telegram.fallbackDigestTrigger();

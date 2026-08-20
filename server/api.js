@@ -139,6 +139,8 @@ function completeWash(token, washId, items, weightKg, mode, bags) {
     const cl = db.findById_(SHEETS.CLIENTS, w.client_id);
     const countOnly = cl && cl.obj.accounting === 'count';
     if (!countOnly && !(Number(weightKg) > 0)) return err_('Укажите вес чистого белья');
+    // Мешки обязательны всегда: по ним водитель сверяет выдачу
+    if (!(Number(bags) > 0)) return err_('Укажите количество мешков');
     const valid = (items || []).filter(function (it) { return Number(it.qty) > 0; });
     let total = 0;
     valid.forEach(function (it) {

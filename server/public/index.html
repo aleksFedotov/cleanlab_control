@@ -774,6 +774,7 @@ function saveResult(w, btn) {
   var kg = state.weights[w.id] != null ? state.weights[w.id] : (parseFloat(w.dirty_weight_kg) || 0);
   if (acc !== 'count' && kg <= 0) return toast('Укажите вес чистого белья', true);
   var bags = (state.bags || {})[w.id] || 0;
+  if (bags <= 0) return toast('Укажите количество мешков', true);
   var modeEl = document.querySelector('input[name="wmode"]:checked');
   var mode = modeEl ? modeEl.value : 'full';
   busy(btn, 'Сохраняем…');
