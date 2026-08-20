@@ -4,145 +4,216 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
   <title>Прачка360</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@600;700&display=swap" rel="stylesheet">
   <style>
+    /* ===== Дизайн-система «Прачка360 SaaS» =====
+       Светлый enterprise-дашборд: нейтральный фон #f6f7f9, белые поверхности,
+       синий акцент #2563eb, статусы — тонированные плашки (amber/blue/green/red/slate),
+       чипы — маленькие моноширинные бейджи без наклона, радиусы 8/12, тень 0 1px 2px. */
+    :root {
+      --cotton: #f6f7f9;
+      --paper: #ffffff;
+      --ink: #0f172a;
+      --ink-soft: #475569;
+      --ink-faint: #94a3b8;
+      --line: #e5e7eb;
+      --line-strong: #cbd5e1;
+      --bluing: #2563eb;
+      --bluing-deep: #1d4ed8;
+      --bluing-wash: #eff4ff;
+      --ghost: #f1f5f9;
+      --danger: #dc2626;
+      --st-todo: #d97706;
+      --st-todo-wash: #fef3c7;
+      --st-doing: #2563eb;
+      --st-doing-wash: #eff4ff;
+      --st-done: #16a34a;
+      --st-done-wash: #ecfdf5;
+      --st-attn: #dc2626;
+      --st-attn-wash: #fef2f2;
+      --st-muted: #64748b;
+      --st-muted-wash: #f1f5f9;
+      --r-sm: 8px; --r-md: 12px; --r-lg: 16px;
+      --shadow: 0 1px 2px rgb(0 0 0 / .04);
+      --f-ui: 'Inter', system-ui, sans-serif;
+      --f-display: 'Inter', system-ui, sans-serif;
+      --f-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+    }
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: system-ui, sans-serif; background: #f2f4f7; color: #1a1a1a; font-size: 18px; }
-    button { font: inherit; cursor: pointer; border: none; border-radius: 12px; }
+    body { font-family: var(--f-ui); background: var(--cotton); color: var(--ink); font-size: 16px; line-height: 1.45; -webkit-font-smoothing: antialiased; }
+    button { font: inherit; cursor: pointer; border: none; border-radius: var(--r-md); transition: background .12s ease, box-shadow .12s ease, transform .12s ease; }
     button:disabled { opacity: .55; cursor: default; }
-    input, select { font: inherit; padding: 10px; border: 1px solid #c8cdd4; border-radius: 10px; width: 100%; }
+    button:not(:disabled):active { transform: scale(.98); }
+    button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-visible { outline: 3px solid rgba(37,99,235,.35); outline-offset: 1px; }
+    input, select { font: inherit; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--r-sm); width: 100%; background: var(--paper); box-shadow: var(--shadow); }
+    input:focus, select:focus { border-color: var(--bluing); outline: none; box-shadow: 0 0 0 3px var(--bluing-wash); }
 
-    .app-header { background: #1e3a5f; color: #fff; padding: 12px 16px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-    .app-header h1 { font-size: 22px; }
-    .date-nav { display: flex; align-items: center; justify-content: center; gap: 10px; font-size: 20px; font-weight: 600; margin: 4px 0 12px; }
-    .date-nav button { background: #33517c; color: #fff; width: 44px; height: 44px; font-size: 22px; }
-    .date-nav .date-jump { background: none; color: inherit; width: auto; height: auto; font: inherit; padding: 4px 8px; border-radius: 8px; text-decoration: underline dotted; }
-    .today-btn { width: auto; height: auto; padding: 8px 14px; font-size: 15px; font-weight: 700; background: #e3e8ef; color: #1a1a1a; }
+    /* Шапка: светлая, белая, бренд слева, действия справа */
+    .app-header { background: var(--paper); color: var(--ink); padding: 12px 16px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; border-bottom: 1px solid var(--line); }
+    .app-header h1 { font-family: var(--f-display); font-size: 18px; font-weight: 700; letter-spacing: -.025em; }
+    .app-header .btn-ghost { background: var(--ghost); color: var(--ink-soft); }
+    .app-header .btn-ghost:hover:not(:disabled) { background: #e2e8f0; }
+    .app-header .chip { margin-top: 0; }
+    .date-nav { display: flex; align-items: center; justify-content: center; gap: 10px; font-family: var(--f-mono); font-size: 16px; font-weight: 600; margin: 4px 0 12px; }
+    .date-nav button { background: var(--paper); color: var(--ink-soft); width: 44px; height: 44px; font-size: 22px; border: 1px solid var(--line); box-shadow: var(--shadow); }
+    .date-nav button:hover { background: #f8fafc; border-color: var(--line-strong); }
+    .date-nav .date-jump { background: none; color: inherit; width: auto; height: auto; font: inherit; padding: 4px 8px; border-radius: var(--r-sm); border: none; box-shadow: none; text-decoration: underline dotted; }
+    .today-btn { width: auto; height: auto; padding: 8px 14px; font-size: 15px; font-weight: 600; background: var(--bluing-wash); color: var(--bluing); border: none; box-shadow: none; }
     .search-input { margin-bottom: 12px; }
     .app-header .spacer { flex: 1; }
-    .btn { padding: 12px 18px; font-size: 18px; font-weight: 600; }
-    .btn-primary { background: #2f6fed; color: #fff; }
-    .btn-danger { background: #d64545; color: #fff; }
-    .btn-ghost { background: #e3e8ef; color: #1a1a1a; }
-    .btn-big { width: 100%; padding: 18px; font-size: 22px; }
+    .btn { padding: 12px 18px; font-size: 16px; font-weight: 600; }
+    .btn-primary { background: var(--bluing); color: #fff; }
+    .btn-primary:hover:not(:disabled) { background: var(--bluing-deep); }
+    .btn-danger { background: var(--danger); color: #fff; }
+    .btn-danger:hover:not(:disabled) { background: #b91c1c; }
+    .btn-ghost { background: var(--ghost); color: var(--ink); }
+    .btn-ghost:hover:not(:disabled) { background: #e2e8f0; }
+    .btn-big { width: 100%; padding: 18px; font-size: 20px; }
 
-    .offline-banner { display: none; background: #d64545; color: #fff; text-align: center; padding: 10px; font-weight: 700; position: sticky; top: 0; z-index: 10; }
+    .offline-banner { display: none; background: var(--danger); color: #fff; text-align: center; padding: 10px; font-weight: 700; position: sticky; top: 0; z-index: 10; }
     .offline-banner.show { display: block; }
 
     .container { max-width: 720px; margin: 0 auto; padding: 16px; }
     .container.wide { max-width: 1200px; }
     .filters { display: flex; gap: 8px; margin-bottom: 14px; }
-    .filters button { flex: 1; padding: 10px; background: #e3e8ef; font-weight: 600; }
-    .filters button.active { background: #1e3a5f; color: #fff; }
+    .filters button { flex: 1; padding: 10px; background: var(--ghost); font-weight: 600; color: var(--ink-soft); }
+    .filters button.active { background: var(--bluing); color: #fff; }
 
-    .card { background: #fff; border-radius: 14px; padding: 16px; margin-bottom: 12px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
-    .card .client { font-size: 22px; font-weight: 700; }
-    .card .meta { color: #555; margin-top: 4px; }
-    .chip { display: inline-block; padding: 3px 12px; border-radius: 20px; font-size: 15px; font-weight: 700; margin-top: 6px; }
-    .chip-planned { background: #e3e8ef; color: #333; }
-    .chip-in_progress { background: #ffe9a8; color: #7a5b00; }
-    .chip-done { background: #c9efd0; color: #1c6b2a; }
-    .chip-stored { background: #cfe3ff; color: #1d4e9e; }
-    .chip-partial { background: #ffe1b3; color: #8a5a00; }
-    .chip-deferred { background: #ffd9c2; color: #8a3c00; }
-    .chip-no_linen { background: #eceff1; color: #607d8b; }
-    .chip-ready_clean { background: #c9efd0; color: #1c6b2a; }
+    .card { background: var(--paper); border-radius: var(--r-md); padding: 16px; margin-bottom: 12px; border: 1px solid var(--line); box-shadow: var(--shadow); }
+    .card .client { font-size: 20px; font-weight: 800; }
+    .card .meta { color: var(--ink-soft); font-size: 15px; margin-top: 4px; }
+    .card h2 { border-bottom: 1px solid var(--line); padding-bottom: 10px; margin-bottom: 12px; }
+    /* Чип статуса: маленький моноширинный бейдж, капс, тонированная подложка */
+    .chip { display: inline-block; padding: 3px 10px; border-radius: 6px; font-family: var(--f-mono); font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; margin-top: 6px; }
+    .chip-planned { background: var(--st-todo-wash); color: var(--st-todo); }
+    .chip-in_progress { background: var(--st-doing-wash); color: var(--st-doing); }
+    .chip-done { background: var(--st-done-wash); color: var(--st-done); }
+    .chip-stored { background: var(--st-doing-wash); color: var(--st-doing); }
+    .chip-partial { background: var(--st-todo-wash); color: var(--st-todo); }
+    .chip-deferred { background: var(--st-todo-wash); color: var(--st-todo); }
+    .chip-no_linen { background: var(--st-muted-wash); color: var(--st-muted); }
+    .chip-ready_clean { background: var(--st-done-wash); color: var(--st-done); }
 
     .row { display: flex; gap: 10px; align-items: center; margin-top: 12px; }
     .row > * { flex: 1; }
     .stepper { display: flex; align-items: center; gap: 8px; }
-    .stepper button { width: 56px; height: 56px; font-size: 26px; background: #e3e8ef; font-weight: 700; flex: none; }
-    .stepper .val { min-width: 60px; text-align: center; font-size: 22px; font-weight: 700; }
-    .stepper .val.tap { cursor: pointer; border-bottom: 2px dashed #9aa5b1; padding: 0 4px; }
+    .stepper button { width: 56px; height: 56px; font-size: 26px; background: var(--ghost); color: var(--ink); font-weight: 700; flex: none; }
+    .stepper button:hover:not(:disabled) { background: #e2e8f0; }
+    .stepper .val { min-width: 60px; text-align: center; font-family: var(--f-mono); font-size: 22px; font-weight: 700; }
+    .stepper .val.tap { cursor: pointer; border-bottom: 2px dashed var(--ink-faint); padding: 0 4px; }
     .stepper-sm button { width: 44px; height: 44px; font-size: 20px; }
     .stepper-sm .val { min-width: 44px; font-size: 18px; }
     /* Экран стирки: блоки результата */
-    .res-label { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: #555; }
-    .res-label-sm { font-size: 12px; color: #777; margin-top: 8px; }
-    .res-opt { display: flex; gap: 10px; align-items: flex-start; border: 2px solid #dde3ea; border-radius: 10px; padding: 10px 12px; margin-bottom: 8px; cursor: pointer; }
+    .res-label { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--ink-soft); }
+    .res-label-sm { font-size: 12px; color: var(--ink-faint); margin-top: 8px; }
+    .res-opt { display: flex; gap: 10px; align-items: flex-start; border: 2px solid var(--line); border-radius: var(--r-md); padding: 10px 12px; margin-bottom: 8px; cursor: pointer; }
     .res-opt input { margin-top: 4px; }
-    .res-opt:has(input:checked) { border-color: #2f6fed; background: #eef4ff; }
+    .res-opt:has(input:checked) { border-color: var(--bluing); background: var(--bluing-wash); }
+    /* Карточки выбора результата стирки: нативный radio скрыт, выбор — самой карточкой */
+    .res-card { position: relative; display: flex; gap: 12px; align-items: center; border: 2px solid var(--line); border-radius: var(--r-md); padding: 14px 14px; margin-bottom: 10px; cursor: pointer; background: var(--paper); }
+    .res-card input { position: absolute; opacity: 0; width: 0; height: 0; margin: 0; }
+    .res-card .res-ico { flex: none; width: 44px; height: 44px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 22px; font-weight: 700; }
+    .res-card[data-tone="done"] .res-ico { background: var(--st-done-wash); color: var(--st-done); }
+    .res-card[data-tone="partial"] .res-ico { background: var(--st-todo-wash); color: var(--st-todo); }
+    .res-card .res-text b { font-size: 17px; }
+    .res-card .res-text .cm { font-size: 13px; color: var(--ink-soft); font-weight: 400; margin-top: 2px; }
+    .res-card::after { content: ''; position: absolute; top: 8px; right: 8px; width: 22px; height: 22px; border-radius: 50%; border: 2px solid var(--line-strong); background: var(--paper); }
+    .res-card:has(input:checked)::after { content: '✓'; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; color: #fff; }
+    .res-card[data-tone="done"]:has(input:checked) { border-color: var(--st-done); background: var(--st-done-wash); }
+    .res-card[data-tone="done"]:has(input:checked)::after { background: var(--st-done); border-color: var(--st-done); }
+    .res-card[data-tone="partial"]:has(input:checked) { border-color: var(--st-todo); background: var(--st-todo-wash); }
+    .res-card[data-tone="partial"]:has(input:checked)::after { background: var(--st-todo); border-color: var(--st-todo); }
+    .res-card:has(input:focus-visible) { outline: 3px solid rgba(37,99,235,.35); outline-offset: 1px; }
     /* Справочники: подвкладки и строки */
     .subtabs { display: flex; gap: 6px; margin-bottom: 12px; }
-    .subtabs button { flex: 1; padding: 10px; border: 1px solid #c4ccd6; background: #fff; border-radius: 8px; font-size: 15px; cursor: pointer; }
-    .subtabs button.on { background: #2f6fed; color: #fff; border-color: #2f6fed; }
+    .subtabs button { flex: 1; padding: 10px; border: 1px solid var(--line); background: var(--paper); border-radius: var(--r-sm); font-size: 15px; font-weight: 500; color: var(--ink-soft); cursor: pointer; }
+    .subtabs button.on { background: var(--bluing); color: #fff; border-color: var(--bluing); }
     .ref-row { cursor: pointer; }
-    .ref-row:active { background: #eef4ff; }
-    .item-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid #eee; }
-    .item-row .name { flex: 1; font-size: 19px; }
+    .ref-row:active { background: var(--bluing-wash); }
+    .item-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--line); }
+    .item-row .name { flex: 1; font-size: 17px; }
 
     .pin-wrap { max-width: 340px; margin: 15vh auto 0; text-align: center; }
-    .pin-wrap h1 { margin-bottom: 20px; }
-    .pin-wrap input { text-align: center; font-size: 26px; letter-spacing: 8px; margin-bottom: 14px; }
-    .err { color: #d64545; margin-top: 10px; min-height: 24px; }
+    .pin-wrap h1 { font-family: var(--f-display); font-size: 26px; font-weight: 800; letter-spacing: -.02em; margin-bottom: 20px; }
+    .pin-wrap input { text-align: center; font-family: var(--f-mono); font-size: 26px; letter-spacing: 8px; margin-bottom: 14px; }
+    .err { color: var(--danger); margin-top: 10px; min-height: 24px; }
 
-    .overlay { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: none; align-items: center; justify-content: center; z-index: 20; }
+    .overlay { position: fixed; inset: 0; background: rgba(15,23,42,.5); display: none; align-items: center; justify-content: center; z-index: 20; }
     .overlay.show { display: flex; }
-    .dialog { background: #fff; border-radius: 16px; padding: 22px; max-width: 480px; width: 92%; max-height: 85vh; overflow: auto; }
+    .dialog { background: var(--paper); border-radius: var(--r-md); padding: 22px; max-width: 480px; width: 92%; max-height: 85vh; overflow: auto; box-shadow: 0 8px 32px rgba(15,23,42,.18); }
     .dialog h2 { margin-bottom: 14px; }
     .dialog .actions { display: flex; gap: 10px; margin-top: 18px; }
 
-    .blockers { background: #ffe1e1; border: 2px solid #d64545; border-radius: 14px; padding: 14px; margin-bottom: 14px; }
+    .blockers { background: var(--st-attn-wash); border: 2px solid var(--st-attn); border-radius: var(--r-md); padding: 14px; margin-bottom: 14px; }
     .blockers .brow { font-size: 15px; padding: 3px 0; }
-    .blockers .brow .why { color: #777; }
+    .blockers .brow .why { color: var(--ink-faint); }
     /* Развоз: компактные строки визитов и клиентов */
-    .vrow { display: flex; align-items: center; gap: 10px; background: #fff; border-radius: 10px; padding: 10px 12px; margin-bottom: 6px; border-left: 4px solid #2f6fed; box-shadow: 0 1px 2px rgba(0,0,0,.06); }
+    .vrow { display: flex; align-items: center; gap: 10px; background: var(--paper); border-radius: var(--r-md); padding: 10px 12px; margin-bottom: 6px; border-left: 4px solid var(--bluing); border-top: 1px solid var(--line); border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); box-shadow: var(--shadow); }
     .vrow .nm { flex: 1; font-weight: 700; }
-    .vrow .cm { font-size: 13px; color: #555; font-weight: 400; }
-    .vrow .rm { flex: none; width: 36px; height: 36px; background: #f6d5d5; color: #c0392b; font-size: 18px; }
-    .vrow .add { flex: none; width: 36px; height: 36px; background: #2f6fed; color: #fff; font-size: 20px; }
-    .toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: #1c6b2a; color: #fff; padding: 12px 24px; border-radius: 12px; font-weight: 700; display: none; z-index: 30; }
-    .toast.err { background: #d64545; }
+    .vrow .cm { font-size: 13px; color: var(--ink-soft); font-weight: 400; }
+    .vrow .rm { flex: none; width: 36px; height: 36px; background: var(--st-attn-wash); color: var(--danger); font-size: 18px; }
+    .vrow .add { flex: none; width: 36px; height: 36px; background: var(--bluing); color: #fff; font-size: 20px; }
+    .toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: var(--st-done); color: #fff; padding: 12px 24px; border-radius: var(--r-md); font-weight: 700; display: none; z-index: 30; box-shadow: 0 4px 16px rgba(15,23,42,.2); }
+    .toast.err { background: var(--danger); }
     .toast.show { display: block; }
-    .empty { text-align: center; color: #777; padding: 40px 0; }
+    .empty { text-align: center; color: var(--ink-faint); padding: 40px 0; }
     .spinner { font-weight: 600; }
 
-    .tabs { display: flex; background: #fff; border-bottom: 1px solid #dde2e8; }
-    .tabs button { flex: 1; padding: 14px 4px; background: none; border-radius: 0; font-weight: 600; color: #555; border-bottom: 3px solid transparent; }
-    .tabs button.active { color: #1e3a5f; border-bottom-color: #2f6fed; }
-    h2 { margin: 18px 0 10px; font-size: 20px; }
-    table.report { width: 100%; border-collapse: collapse; background: #fff; border-radius: 12px; overflow: hidden; font-size: 15px; }
-    table.report th, table.report td { padding: 8px 10px; text-align: left; border-bottom: 1px solid #eee; vertical-align: top; }
-    table.report th { background: #1e3a5f; color: #fff; }
-    table.report details.pos summary { cursor: pointer; list-style: none; color: #2f6fed; font-weight: 600; user-select: none; }
+    /* Вкладки: underline-стиль, активная — синяя линия снизу */
+    .tabs { display: flex; background: var(--paper); border-bottom: 1px solid var(--line); }
+    .tabs button { flex: 1; padding: 14px 4px; background: none; border-radius: 0; font-weight: 500; color: var(--ink-soft); border-bottom: 2px solid transparent; }
+    .tabs button:hover { color: var(--ink); }
+    .tabs button.active { color: var(--bluing); border-bottom-color: var(--bluing); }
+    h2 { margin: 18px 0 10px; font-size: 20px; font-weight: 800; letter-spacing: -.01em; }
+    table.report { width: 100%; border-collapse: collapse; background: var(--paper); border: 1px solid var(--line); border-radius: var(--r-md); overflow: hidden; font-size: 15px; }
+    table.report th, table.report td { padding: 8px 10px; text-align: left; border-bottom: 1px solid var(--line); vertical-align: top; }
+    table.report th { background: var(--ghost); color: var(--ink-soft); font-size: 12px; text-transform: uppercase; letter-spacing: .05em; }
+    table.report details.pos summary { cursor: pointer; list-style: none; color: var(--bluing); font-weight: 600; user-select: none; }
     table.report details.pos[open] summary { margin-bottom: 4px; }
     table.report .pos-list div { padding: 2px 0; }
-    .overdue { border-left: 6px solid #d64545; }
+    .overdue { border-left: 6px solid var(--danger); }
     .summary { display: flex; flex-wrap: wrap; gap: 8px; }
-    .summary .chip { font-size: 16px; padding: 8px 14px; }
+    .summary .chip { font-size: 14px; padding: 8px 14px; }
 
     /* Доска недели: grid ужимает колонки в ширину экрана, без горизонтальной прокрутки */
     .week-board { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; align-items: start; }
-    .week-col { min-width: 0; background: #fff; border-radius: 12px; padding: 6px; border: 2px solid transparent; }
+    .week-col { min-width: 0; background: var(--paper); border-radius: var(--r-md); padding: 6px; border: 1px solid var(--line); }
     .week-col h3 { font-size: 13px; margin-bottom: 6px; text-align: center; white-space: nowrap; overflow: hidden; }
-    .week-col.today { background: #e8f0fe; border-color: #2f6fed; }
-    .week-col.today h3 { color: #2f6fed; }
-    .wcard { background: #f2f4f7; border-radius: 10px; padding: 6px 8px; margin-bottom: 6px; cursor: pointer; overflow: hidden; border-left: 4px solid transparent; }
-    .wcard.todo-dirty { background: #ffe9c2; border-left-color: #e8a13a; }
-    .wcard.todo-nodirty { background: #f8d7da; border-left-color: #c0392b; }
-    .wcard.nolinen { background: #eceff1; border-left-color: #90a4ae; opacity: .75; }
-    .wcard.todo-clean { background: #d4edda; border-left-color: #28a745; }
-    .wcard.doing { background: #cfe3ff; border-left-color: #1d4e9e; }
-    .wcard.partial { background: #ffe9a8; border-left-color: #e8b400; }
-    .wcard.done { background: #a9d9b8; border-left-color: #1c6b2a; }
-    .wcard.drv { background: #fff; border-left-color: #2f6fed; border: 1px solid #dde3ea; border-left: 4px solid #2f6fed; padding: 12px; margin-bottom: 10px; }
+    .week-col.today { background: var(--bluing-wash); border-color: var(--bluing); }
+    .week-col.today h3 { color: var(--bluing); }
+    /* Карточка стирки: белая, цветная полоса слева кодирует статус */
+    .wcard { background: var(--paper); border-radius: var(--r-md); padding: 6px 8px; margin-bottom: 6px; cursor: pointer; overflow: hidden; border: 1px solid var(--line); border-left: 4px solid transparent; box-shadow: var(--shadow); }
+    .wcard.todo-dirty { background: var(--st-todo-wash); border-left-color: var(--st-todo); }
+    .wcard.todo-nodirty { background: var(--st-attn-wash); border-left-color: var(--st-attn); }
+    .wcard.nolinen { background: var(--st-muted-wash); border-left-color: var(--st-muted); opacity: .75; }
+    .wcard.todo-clean { background: var(--st-done-wash); border-left-color: var(--st-done); }
+    .wcard.doing { background: var(--st-doing-wash); border-left-color: var(--st-doing); }
+    .wcard.partial { background: var(--st-todo-wash); border-left-color: var(--st-todo); }
+    .wcard.done { background: var(--st-done-wash); border-left-color: var(--st-done); }
+    .wcard.drv { background: var(--paper); border: 1px solid var(--line); border-left: 4px solid var(--bluing); padding: 12px; margin-bottom: 10px; }
     .wcard.drv .nm { font-size: 16px; }
-    /* Склад: единый вид карточек, цвет полосы = секция */
-    .wcard.st { background: #fff; border: 1px solid #dde3ea; border-left: 4px solid #c4ccd6; padding: 12px; margin-bottom: 10px; }
+    /* Склад: единый вид карточек, цвет полосы = статус, вся карточка кликабельна */
+    .wcard.st { background: var(--paper); border: 1px solid var(--line); border-left: 4px solid var(--line-strong); padding: 12px; margin-bottom: 10px; cursor: pointer; transition: box-shadow .12s, transform .12s; }
+    .wcard.st:hover { box-shadow: 0 2px 8px -2px rgb(0 0 0 / .08); transform: translateY(-1px); }
+    .wcard.st:active { transform: none; }
     .wcard.st .nm { font-size: 16px; }
-    .wcard.st-clean { border-left-color: #1c6b2a; }
-    .wcard.st-partial { border-left-color: #e8b400; }
-    .wcard.st-dirty { border-left-color: #e8a13a; }
-    .wcard.st-attn { border-left-color: #c0392b; background: #f8d7da; }
+    .wcard.st-clean { border-left-color: var(--st-done); }
+    .wcard.st-partial { border-left-color: var(--st-attn); background: var(--st-attn-wash); }
+    .wcard.st-dirty { border-left-color: var(--st-todo); }
+    .wcard.st-attn { border-left-color: var(--st-attn); background: var(--st-attn-wash); }
     /* Склад: панель сводки */
     .dash { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-bottom: 12px; }
-    .dash-tile { background: #fff; border-radius: 10px; padding: 10px 6px; text-align: center; }
-    .dash-n { font-size: 24px; font-weight: 800; }
-    .dash-l { font-size: 11px; color: #666; margin-top: 2px; }
+    .dash-tile { background: var(--paper); border-radius: var(--r-md); padding: 10px 6px; text-align: center; border: 1px solid var(--line); box-shadow: var(--shadow); }
+    .dash-tile.dash-alert { outline: 2px solid var(--st-attn); background: var(--st-attn-wash); }
+    .dash-n { font-family: var(--f-mono); font-size: 24px; font-weight: 700; }
+    .dash-l { font-size: 11px; color: var(--ink-soft); margin-top: 2px; text-transform: uppercase; letter-spacing: .05em; }
     @media (max-width: 520px) { .dash { grid-template-columns: repeat(2, 1fr); } }
-    .wcard.st .overdue { color: #c0392b; font-weight: 700; }
+    .wcard.st .overdue { color: var(--danger); font-weight: 700; }
     .wcard .nm { font-weight: 700; font-size: 14px; }
-    .wcard .cm { font-size: 12px; color: #555; margin-top: 2px; }
-    .week-add { width: 100%; background: #e3e8ef; padding: 6px; font-size: 16px; }
+    .wcard .cm { font-size: 12px; color: var(--ink-soft); margin-top: 2px; }
+    .week-add { width: 100%; background: var(--ghost); color: var(--ink-soft); padding: 6px; font-size: 16px; }
     /* Узкие экраны: 4 и 2 колонки, доска уходит в вертикальную прокрутку страницы */
     @media (max-width: 900px) { .week-board { grid-template-columns: repeat(4, 1fr); } }
     @media (max-width: 520px) { .week-board { grid-template-columns: repeat(2, 1fr); } }
@@ -152,12 +223,14 @@
     @media (max-width: 520px) { .day-board { grid-template-columns: 1fr; } }
     /* Режим «по строкам»: клиент держит свою строку, в пустых ячейках призрак */
     .day-board.rows { align-items: stretch; }
-    .day-board.rows .col-head { font-size: 13px; font-weight: 700; text-align: center; background: #e4e9ee; border-radius: 8px; padding: 6px; }
-    .wcard.ghost { background: transparent; border-left: 4px solid transparent; outline: 1px dashed #c4ccd6; color: #9aa5b1; cursor: default; }
+    .day-board.rows .col-head { font-size: 13px; font-weight: 700; text-align: center; background: var(--ghost); color: var(--ink-soft); border-radius: var(--r-sm); padding: 6px; }
+    .wcard.ghost { background: transparent; border-left: 4px solid transparent; outline: 1px dashed var(--line-strong); color: var(--ink-faint); cursor: default; box-shadow: none; }
     .wcard.ghost .nm { font-weight: 400; }
     .view-toggle { display: inline-flex; gap: 4px; margin-left: 8px; vertical-align: middle; }
-    .view-toggle button { border: 1px solid #c4ccd6; background: #fff; border-radius: 6px; padding: 4px 8px; font-size: 13px; cursor: pointer; }
-    .view-toggle button.on { background: #2f6fed; border-color: #2f6fed; color: #fff; }
+    .view-toggle button { border: 1px solid var(--line); background: var(--paper); border-radius: 6px; padding: 4px 8px; font-size: 13px; font-weight: 500; color: var(--ink-soft); cursor: pointer; }
+    .view-toggle button.on { background: var(--bluing); border-color: var(--bluing); color: #fff; }
+
+    @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
   </style>
 </head>
 <body>
@@ -317,7 +390,7 @@ function renderPin() {
 
 // ===== Список дня =====
 var STATUS_LABELS = { planned: 'К стирке', in_progress: 'В работе', done: 'Готово', stored: 'На складе', partial: 'Частично',
-  no_linen: 'Нет белья', ready_clean: 'Чистое на складе',
+  no_linen: 'Нет белья', ready_clean: 'Чистое на складе', issued: 'Выдано',
   delivered: 'Выдано', picked: 'Забрано', both: 'Выдано + забрано', empty: 'Ничего нет', cancelled: 'Отменено' };
 
 // 'HH:MM' из 'yyyy-MM-dd HH:mm:ss' (пустая строка, если формата нет)
@@ -363,8 +436,8 @@ function renderDay() {
     '<button class="btn btn-ghost" id="logoutBtn">Выход</button></div>' +
     ownerTabs('day') +
     '<div class="container">' +
-    '<div class="date-nav"><button id="prevDay">‹</button><button class="date-jump" id="dateJump">' + esc(state.date) + '</button><button id="nextDay">›</button>' +
-    (state.date !== state.today ? '<button class="today-btn" id="todayBtn">Сегодня</button>' : '') + '</div>' +
+    '<div class="date-nav"><button id="prevDay">‹</button><button class="date-jump" id="dateJump">' + esc(state.date) + '</button><button id="nextDay">›</button></div>' +
+    (state.date !== state.today ? '<div class="row" style="justify-content:center;margin-top:6px"><button class="today-btn" id="todayBtn" style="flex:none">Сегодня</button></div>' : '') +
     '<div id="washList"></div>' +
     '<button class="btn btn-primary btn-big" id="addWashBtn">+ Добавить стирку</button></div>';
   document.getElementById('app').innerHTML = html;
@@ -558,18 +631,20 @@ function renderWashCard(id) {
     }
     if (w.status === 'in_progress') {
       html += '<div class="card"><h2>Результат</h2>' +
-        '<label class="res-opt"><input type="radio" name="wmode" value="full" checked>' +
-        '<span><b>Выполнено полностью</b><div class="cm">Всё обработано, клиент готов к развозу</div></span></label>' +
-        '<label class="res-opt"><input type="radio" name="wmode" value="partial">' +
-        '<span><b>Выполнено частично</b><div class="cm">Часть белья ещё требует обработки — чистое уйдёт на склад</div></span></label>' +
+        '<label class="res-card" data-tone="done"><input type="radio" name="wmode" value="full" checked>' +
+        '<span class="res-ico">✓</span>' +
+        '<span class="res-text"><b>Выполнено полностью</b><div class="cm">Всё постирано — чистое готово к развозу</div></span></label>' +
+        '<label class="res-card" data-tone="partial"><input type="radio" name="wmode" value="partial">' +
+        '<span class="res-ico">◐</span>' +
+        '<span class="res-text"><b>Выполнено частично</b><div class="cm">Чистое уйдёт на склад, остаток достируем позже</div></span></label>' +
         '<div class="row"><button class="btn btn-primary btn-big" id="completeBtn">Сохранить результат</button></div></div>';
     }
   } else {
     html += '</div>';
   }
 
-  // Перенос (planned/in_progress) — второстепенная операция
-  if (w.status === 'planned' || w.status === 'in_progress') {
+  // Перенос (planned/in_progress/partial) — второстепенная операция
+  if (w.status === 'planned' || w.status === 'in_progress' || w.status === 'partial') {
     html += '<div class="row"><button class="btn btn-ghost" id="deferBtn">Перенести на другой день</button></div>';
   }
   html += '</div>';
@@ -839,7 +914,7 @@ function confirmEdit(w) {
 }
 
 // ===== Перенос =====
-function openDefer(w) {
+function openDefer(w, onDone) {
   showDialog('<h2>Перенести стирку</h2>' +
     '<div class="row"><button class="btn btn-ghost" data-shift="1">Завтра</button>' +
     '<button class="btn btn-ghost" data-shift="2">Послезавтра</button></div>' +
@@ -863,7 +938,7 @@ function openDefer(w) {
     if (!newDate) return;
     busy(okBtn, 'Переносим…');
     api('deferWash', state.token, w.id, newDate, document.getElementById('deferReason').value)
-      .then(function () { hideDialog(); toast('Стирка перенесена ✓'); loadDay(); })
+      .then(function () { hideDialog(); toast('Стирка перенесена ✓'); (onDone || loadDay)(); })
       .catch(function (e) { hideDialog(); toast(e.message, true); });
   };
 }
@@ -894,11 +969,14 @@ function openShiftClose() {
   api('getShiftCloseState', state.token).then(function (res) {
     var html = '<h2>Закрытие смены ' + esc(res.date) + '</h2>';
     if (res.blockers.length) {
-      html += '<div class="blockers"><b>Незавершённые стирки:</b>' + res.blockers.map(function (w) {
-        return '<div class="row"><span>' + esc(w.client_name) + '</span>' +
+      html += '<div class="blockers"><b>Незавершённые стирки (' + res.blockers.length + '):</b>' + res.blockers.map(function (w) {
+        return '<div class="row"><span>' + esc(w.client_name) +
+          ' · ' + (w.status === 'in_progress' ? 'в работе' : 'не начата') + '</span>' +
           '<button class="btn btn-ghost" data-open="' + w.id + '">Открыть</button></div>';
       }).join('') + '</div>' +
-      '<div class="actions"><button class="btn btn-ghost" id="dlgCancel">Назад</button></div>';
+      '<div class="meta">Перенести незавершённые стирки на другой день может только владелец — после закрытия он получит предупреждение.</div>' +
+      '<div class="actions"><button class="btn btn-ghost" id="dlgCancel">Назад</button>' +
+      '<button class="btn btn-danger" id="dlgForce">Закрыть с незавершёнными</button></div>';
     } else {
       var r = res.report;
       html += '<div class="meta">Постирано <b>' + r.totalKg + ' кг</b> · Завершено <b>' + r.washesDone +
@@ -923,6 +1001,17 @@ function openShiftClose() {
       api('closeShift', state.token).then(function () {
         hideDialog(); toast('Смена закрыта ✓'); loadDay();
       }).catch(function (e) { hideDialog(); toast(e.message, true); });
+    };
+    var forceBtn = document.getElementById('dlgForce');
+    if (forceBtn) forceBtn.onclick = function () {
+      confirmDialog('В смене остались незавершённые стирки (' + res.blockers.length + '). ' +
+        'Подтверждаете, что знаете об этом? Владелец получит предупреждение и сможет перенести их на другой день.',
+        'Закрыть смену', function () {
+          busy(document.getElementById('dlgOk'), 'Закрываем…');
+          api('closeShift', state.token, true).then(function () {
+            hideDialog(); toast('Смена закрыта ✓'); loadDay();
+          }).catch(function (e) { hideDialog(); toast(e.message, true); });
+        });
     };
   }).catch(function (e) { toast(e.message, true); });
 }
@@ -962,8 +1051,8 @@ function renderDriver() {
     '<div class="spacer"></div>' +
     '<button class="btn btn-ghost" id="logoutBtn">Выход</button></div>' +
     '<div class="container">' +
-    '<div class="date-nav"><button id="prevDay">‹</button><button class="date-jump" id="dateJump">' + esc(state.date) + '</button><button id="nextDay">›</button>' +
-    (state.date !== state.today ? '<button class="today-btn" id="todayBtn">Сегодня</button>' : '') + '</div>';
+    '<div class="date-nav"><button id="prevDay">‹</button><button class="date-jump" id="dateJump">' + esc(state.date) + '</button><button id="nextDay">›</button></div>' +
+    (state.date !== state.today ? '<div class="row" style="justify-content:center;margin-top:6px"><button class="today-btn" id="todayBtn" style="flex:none">Сегодня</button></div>' : '');
 
   // Мой груз: бельё, которое физически у водителя (по всем дням)
   if (cargo.clean_points || cargo.dirty_points) {
@@ -1001,7 +1090,7 @@ function renderDriver() {
         var needD = false, needP = false;
         if (!done) {
           if (v.clean_taken_at && !v.delivered_at) { meta.push('🚚 чистое у вас' + (Number(v.clean_bags) ? ': ' + v.clean_bags + ' меш.' : '')); needD = true; }
-          else if (v.has_clean) { meta.push('✨ чистое: ' + v.clean_kg + ' кг / ' + v.clean_items + ' шт'); needD = true; }
+          else if (v.has_clean) { meta.push('✨ чистое на складе: ' + v.clean_kg + ' кг' + (Number(v.clean_stock_bags) ? ' / ' + v.clean_stock_bags + ' меш.' : '')); needD = true; }
           if (v.picked_at) meta.push('🟥 грязное у вас');
           else { needP = true; meta.push('🧺 забрать грязное'); }
         }
@@ -1070,9 +1159,13 @@ function openDriverVisit(v) {
   var rows = '';
   if (v.clean_taken_at && !v.delivered_at) {
     meta.push('🚚 чистое у вас' + (Number(v.clean_bags) ? ': ' + v.clean_bags + ' меш.' : ''));
+    // Комбо: чистое у водителя и грязное ещё не забрано — одна кнопка вместо двух
+    if (!v.picked_at) {
+      rows += '<div class="row"><button class="btn btn-primary btn-big" data-act="both">Отдал чистое, забрал грязное</button></div>';
+    }
     rows += '<div class="row"><button class="btn btn-primary btn-big" data-act="deliver_clean">Отдал чистое</button></div>';
   } else if (v.has_clean) {
-    meta.push('✨ чистое на складе: ' + v.clean_kg + ' кг / ' + v.clean_items + ' шт');
+    meta.push('✨ чистое на складе: ' + v.clean_kg + ' кг' + (Number(v.clean_stock_bags) ? ' / ' + v.clean_stock_bags + ' меш.' : ''));
     rows += '<div class="row"><button class="btn btn-primary btn-big" data-act="take_clean">Взял чистое</button></div>';
   }
   if (v.picked_at) {
@@ -1136,6 +1229,12 @@ function shiftDateStr(dateStr, days) {
   return dt.getUTCFullYear() + '-' + ('0' + (dt.getUTCMonth() + 1)).slice(-2) + '-' + ('0' + dt.getUTCDate()).slice(-2);
 }
 
+// День недели (Пн..Вс) для даты YYYY-MM-DD
+function weekdayOf(dateStr) {
+  var p = dateStr.split('-').map(Number);
+  return WEEKDAYS[(new Date(Date.UTC(p[0], p[1] - 1, p[2])).getUTCDay() + 6) % 7];
+}
+
 // Каркас экрана владельца: шапка + вкладки + контейнер
 function appShell(title, tab, containerHtml, wide) {
   document.getElementById('app').innerHTML =
@@ -1158,53 +1257,72 @@ function renderDelivery(date) {
     res.clients.forEach(function (c) { addrByClient[c.id] = c.address; });
     var notReadyByClient = {};
     (res.notReady || []).forEach(function (n) { notReadyByClient[n.client_id] = n.reason; });
-    var readyCnt = res.visits.filter(function (v) { return v.has_clean; }).length;
+
+    // Сводка дня: одним взглядом — сколько клиентов и в каком они состоянии
+    var doneDel = 0, donePick = 0, transit = 0, readyCnt = 0;
+    res.visits.forEach(function (v) {
+      if (v.status === 'delivered' || v.status === 'both') doneDel++;
+      if (v.status === 'picked' || v.status === 'both') donePick++;
+      if (v.status === 'planned' && v.clean_taken_at) transit++;
+      if (v.status === 'planned' && v.has_clean && !v.clean_taken_at && !notReadyByClient[v.client_id]) readyCnt++;
+    });
 
     var html = '<div class="date-nav"><button id="dlPrev">‹</button>' +
       '<button class="date-jump" id="dlJump">' + esc(formatDateRu(date)) + '</button>' +
-      '<button id="dlNext">›</button>' +
-      (date !== state.today ? '<button class="today-btn" id="dlToday">Сегодня</button>' : '') + '</div>';
+      '<button id="dlNext">›</button></div>' +
+      (date !== state.today ? '<div class="row" style="justify-content:center;margin-top:6px"><button class="today-btn" id="dlToday" style="flex:none">Сегодня</button></div>' : '');
 
     if (res.visits.length) {
-      html += '<div class="meta" style="margin-bottom:8px">' +
-        ((res.notReady || []).length
-          ? '⚠ <b>' + res.notReady.length + ' из ' + res.visits.length + '</b> не готовы · '
-          : '') +
-        '<b>' + readyCnt + '</b> готовы к развозу</div>';
-    }
-
-    if (res.notReady && res.notReady.length) {
       var REASONS = { washing_incomplete: 'стирка не завершена', partial: 'стирка частичная', no_clean: 'нет чистого белья' };
-      html += '<div class="blockers"><b>⚠ Не готовы к развозу:</b>' + res.notReady.map(function (n) {
-        return '<div class="brow">' + esc(n.client_name) + ' <span class="why">— ' + (REASONS[n.reason] || n.reason) + '</span></div>';
-      }).join('') + '</div>';
+      html += '<div class="dash" style="grid-template-columns:repeat(5,1fr)">' +
+        '<div class="dash-tile"><div class="dash-n">' + res.visits.length + '</div><div class="dash-l">клиентов</div></div>' +
+        '<div class="dash-tile"><div class="dash-n" style="color:var(--st-done)">' + doneDel + '</div><div class="dash-l">✓ выдано</div></div>' +
+        '<div class="dash-tile"><div class="dash-n" style="color:var(--st-done)">' + donePick + '</div><div class="dash-l">✓ забрано</div></div>' +
+        '<div class="dash-tile"><div class="dash-n" style="color:var(--bluing-deep)">' + transit + '</div><div class="dash-l">🚚 в пути</div></div>' +
+        '<div class="dash-tile"' + (readyCnt ? '' : ' style="outline:2px solid var(--st-todo)"') + '>' +
+          '<div class="dash-n" style="color:' + (readyCnt ? 'var(--st-done)' : 'var(--st-attn,#B26A00)') + '">' + readyCnt + '</div>' +
+          '<div class="dash-l">готовы к развозу</div></div></div>';
+      if (res.notReady && res.notReady.length) {
+        html += '<div class="blockers"><b>⚠ Не готовы к развозу:</b>' + res.notReady.map(function (n) {
+          return '<div class="brow" style="display:flex;align-items:center;gap:8px">' +
+            '<span style="flex:1">' + esc(n.client_name) + ' <span class="why">— ' + (REASONS[n.reason] || n.reason) + '</span></span>' +
+            '<button class="btn btn-ghost" style="flex:none;padding:6px 10px;font-size:13px" data-po="' + n.visit_id + '">' +
+            'Только забрать грязное</button></div>';
+        }).join('') + '</div>';
+      }
     }
 
-    html += '<h2>Визиты (' + res.visits.length + ')</h2>' +
+    html += '<h2>Развозы (' + res.visits.length + ')</h2>' +
       (res.visits.length ? res.visits.map(function (v) {
+        // Понятный статус состояния клиента вместо капса
+        var st;
+        if (v.status === 'both') st = '<span style="color:var(--st-done)">✓ Выдано и забрано</span>';
+        else if (v.status === 'delivered') st = '<span style="color:var(--st-done)">✓ Выдано</span>';
+        else if (v.status === 'picked') st = '<span style="color:var(--st-done)">✓ Забрано</span>';
+        else if (v.status === 'empty') st = '<span style="color:var(--ink-faint)">Ничего нет</span>';
+        else if (v.status === 'cancelled') st = '<span style="color:var(--ink-faint)">Отменено</span>';
+        else if (v.pickup_only === 'да') st = '<span style="color:var(--ink-soft)">🧺 Только забрать грязное</span>';
+        else if (notReadyByClient[v.client_id]) st = '<span style="color:var(--st-attn,#B26A00)">⚠ Не готово к развозу</span>';
+        else if (v.clean_taken_at) st = '<span style="color:var(--bluing-deep)">🚚 Чистое у водителя</span>';
+        else if (v.has_clean) st = '<span style="color:var(--st-done)">Готово к доставке</span>';
+        else st = '<span style="color:var(--ink-faint)">Ожидает чистое</span>';
         var meta = [];
         if (addrByClient[v.client_id]) meta.push(esc(addrByClient[v.client_id]));
-        if (v.clean_taken_at) meta.push('🚚 чистое у водителя');
-        else if (v.has_clean) meta.push('✨ чистое: ' + v.clean_kg + ' кг / ' + v.clean_items + ' шт');
-        if (v.has_dirty) meta.push('🧺 грязное в цеху');
-        var icon = v.status !== 'planned' ? ''
-          : notReadyByClient[v.client_id] ? '🔴 '
-          : v.clean_taken_at ? '🚚 '
-          : v.has_clean ? '🟢 ' : '⚪ ';
-        return '<div class="vrow"><div class="nm">' + icon + esc(v.client_name) +
-          (meta.length ? '<div class="cm">' + meta.join(' · ') + '</div>' : '') + '</div>' +
+        if (v.status === 'planned' && !v.clean_taken_at && v.has_clean)
+          meta.push('чистое: ' + v.clean_kg + ' кг / ' + v.clean_items + ' шт');
+        if (v.has_dirty && v.status !== 'picked' && v.status !== 'both') meta.push('🧺 забрать грязное');
+        return '<div class="vrow"><div class="nm">' + esc(v.client_name) +
+          '<div class="cm">' + st + (meta.length ? ' · ' + meta.join(' · ') : '') + '</div></div>' +
+          (v.status === 'planned' && v.pickup_only === 'да'
+            ? '<button class="btn btn-ghost" style="flex:none;padding:6px 10px;font-size:12px" data-unpo="' + v.id + '" title="Снять пометку «только забрать грязное»">отменить</button>'
+            : '') +
           (v.status === 'planned'
             ? '<button class="rm" data-rm="' + v.id + '" data-name="' + esc(v.client_name) + '" title="Убрать из развоза">✕</button>'
-            : '<span class="chip chip-' + v.status + '">' + (STATUS_LABELS[v.status] || v.status) + '</span>') +
-          '</div>';
+            : '') + '</div>';
       }).join('') : '<div class="empty">Развоз пуст — добавьте клиентов ниже или на вкладке «План»</div>');
 
-    var inDelivery = {};
-    res.visits.forEach(function (v) { inDelivery[v.client_id] = 1; });
-    var available = res.clients.filter(function (c) { return !inDelivery[c.id]; });
-    html += '<h2>Добавить</h2>' +
-      '<input class="search-input" id="dlSearch" placeholder="Начните вводить имя клиента…">' +
-      '<div id="dlResults"></div>';
+    html += '<button class="btn btn-primary btn-big" id="dlAdd" style="margin-top:8px">+ Добавить в ' +
+      (date === state.today ? 'сегодняшний развоз' : 'развоз на ' + formatDateRu(date)) + '</button>';
     setContainer(html);
 
     document.getElementById('dlPrev').onclick = function () { renderDelivery(shiftDateStr(date, -1)); };
@@ -1212,29 +1330,26 @@ function renderDelivery(date) {
     document.getElementById('dlJump').onclick = function () { openDateJump(renderDelivery, date); };
     var dlToday = document.getElementById('dlToday');
     if (dlToday) dlToday.onclick = function () { renderDelivery(); };
+    document.getElementById('dlAdd').onclick = function () { openDeliveryAdd(date, res.clients, res.visits); };
 
-    function renderResults() {
-      var q = document.getElementById('dlSearch').value.trim().toLowerCase();
-      var box = document.getElementById('dlResults');
-      if (!q) { box.innerHTML = ''; return; }
-      var found = available.filter(function (c) { return c.name.toLowerCase().indexOf(q) !== -1; });
-      box.innerHTML = found.length ? found.map(function (c) {
-        return '<div class="vrow"><div class="nm">' + esc(c.name) +
-          '<div class="cm">' + esc(c.type) + (c.address ? ' · ' + esc(c.address) : '') +
-          (c.storage === 'да' ? ' · складской клиент' : '') + '</div></div>' +
-          '<button class="add" data-add="' + c.id + '" title="Добавить в развоз">+</button></div>';
-      }).join('') : '<div class="empty" style="padding:16px 0">Никого не найдено</div>';
-      Array.prototype.forEach.call(box.querySelectorAll('[data-add]'), function (b) {
-        b.onclick = function () {
-          busy(b, '…');
-          api('addDeliveryVisit', state.token, b.dataset.add, date)
-            .then(function () { toast('Добавлено в развоз ✓'); renderDelivery(date); })
-            .catch(function (e) { unbusy(b); toast(e.message, true); });
-        };
-      });
-    }
-    document.getElementById('dlSearch').oninput = renderResults;
-
+    Array.prototype.forEach.call(document.querySelectorAll('[data-po]'), function (b) {
+      b.onclick = function () {
+        confirmDialog('Водитель только заберёт грязное, чистое на эту точку не нужно. Подтвердить?', 'Подтвердить', function () {
+          busy(document.getElementById('dlgOk'), '…');
+          api('setPickupOnly', state.token, b.dataset.po, true)
+            .then(function () { hideDialog(); toast('Точка подтверждена: только забрать грязное ✓'); renderDelivery(date); })
+            .catch(function (e) { hideDialog(); toast(e.message, true); });
+        });
+      };
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('[data-unpo]'), function (b) {
+      b.onclick = function () {
+        busy(b, '…');
+        api('setPickupOnly', state.token, b.dataset.unpo, false)
+          .then(function () { toast('Пометка снята'); renderDelivery(date); })
+          .catch(function (e) { toast(e.message, true); renderDelivery(date); });
+      };
+    });
     Array.prototype.forEach.call(document.querySelectorAll('[data-rm]'), function (b) {
       b.onclick = function () {
         confirmDialog('Убрать «' + b.dataset.name + '» из развоза?', 'Убрать', function () {
@@ -1250,6 +1365,60 @@ function renderDelivery(date) {
       '<button class="btn btn-primary btn-big" id="dlRetry">Повторить</button>');
     document.getElementById('dlRetry').onclick = function () { renderDelivery(date); };
   });
+}
+
+// Окно «Добавить в развоз»: поиск + видимый список, множественный выбор без закрытия
+function openDeliveryAdd(date, clients, visits) {
+  var inDelivery = {};
+  visits.forEach(function (v) { inDelivery[v.client_id] = 1; });
+  var addedNow = {};
+  showDialog('<h2>Добавить в развоз</h2>' +
+    '<div class="meta" style="margin-bottom:8px">' + esc(formatDateRu(date)) + '</div>' +
+    '<input class="search-input" id="daSearch" placeholder="Поиск по названию или адресу…">' +
+    '<div id="daList" style="max-height:50vh;overflow-y:auto"></div>' +
+    '<div class="actions"><button class="btn btn-primary" id="daDone">Готово</button></div>');
+
+  function renderList() {
+    var q = document.getElementById('daSearch').value.trim().toLowerCase();
+    var box = document.getElementById('daList');
+    var list = clients.filter(function (c) {
+      if (!q) return true;
+      return c.name.toLowerCase().indexOf(q) !== -1 ||
+        (c.address || '').toLowerCase().indexOf(q) !== -1;
+    });
+    // Сначала доступные (ещё не в развозе), затем уже добавленные
+    list.sort(function (a, b) {
+      var ta = inDelivery[a.id] ? 1 : 0, tb = inDelivery[b.id] ? 1 : 0;
+      return ta - tb || a.name.localeCompare(b.name, 'ru');
+    });
+    box.innerHTML = list.length ? list.map(function (c) {
+      var taken = inDelivery[c.id];
+      return '<div class="vrow"' + (taken ? ' style="opacity:.55"' : ' data-pick="' + c.id + '"') + '>' +
+        '<div class="nm">' + esc(c.name) +
+        '<div class="cm">' + esc(c.type || '') + (c.address ? ' · ' + esc(c.address) : '') + '</div></div>' +
+        (taken
+          ? '<span class="cm" style="flex:none">' + (addedNow[c.id] ? '✓ добавлен' : 'уже в развозе') + '</span>'
+          : '<button class="add" title="Добавить">+</button>') + '</div>';
+    }).join('') : '<div class="empty" style="padding:16px 0">Никого не найдено</div>';
+    Array.prototype.forEach.call(box.querySelectorAll('[data-pick]'), function (row) {
+      row.onclick = function () {
+        if (inDelivery[row.dataset.pick]) return;
+        var cid = row.dataset.pick;
+        inDelivery[cid] = 1; // блокируем повторный тап сразу
+        addedNow[cid] = 1;
+        renderList();
+        api('addDeliveryVisit', state.token, cid, date)
+          .then(function () { toast('Добавлено ✓'); })
+          .catch(function (e) {
+            delete inDelivery[cid]; delete addedNow[cid];
+            renderList(); toast(e.message, true);
+          });
+      };
+    });
+  }
+  document.getElementById('daSearch').oninput = renderList;
+  document.getElementById('daDone').onclick = function () { hideDialog(); renderDelivery(date); };
+  renderList();
 }
 
 // ===== План на неделю (канбан выдачи) =====
@@ -1309,7 +1478,7 @@ function openWeekAdd(date, clients, cards) {
     '<div class="meta" style="margin-bottom:6px">Отметьте клиентов (можно несколько):</div>' +
     '<div style="max-height:50vh;overflow-y:auto">' + clients.map(function (c) {
       var taken = inDay[c.id];
-      return '<div class="row"><label style="font-size:16px' + (taken ? ';color:#98a2b3' : '') + '">' +
+      return '<div class="row"><label style="font-size:16px' + (taken ? ';color:var(--ink-faint)' : '') + '">' +
         '<input type="checkbox" class="wcPick" value="' + c.id + '"' + (taken ? ' disabled' : '') + '> ' +
         esc(c.name) + (taken ? ' — уже в развозе' : '') + '</label></div>';
     }).join('') + '</div>' +
@@ -1340,27 +1509,43 @@ function openWeekCard(c, days) {
     document.getElementById('dlgCancel').onclick = hideDialog;
     return;
   }
+  var quick = [1, 2, 3].map(function (n) { return shiftDateStr(c.date, n); });
   showDialog('<h2>' + esc(c.client_name) + '</h2>' +
-    '<div class="meta" style="margin-bottom:8px">Перенести визит на:</div>' +
-    '<div class="row" style="flex-wrap:wrap">' + days.map(function (d, i) {
-      return '<button class="btn btn-ghost" data-mv="' + d.date + '"' +
-        (d.date === c.date ? ' disabled' : '') + '>' + WEEKDAYS[i] + ' ' + d.date.slice(5) + '</button>';
+    '<div class="meta" style="margin-bottom:12px">Текущая доставка: <b>' +
+      weekdayOf(c.date) + ', ' + formatDateRu(c.date) + '</b></div>' +
+    '<div class="meta" style="margin-bottom:6px">Перенести на:</div>' +
+    '<div class="row" style="flex-wrap:wrap;margin-bottom:12px">' + quick.map(function (d) {
+      return '<button class="btn btn-ghost" data-mv="' + d + '">' + weekdayOf(d) + ' ' + d.slice(8) + ' ' +
+        MONTHS_RU[+d.slice(5, 7) - 1].slice(0, 3) + '</button>';
     }).join('') + '</div>' +
-    '<div class="actions"><button class="btn btn-danger" id="wcDel">Убрать</button>' +
-    '<button class="btn btn-ghost" id="dlgCancel">Назад</button></div>');
+    '<div class="meta" style="margin-bottom:6px">Другая дата:</div>' +
+    '<div class="row" style="margin-bottom:12px"><input type="date" id="wcDate" min="' + shiftDateStr(c.date, 1) + '" ' +
+      'style="flex:1;font-size:16px;padding:10px;border:1px solid var(--line,#ccc);border-radius:10px">' +
+      '<button class="btn btn-primary" id="wcGo" disabled>Перенести</button></div>' +
+    '<div class="actions" style="justify-content:space-between">' +
+      '<button class="btn btn-ghost" id="dlgCancel">Отмена</button>' +
+      '<button class="btn btn-ghost" id="wcDel" style="color:var(--danger,#c0392b)">Убрать из плана</button></div>');
   document.getElementById('dlgCancel').onclick = hideDialog;
+  var dateInp = document.getElementById('wcDate');
+  var goBtn = document.getElementById('wcGo');
+  dateInp.oninput = function () {
+    goBtn.disabled = !dateInp.value || dateInp.value <= c.date;
+  };
+  function doMove(btn, newDate) {
+    busy(btn, '…');
+    api('moveWeekCard', state.token, c.id, newDate)
+      .then(function () { hideDialog(); toast('Перенесено на ' + weekdayOf(newDate) + ', ' + formatDateRu(newDate) + ' ✓'); renderWeek(); })
+      .catch(function (e) { hideDialog(); toast(e.message, true); });
+  }
+  goBtn.onclick = function () { doMove(goBtn, dateInp.value); };
   Array.prototype.forEach.call(document.querySelectorAll('[data-mv]'), function (b) {
-    b.onclick = function () {
-      busy(b, '…');
-      api('moveWeekCard', state.token, c.id, b.dataset.mv)
-        .then(function () { hideDialog(); toast('Перенесено ✓'); renderWeek(); })
-        .catch(function (e) { hideDialog(); toast(e.message, true); });
-    };
+    b.onclick = function () { doMove(b, b.dataset.mv); };
   });
   document.getElementById('wcDel').onclick = function () {
-    confirmDialog('Убрать карточку «' + c.client_name + '» из недели?', 'Убрать', function () {
+    confirmDialog('Убрать «' + c.client_name + '» из плана на ' + formatDateRu(c.date) +
+      '? Клиент останется в справочнике.', 'Убрать из плана', function () {
       api('removeWeekCard', state.token, c.id)
-        .then(function () { hideDialog(); toast('Убрано'); renderWeek(); })
+        .then(function () { hideDialog(); toast('Убрано из плана'); renderWeek(); })
         .catch(function (e) { hideDialog(); toast(e.message, true); });
     });
   };
@@ -1394,7 +1579,7 @@ function renderStorage() {
         items: [], issue_date: s.issue_date || '' });
     });
     (res.partialClean || []).forEach(function (s) {
-      entries.push({ kind: 'partial', id: s.id, client_id: s.client_id, client_name: s.client_name,
+      entries.push({ kind: 'partial', id: s.id, washId: s.wash_id, client_id: s.client_id, client_name: s.client_name,
         kg: s.weight_kg, total: s.items_total, bags: Number(s.bags) || 0,
         since: (s.created_at || '').slice(0, 10) });
     });
@@ -1408,12 +1593,12 @@ function renderStorage() {
       if (e.kind === 'dirty') {
         e.cls = 'st-dirty';
         e.attn = false;
-        e.status = '🟠 Ждёт стирки · принято ' + esc(e.since);
+        e.status = 'Ожидает стирки';
         e.rank = 1;
       } else if (e.kind === 'partial') {
         e.cls = 'st-partial';
         e.attn = true;
-        e.status = '⚠ Частичная стирка — клиент не готов · с ' + esc(e.since);
+        e.status = '⚠ Требует решения владельца';
         e.rank = 0;
       } else {
         var d = daysDiff(e.issue_date);
@@ -1450,9 +1635,9 @@ function renderStorage() {
 
     state.stFilter = state.stFilter || 'all';
     function kindLabel(e) {
-      if (e.kind === 'dirty') return '🟠 Грязное';
-      if (e.kind === 'partial') return '🟡 Частично';
-      return '🟢 Чистое';
+      if (e.kind === 'dirty') return '🟠 К стирке';
+      if (e.kind === 'partial') return '🔴 Стирка выполнена частично';
+      return '🟢 Готово';
     }
     function metaOf(e) {
       if (e.kind === 'dirty') return 'принято ' + esc(e.since);
@@ -1461,27 +1646,23 @@ function renderStorage() {
       return m + (e.issue_date ? ' · выдача ' + esc(e.issue_date) : '');
     }
     var cardsHtml = entries.map(function (e, i) {
-      var action = '';
-      if (e.kind === 'dirty') action = '<button class="btn btn-primary" data-act="wash" data-i="' + i + '">Поставить в стирку</button>';
-      else if (e.kind === 'clean') action = '<button class="btn btn-primary" data-act="deliv" data-i="' + i + '">В развоз</button>';
       return '<div class="wcard st ' + e.cls + '" data-i="' + i + '" data-kind="' + e.kind + '" data-attn="' + (e.attn ? 1 : 0) + '">' +
         '<div class="nm">' + esc(e.client_name) + (e.badge ? ' <span class="overdue" style="float:right">' + e.badge + '</span>' : '') + '</div>' +
         '<div class="cm">' + kindLabel(e) + ' · ' + metaOf(e) + '</div>' +
         '<div class="cm">' + e.status + '</div>' +
-        (action ? '<div class="row" style="margin-top:4px">' + action + '</div>' : '') +
         '</div>';
     }).join('');
 
     setContainer(
       '<div class="dash">' +
-      '<div class="dash-tile"><div class="dash-n" style="color:#e8a13a">' + dirtyN + '</div><div class="dash-l">ждут стирки</div></div>' +
-      '<div class="dash-tile"><div class="dash-n" style="color:#1c6b2a">' + readyN + '</div><div class="dash-l">готовы к развозу</div></div>' +
-      '<div class="dash-tile"><div class="dash-n" style="color:#c0392b">' + attnN + '</div><div class="dash-l">требуют внимания</div></div>' +
-      '<div class="dash-tile"><div class="dash-n">' + Math.round(totalKg * 10) / 10 + '</div><div class="dash-l">кг чистого</div></div>' +
+      '<div class="dash-tile"><div class="dash-n" style="color:var(--st-todo)">' + dirtyN + '</div><div class="dash-l">к стирке</div></div>' +
+      '<div class="dash-tile"><div class="dash-n" style="color:var(--st-done)">' + readyN + '</div><div class="dash-l">готовы к развозу</div></div>' +
+      '<div class="dash-tile' + (attnN > 0 ? ' dash-alert' : '') + '"><div class="dash-n" style="color:var(--st-attn)">' + attnN + '</div><div class="dash-l">требуют решения</div></div>' +
+      '<div class="dash-tile"><div class="dash-n">' + Math.round(totalKg * 10) / 10 + '</div><div class="dash-l">кг чистого белья</div></div>' +
       '</div>' +
       '<input class="search-input" id="stSearch" placeholder="Поиск по клиенту…">' +
       '<div class="view-toggle" style="margin:0 0 10px">' +
-      [['all', 'Все'], ['dirty', '🟠 Грязное'], ['clean', '🟢 Чистое'], ['attn', '🔴 Внимание']].map(function (f) {
+      [['all', 'Все'], ['dirty', '🟠 К стирке'], ['clean', '🟢 Готово'], ['attn', '🔴 Требует решения']].map(function (f) {
         return '<button data-sfilter="' + f[0] + '" class="' + (state.stFilter === f[0] ? 'on' : '') + '">' + f[1] + '</button>';
       }).join('') + '</div>' +
       '<div id="stList">' + (cardsHtml || '<div class="empty">Склад пуст</div>') + '</div>');
@@ -1510,37 +1691,25 @@ function renderStorage() {
     Array.prototype.forEach.call(document.querySelectorAll('#stList .wcard'), function (el) {
       el.onclick = function () { openStorageCard(entries[Number(el.dataset.i)], types); };
     });
-    Array.prototype.forEach.call(document.querySelectorAll('[data-act]'), function (b) {
-      b.onclick = function (ev) {
-        ev.stopPropagation();
-        var e = entries[Number(b.dataset.i)];
-        if (b.dataset.act === 'wash') {
-          busy(b, '…');
-          api('addUnplannedWash', state.token, e.client_id, 'со склада')
-            .then(function () { toast('В плане на сегодня ✓'); renderStorage(); })
-            .catch(function (err) { unbusy(b); toast(err.message, true); });
-        } else {
-          busy(b, '…');
-          api('addDeliveryVisit', state.token, e.client_id, shiftDateStr(state.today, 1))
-            .then(function () { toast('В развозе на завтра ✓'); })
-            .catch(function (err) { unbusy(b); toast(err.message, true); });
-        }
-      };
-    });
   }).catch(function (e) { setContainer('<div class="empty">' + esc(e.message) + '</div>'); });
 }
 
-// Диалог карточки склада: подробности + действия (для чистого — «Выдано», «Изменить дату»)
+// Диалог карточки склада: подробности + действия по состоянию белья
 function openStorageCard(e, types) {
   var html = '<h2>' + esc(e.client_name) + '</h2>';
   if (e.kind === 'dirty') {
-    html += '<div class="meta">🧺 Грязное бельё, принято: <b>' + esc(e.since) + '</b></div>' +
+    html += '<div class="meta">🟠 К стирке · грязное бельё, принято: <b>' + esc(e.since) + '</b></div>' +
       '<div class="meta">Вес и количество появятся после стирки.</div>' +
+      '<div class="row"><button class="btn btn-primary btn-big" id="stWash">Поставить в стирку</button></div>' +
       '<div class="actions"><button class="btn btn-ghost" id="dlgCancel">Назад</button></div>';
   } else if (e.kind === 'partial') {
-    html += '<div class="meta">Обработано частично: <b>' + (e.kg || 0) + ' кг · ' + (e.total || 0) + ' шт' +
+    html += '<div class="meta">🔴 <b>Стирка выполнена частично</b> — работник не завершил её полностью.</div>' +
+      '<div class="meta">Фактический результат: <b>' + (e.kg || 0) + ' кг · ' + (e.total || 0) + ' шт' +
       (e.bags > 0 ? ' · ' + e.bags + ' меш.' : '') + '</b></div>' +
-      '<div class="meta">На складе с ' + esc(e.since) + '. Клиент НЕ готов к развозу — вернуть в стирку решает владелец.</div>' +
+      '<div class="meta">На складе с ' + esc(e.since) + '. Клиент НЕ готов к развозу — решение принимает владелец.</div>' +
+      '<div class="row"><button class="btn btn-primary btn-big" id="stReturn">Вернуть в стирку</button></div>' +
+      '<div class="row"><button class="btn btn-ghost btn-big" id="stDefer">Перенести на другой день</button></div>' +
+      '<div class="row"><button class="btn btn-ghost btn-big" id="stKeep">Оставить на складе</button></div>' +
       '<div class="actions"><button class="btn btn-ghost" id="dlgCancel">Назад</button></div>';
   } else {
     var positions = (e.items || []).map(function (it) {
@@ -1551,17 +1720,63 @@ function openStorageCard(e, types) {
       var p = e.issue_date.split('-').map(Number), t = state.today.split('-').map(Number);
       overdueDays = Math.round((Date.UTC(t[0], t[1] - 1, t[2]) - Date.UTC(p[0], p[1] - 1, p[2])) / 86400000);
     }
-    html += '<div class="meta"><b>' + (e.kg || 0) + ' кг · ' + (e.total || 0) + ' шт' +
+    html += '<div class="meta">🟢 Чистое · <b>' + (e.kg || 0) + ' кг · ' + (e.total || 0) + ' шт' +
       (e.bags > 0 ? ' · ' + e.bags + ' меш.' : '') + '</b></div>' +
       (positions ? '<div class="meta">' + positions + '</div>' : '') +
       '<div class="meta">Выдача: <b>' + esc(e.issue_date) + '</b>' +
       (overdueDays > 0 ? ' · <span class="overdue">⚠ просрочено на ' + overdueDays + ' дн.</span>' : '') + '</div>' +
-      '<div class="row"><button class="btn btn-primary btn-big" id="stIssue">Выдано</button></div>' +
+      '<div class="row"><button class="btn btn-primary btn-big" id="stDeliv">Добавить в развоз</button></div>' +
+      '<div class="row"><button class="btn btn-ghost btn-big" id="stIssue">Выдано</button></div>' +
       '<div class="row"><button class="btn btn-ghost btn-big" id="stEditDate">Изменить дату</button></div>' +
       '<div class="actions"><button class="btn btn-ghost" id="dlgCancel">Назад</button></div>';
   }
   showDialog(html);
   document.getElementById('dlgCancel').onclick = hideDialog;
+
+  var washBtn = document.getElementById('stWash');
+  if (washBtn) washBtn.onclick = function () {
+    busy(washBtn, '…');
+    api('addUnplannedWash', state.token, e.client_id, 'со склада')
+      .then(function () { hideDialog(); toast('В плане на сегодня ✓'); renderStorage(); })
+      .catch(function (err) { unbusy(washBtn); toast(err.message, true); });
+  };
+
+  var returnBtn = document.getElementById('stReturn');
+  if (returnBtn) returnBtn.onclick = function () {
+    busy(returnBtn, '…');
+    api('deferWash', state.token, e.washId, state.today, 'возврат в стирку со склада')
+      .then(function () { hideDialog(); toast('Вернули в стирку ✓'); renderStorage(); })
+      .catch(function (err) { unbusy(returnBtn); toast(err.message, true); });
+  };
+  var deferBtn = document.getElementById('stDefer');
+  if (deferBtn) deferBtn.onclick = function () {
+    showDialog('<h2>Перенести стирку</h2>' +
+      '<div class="meta">' + esc(e.client_name) + ' · частично выполнено</div>' +
+      '<div class="row"><input type="date" id="newWashDate" value="' + esc(shiftDateStr(state.today, 1)) + '" min="' + esc(state.today) + '"></div>' +
+      '<div class="actions"><button class="btn btn-ghost" id="dlgCancel">Назад</button>' +
+      '<button class="btn btn-primary" id="dlgOk">Перенести</button></div>');
+    document.getElementById('dlgCancel').onclick = hideDialog;
+    var okBtn = document.getElementById('dlgOk');
+    okBtn.onclick = function () {
+      busy(okBtn, 'Сохраняем…');
+      api('deferWash', state.token, e.washId, document.getElementById('newWashDate').value, 'перенос со склада')
+        .then(function () { hideDialog(); toast('Перенесено ✓'); renderStorage(); })
+        .catch(function (err) { hideDialog(); toast(err.message, true); });
+    };
+  };
+  var keepBtn = document.getElementById('stKeep');
+  if (keepBtn) keepBtn.onclick = function () {
+    hideDialog();
+    toast('Осталось на складе — вернуть в стирку можно в любой момент');
+  };
+
+  var delivBtn = document.getElementById('stDeliv');
+  if (delivBtn) delivBtn.onclick = function () {
+    busy(delivBtn, '…');
+    api('addDeliveryVisit', state.token, e.client_id, shiftDateStr(state.today, 1))
+      .then(function () { hideDialog(); toast('В развозе на завтра ✓'); })
+      .catch(function (err) { unbusy(delivBtn); toast(err.message, true); });
+  };
 
   var issueBtn = document.getElementById('stIssue');
   if (issueBtn) issueBtn.onclick = function () {
@@ -1624,14 +1839,14 @@ function renderReport(date) {
       '<div style="text-align:center;font-weight:700;font-size:20px">' +
       '<button class="date-jump" id="repJump" style="font-size:20px">' + esc(formatDateRu(r.date)) + '</button></div>' +
       '<button class="btn btn-ghost" id="repNext">›</button></div>' +
-      (r.date !== state.today ? '<div class="row"><button class="today-btn" id="repToday" style="flex:none">Сегодня</button></div>' : '') +
+      (r.date !== state.today ? '<div class="row" style="justify-content:center;margin-top:6px"><button class="today-btn" id="repToday" style="flex:none">Сегодня</button></div>' : '') +
       '<div class="dash" style="margin-top:12px">' +
-      '<div class="dash-tile"><div class="dash-n" style="color:#1c6b2a">' + r.totalKg + '</div><div class="dash-l">кг постирано</div></div>' +
-      '<div class="dash-tile"><div class="dash-n" style="color:#1c6b2a">' + r.washesDone + '</div><div class="dash-l">завершено</div></div>' +
-      '<div class="dash-tile"><div class="dash-n" style="color:#e8a13a">' + r.deferred + '</div><div class="dash-l">перенесено</div></div>' +
-      '<div class="dash-tile"><div class="dash-n" style="color:#c0392b">' + r.cancelled + '</div><div class="dash-l">отменено</div></div>' +
+      '<div class="dash-tile"><div class="dash-n" style="color:var(--st-done)">' + r.totalKg + '</div><div class="dash-l">кг постирано</div></div>' +
+      '<div class="dash-tile"><div class="dash-n" style="color:var(--st-done)">' + r.washesDone + '</div><div class="dash-l">завершено</div></div>' +
+      '<div class="dash-tile"><div class="dash-n" style="color:var(--st-todo)">' + r.deferred + '</div><div class="dash-l">перенесено</div></div>' +
+      '<div class="dash-tile"><div class="dash-n" style="color:var(--st-attn)">' + r.cancelled + '</div><div class="dash-l">отменено</div></div>' +
       '</div>' +
-      '<div class="meta">Ушло на склад: <b>' + r.stored + '</b> · Выдано: <b>' + r.issued + '</b>' +
+      '<div class="meta">Ушло на склад: <b>' + r.stored + '</b>' +
       (res.shift ? ' · Смена: <b>' + (res.shift.status === 'closed' ? 'закрыта в ' + esc(res.shift.closed_at) : 'открыта') + '</b>' : '') +
       '</div></div>';
 
@@ -1691,6 +1906,8 @@ function renderReport(date) {
 // Детали строки отчёта: позиции построчно, правка для завершённых
 function openReportRow(w, date) {
   var canEdit = w.status === 'done' || w.status === 'stored' || w.status === 'partial';
+  // Перенос разрешён бэкендом из planned/in_progress/partial (core.js, defer)
+  var canDefer = ['planned', 'in_progress', 'partial'].indexOf(w.status) !== -1;
   var lines = (w.items || []).map(function (it) {
     return '<div class="item-row"><span class="name">' + esc(it.item_name) + '</span><span>×' + it.qty + '</span></div>';
   }).join('');
@@ -1702,12 +1919,18 @@ function openReportRow(w, date) {
     (w.deferred_reason ? '<div class="meta">Причина переноса: ' + esc(w.deferred_reason) + '</div>' : '') +
     (lines || '<div class="meta">Позиций нет</div>') +
     (canEdit ? '<div class="row"><button class="btn btn-primary btn-big" id="rowEdit">Изменить данные</button></div>' : '') +
+    (canDefer ? '<div class="row"><button class="btn btn-ghost btn-big" id="rowDefer">Перенести на другой день</button></div>' : '') +
     '<div class="actions"><button class="btn btn-ghost" id="dlgCancel">Назад</button></div>');
   document.getElementById('dlgCancel').onclick = hideDialog;
   var editBtn = document.getElementById('rowEdit');
   if (editBtn) editBtn.onclick = function () {
     hideDialog();
     openEditDialog(w, function () { renderReport(date); });
+  };
+  var deferBtn = document.getElementById('rowDefer');
+  if (deferBtn) deferBtn.onclick = function () {
+    hideDialog();
+    openDefer(w, function () { renderReport(date); });
   };
 }
 
@@ -1795,7 +2018,7 @@ function renderRefsBody() {
       } catch (e) {}
     });
     html += '<input class="search-input" id="rtSearch" placeholder="Поиск вида белья…">' +
-      '<div id="rtList"><div class="item-row" style="font-weight:700;color:#777">' +
+      '<div id="rtList"><div class="item-row" style="font-weight:700;color:var(--ink-faint)">' +
       '<span class="name">Название</span><span>Клиентов</span></div>' +
       res.itemTypes.map(function (t) {
         var inactive = t.active !== 'да';

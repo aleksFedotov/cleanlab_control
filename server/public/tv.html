@@ -4,36 +4,41 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Прачка360 — табло</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@600;700&display=swap" rel="stylesheet">
   <style>
+    /* ===== ТВ-табло: тёмная палитра дизайн-системы «Прачка360 SaaS» =====
+       BG #0b0e14, поверхности #12151c, бордеры #232833, Inter + JetBrains Mono. */
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: system-ui, sans-serif; background: #101418; color: #eef2f5; overflow-x: hidden; }
-    header { display: flex; align-items: baseline; gap: 3vw; padding: 1.5vh 2vw; }
-    header h1 { font-size: 4.5vh; }
-    header .date { font-size: 3.5vh; color: #9fb3c8; }
-    header .clock { margin-left: auto; font-size: 5vh; font-weight: 700; }
-    header .fresh { font-size: 2.5vh; color: #6f8496; }
+    body { font-family: 'Inter', system-ui, sans-serif; background: #0b0e14; color: #e5e9f0; overflow-x: hidden; -webkit-font-smoothing: antialiased; }
+    header { display: flex; align-items: baseline; gap: 3vw; padding: 1.5vh 2vw; border-bottom: 1px solid #232833; }
+    header h1 { font-size: 4.5vh; font-weight: 800; letter-spacing: -.02em; }
+    header .date { font-size: 3.5vh; color: #9aa4b2; font-family: 'JetBrains Mono', monospace; font-weight: 600; }
+    header .clock { margin-left: auto; font-size: 5vh; font-weight: 700; font-family: 'JetBrains Mono', monospace; }
+    header .fresh { font-size: 2.5vh; color: #9aa4b2; }
 
-    .counters { display: flex; gap: 1.2vw; padding: 0 2vw 1.5vh; flex-wrap: wrap; }
-    .counter { background: #1a2129; border-radius: 1.5vh; padding: 1.5vh 2vw; text-align: center; flex: 1; min-width: 12vw; }
-    .counter .num { font-size: 6vh; font-weight: 800; }
-    .counter .lbl { font-size: 2.4vh; color: #9fb3c8; }
+    .counters { display: flex; gap: 1.2vw; padding: 1.5vh 2vw; flex-wrap: wrap; }
+    .counter { background: #12151c; border: 1px solid #232833; border-radius: 1.5vh; padding: 1.5vh 2vw; text-align: center; flex: 1; min-width: 12vw; }
+    .counter .num { font-size: 6vh; font-weight: 700; font-family: 'JetBrains Mono', monospace; }
+    .counter .lbl { font-size: 2.4vh; color: #9aa4b2; text-transform: uppercase; letter-spacing: .05em; }
 
     .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(30vw, 1fr)); gap: 1.5vw; padding: 0 2vw 2vh; }
-    .card { background: #1a2129; border-radius: 1.5vh; padding: 2vh 2vw; border-left: 1.2vh solid #666; }
-    .card .client { font-size: 4vh; font-weight: 800; }
-    .card .meta { font-size: 2.8vh; color: #9fb3c8; margin-top: .8vh; }
-    .card .comment { font-size: 2.2vh; color: #6f8496; margin-top: .6vh; }
-    .chip { display: inline-block; padding: .4vh 1.2vw; border-radius: 3vh; font-size: 2.4vh; font-weight: 700; margin-top: 1vh; }
-    .st-planned { border-color: #8a97a5; } .st-planned .chip { background: #8a97a5; color: #101418; }
-    .st-in_progress { border-color: #f2c94c; } .st-in_progress .chip { background: #f2c94c; color: #101418; }
-    .st-done { border-color: #4caf7d; } .st-done .chip { background: #4caf7d; color: #101418; }
-    .st-stored { border-color: #5b9bf0; } .st-stored .chip { background: #5b9bf0; color: #101418; }
-    .chip-deferred { background: #e08a4c; color: #101418; }
+    .card { background: #12151c; border: 1px solid #232833; border-radius: 1.5vh; padding: 2vh 2vw; border-left: 1.2vh solid #64748b; }
+    .card .client { font-size: 4vh; font-weight: 800; letter-spacing: -.01em; }
+    .card .meta { font-size: 2.8vh; color: #9aa4b2; margin-top: .8vh; font-family: 'JetBrains Mono', monospace; font-weight: 600; }
+    .card .comment { font-size: 2.2vh; color: #9aa4b2; margin-top: .6vh; }
+    .chip { display: inline-block; padding: .4vh 1.2vw; border-radius: .8vh; font-size: 2.2vh; font-weight: 700; margin-top: 1vh; font-family: 'JetBrains Mono', monospace; text-transform: uppercase; letter-spacing: .06em; }
+    .st-planned { border-left-color: #64748b; } .st-planned .chip { background: rgba(100,116,139,.25); color: #a8b6c7; }
+    .st-in_progress { border-left-color: #2563eb; } .st-in_progress .chip { background: rgba(37,99,235,.25); color: #7ba4f8; }
+    .st-done { border-left-color: #16a34a; } .st-done .chip { background: rgba(22,163,74,.22); color: #4ade80; }
+    .st-stored { border-left-color: #2563eb; } .st-stored .chip { background: rgba(37,99,235,.25); color: #7ba4f8; }
+    .chip-deferred { background: rgba(217,119,6,.22); color: #f0a94f; }
 
-    .offline { display: none; position: fixed; top: 0; left: 0; right: 0; background: #d64545; color: #fff;
+    .offline { display: none; position: fixed; top: 0; left: 0; right: 0; background: #dc2626; color: #fff;
       text-align: center; font-size: 3vh; font-weight: 700; padding: 1.5vh; z-index: 10; }
     .offline.show { display: block; }
-    .empty { grid-column: 1/-1; text-align: center; color: #6f8496; font-size: 4vh; padding: 8vh 0; }
+    .empty { grid-column: 1/-1; text-align: center; color: #9aa4b2; font-size: 4vh; padding: 8vh 0; }
   </style>
 </head>
 <body>
