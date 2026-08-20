@@ -465,20 +465,20 @@ function cancelWash(token, washId) {
 }
 
 // Полное удаление ошибочно созданной стирки (owner). В отличие от отмены,
-// запись исчезает из отчётов совсем. Разрешено только пока стирка ничего не
-// произвела: planned/no_linen/in_progress/cancelled. У завершённых (done,
-// stored, partial, issued) есть позиции и складские записи — их не трогаем,
-// там правка через editWashData.
+// запись исчезает из отчётов совсем. Разрешено для любой невыданной стирки:
+// у завершённых (done/stored/partial) заодно удаляются позиции и складские
+// строки этой стирки (в т.ч. израсходованные — бельё «убирается» из учёта).
+// Выданную клиенту (issued) удалять нельзя — это уже факт выдачи.
 function deleteWash(token, washId) {
   if (!requireRole_(token, ['owner'])) return err_('Нет доступа');
   return withLock_(function () {
     const found = db.findById_(SHEETS.WASHES, washId);
     if (!found) return err_('Стирка не найдена');
     const w = found.obj;
-    if (['planned', 'no_linen', 'in_progress', 'cancelled'].indexOf(w.status) === -1) {
-      return err_('Удалить можно только незавершённую стирку (статус: ' + w.status + ')');
+    if (w.status === 'issued') {
+      return err_('Выданную клиенту стирку удалить нельзя');
     }
-    // Связанные записи: позиции стирки и неизрасходованные складские строки.
+    // Связанные записи: позиции стирки и складские строки.
     // Удаляем снизу вверх, чтобы номера строк не съезжали.
     [SHEETS.WASH_ITEMS, SHEETS.STORAGE].forEach(function (sheet) {
       db.findRowsBy_(sheet, function (r) { return r.wash_id === washId; }, 1000)
@@ -486,7 +486,8 @@ function deleteWash(token, washId) {
         .forEach(function (r) { db.deleteRow_(sheet, r.rowNumber); });
     });
     logEvent('owner', 'wash_delete', washId, {
-      client_id: w.client_id, wash_date: w.wash_date, status: w.status
+      client_id: w.client_id, wash_date: w.wash_date, status: w.status,
+      kg: w.dirty_weight_kg, items_total: w.items_total
     });
     db.deleteRow_(SHEETS.WASHES, found.rowNumber);
     return ok_({ id: washId });

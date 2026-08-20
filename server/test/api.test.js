@@ -41,7 +41,7 @@ test('права: worker не может owner-действия, owner може�
   assert.strictEqual(day.washes.length, 0);
 });
 
-test('deleteWash: удаляет ошибочную стирку совсем; завершённую и чужими ролями — нельзя', () => {
+test('deleteWash: удаляет стирку совсем; выданную и чужими ролями — нельзя', () => {
   const ctx = makeCtx();
   const clientId = seedClient(ctx);
   const owner = loginOwner();
@@ -57,13 +57,23 @@ test('deleteWash: удаляет ошибочную стирку совсем; �
   // повторное удаление — «не найдена»
   assert.ok(!ctx.api.deleteWash(owner, washId).ok);
 
-  // завершённую стирку удалить нельзя
+  // завершённую удалить можно: заодно уходят позиции и clean-запись склада
   const w2 = ctx.api.addToDelivery(owner, clientId, TODAY, TOMORROW).wash.id;
   ctx.api.startWash(worker, w2, 10);
-  ctx.api.completeWash(worker, w2, [], 10, null, 1);
-  const del = ctx.api.deleteWash(owner, w2);
+  ctx.api.completeWash(worker, w2, [{ item_type_id: 'itm_1', qty: 2 }], 10, null, 1);
+  assert.strictEqual(ctx.api.getStorage(owner).clean.length, 1);
+  assert.ok(ctx.api.deleteWash(owner, w2).ok);
+  assert.strictEqual(ctx.api.getStorage(owner).clean.length, 0);
+  assert.strictEqual(ctx.db.readAll_('WashItems').length, 0);
+
+  // выданную клиенту — нельзя
+  const w3 = ctx.api.addToDelivery(owner, clientId, TODAY, TOMORROW).wash.id;
+  ctx.api.startWash(worker, w3, 5);
+  ctx.api.completeWash(worker, w3, [], 5, null, 1);
+  assert.ok(ctx.api.markIssued(owner, w3).ok);
+  const del = ctx.api.deleteWash(owner, w3);
   assert.ok(!del.ok);
-  assert.ok(/незавершённую/.test(del.error));
+  assert.ok(/Выданную/.test(del.error));
 });
 
 test('полный цикл: постановка → в работу → завершение, идемпотентность', () => {

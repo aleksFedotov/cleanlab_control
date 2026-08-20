@@ -647,10 +647,27 @@ function renderWashCard(id) {
   if (w.status === 'planned' || w.status === 'in_progress' || w.status === 'partial') {
     html += '<div class="row"><button class="btn btn-ghost" id="deferBtn">Перенести на другой день</button></div>';
   }
+  // Удаление ошибочной стирки — только владельцу, выданную удалять нельзя
+  if (state.role === 'owner' && w.status !== 'issued') {
+    html += '<div class="row"><button class="btn btn-ghost" id="delWashBtn" style="color:var(--danger)">Удалить стирку</button></div>';
+  }
   html += '</div>';
   document.getElementById('app').innerHTML = html;
 
   document.getElementById('backBtn').onclick = renderDay;
+
+  var delWashBtn = document.getElementById('delWashBtn');
+  if (delWashBtn) delWashBtn.onclick = function () {
+    confirmDialog('Удалить стирку «' + w.client_name + '» от ' + formatDateRu(w.wash_date) +
+      ' безвозвратно? Позиции и складские записи этой стирки тоже удалятся.', 'Удалить', function () {
+      api('deleteWash', state.token, w.id)
+        .then(function (res) {
+          if (!res.ok) { hideDialog(); toast(res.error, true); return; }
+          hideDialog(); toast('Стирка удалена ✓'); loadDay();
+        })
+        .catch(function (e) { hideDialog(); toast(e.message, true); });
+    });
+  };
 
   // В работу — без веса (грязное есть по системе или подтверждено рабочим)
   if (w.status === 'planned' || w.status === 'no_linen') {
@@ -1913,8 +1930,8 @@ function openReportRow(w, date) {
   var canEdit = w.status === 'done' || w.status === 'stored' || w.status === 'partial';
   // Перенос разрешён бэкендом из planned/in_progress/partial (core.js, defer)
   var canDefer = ['planned', 'in_progress', 'partial'].indexOf(w.status) !== -1;
-  // Удаление (owner): только пока стирка ничего не произвела (api.js, deleteWash)
-  var canDelete = ['planned', 'no_linen', 'in_progress', 'cancelled'].indexOf(w.status) !== -1;
+  // Удаление (owner): любую невыданную стирку (api.js, deleteWash)
+  var canDelete = w.status !== 'issued';
   var lines = (w.items || []).map(function (it) {
     return '<div class="item-row"><span class="name">' + esc(it.item_name) + '</span><span>×' + it.qty + '</span></div>';
   }).join('');
