@@ -897,15 +897,19 @@ function openStorageCheck(w) {
 
 function confirmEdit(w) {
   var counts = state.counts[w.id] || {};
-  showDialog('<h2>Сохранить изменённые данные?</h2>' +
+  showDialog('<h2>Изменить данные стирки</h2>' +
     '<div class="meta">Новый пересчёт: <b>' + totalQty(counts) + ' шт</b></div>' +
+    '<div class="row"><span>Вес, кг</span><input type="number" inputmode="decimal" step="0.1" min="0" id="editWeight" value="' + (w.dirty_weight_kg || 0) + '"></div>' +
+    '<div class="row"><span>Мешков</span><input type="number" inputmode="numeric" step="1" min="0" id="editBags" value="' + (w.bags || 0) + '"></div>' +
     '<div class="actions"><button class="btn btn-ghost" id="dlgCancel">Назад</button>' +
     '<button class="btn btn-primary" id="dlgOk">Сохранить</button></div>');
   document.getElementById('dlgCancel').onclick = hideDialog;
   var okBtn = document.getElementById('dlgOk');
   okBtn.onclick = function () {
     busy(okBtn, 'Сохраняем…');
-    api('editWashData', state.token, w.id, w.dirty_weight_kg, countsToItems(counts), w.bags)
+    var kg = parseFloat(document.getElementById('editWeight').value) || 0;
+    var bags = parseInt(document.getElementById('editBags').value, 10) || 0;
+    api('editWashData', state.token, w.id, kg, countsToItems(counts), bags)
       .then(function () {
         delete state.counts[w.id];
         hideDialog(); toast('Данные обновлены ✓'); loadDayAndCard(w.id);
@@ -1908,6 +1912,8 @@ function openReportRow(w, date) {
   var canEdit = w.status === 'done' || w.status === 'stored' || w.status === 'partial';
   // Перенос разрешён бэкендом из planned/in_progress/partial (core.js, defer)
   var canDefer = ['planned', 'in_progress', 'partial'].indexOf(w.status) !== -1;
+  // Удаление (owner): только пока стирка ничего не произвела (api.js, deleteWash)
+  var canDelete = ['planned', 'no_linen', 'in_progress', 'cancelled'].indexOf(w.status) !== -1;
   var lines = (w.items || []).map(function (it) {
     return '<div class="item-row"><span class="name">' + esc(it.item_name) + '</span><span>×' + it.qty + '</span></div>';
   }).join('');
@@ -1920,6 +1926,7 @@ function openReportRow(w, date) {
     (lines || '<div class="meta">Позиций нет</div>') +
     (canEdit ? '<div class="row"><button class="btn btn-primary btn-big" id="rowEdit">Изменить данные</button></div>' : '') +
     (canDefer ? '<div class="row"><button class="btn btn-ghost btn-big" id="rowDefer">Перенести на другой день</button></div>' : '') +
+    (canDelete ? '<div class="row"><button class="btn btn-ghost btn-big" id="rowDelete" style="color:var(--danger)">Удалить стирку</button></div>' : '') +
     '<div class="actions"><button class="btn btn-ghost" id="dlgCancel">Назад</button></div>');
   document.getElementById('dlgCancel').onclick = hideDialog;
   var editBtn = document.getElementById('rowEdit');
@@ -1931,6 +1938,18 @@ function openReportRow(w, date) {
   if (deferBtn) deferBtn.onclick = function () {
     hideDialog();
     openDefer(w, function () { renderReport(date); });
+  };
+  var delBtn = document.getElementById('rowDelete');
+  if (delBtn) delBtn.onclick = function () {
+    confirmDialog('Удалить стирку «' + w.client_name + '» от ' + formatDateRu(w.wash_date) +
+      ' безвозвратно?', 'Удалить', function () {
+      api('deleteWash', state.token, w.id)
+        .then(function (res) {
+          if (!res.ok) { hideDialog(); toast(res.error, true); return; }
+          hideDialog(); toast('Стирка удалена ✓'); renderReport(date);
+        })
+        .catch(function (e) { hideDialog(); toast(e.message, true); });
+    });
   };
 }
 

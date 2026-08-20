@@ -41,6 +41,31 @@ test('права: worker не может owner-действия, owner може�
   assert.strictEqual(day.washes.length, 0);
 });
 
+test('deleteWash: удаляет ошибочную стирку совсем; завершённую и чужими ролями — нельзя', () => {
+  const ctx = makeCtx();
+  const clientId = seedClient(ctx);
+  const owner = loginOwner();
+  const worker = loginWorker();
+  const washId = ctx.api.addToDelivery(owner, clientId, TODAY, TOMORROW).wash.id;
+
+  // worker не может удалять
+  assert.ok(!ctx.api.deleteWash(worker, washId).ok);
+  // owner удаляет: из отчёта стирка исчезает совсем (в отличие от отмены)
+  assert.ok(ctx.api.deleteWash(owner, washId).ok);
+  const rep = ctx.api.getDayReport(owner, TODAY);
+  assert.strictEqual(rep.washes.length, 0);
+  // повторное удаление — «не найдена»
+  assert.ok(!ctx.api.deleteWash(owner, washId).ok);
+
+  // завершённую стирку удалить нельзя
+  const w2 = ctx.api.addToDelivery(owner, clientId, TODAY, TOMORROW).wash.id;
+  ctx.api.startWash(worker, w2, 10);
+  ctx.api.completeWash(worker, w2, [], 10);
+  const del = ctx.api.deleteWash(owner, w2);
+  assert.ok(!del.ok);
+  assert.ok(/незавершённую/.test(del.error));
+});
+
 test('полный цикл: постановка → в работу → завершение, идемпотентность', () => {
   const ctx = makeCtx();
   const clientId = seedClient(ctx);
@@ -120,6 +145,125 @@ test('deferWash: перенос со следом; cancel после перен�
   assert.strictEqual(ctx.api.getDayList(owner, TODAY).washes.length, 0);
 });
 
+test('deferWash из partial: стирка → planned на новую дату, issue_date = newDate+1, визит развоза едет следом', () => {
+  const ctx = makeCtx();
+  const clientId = seedClient(ctx);
+  const owner = loginOwner();
+  const worker = loginWorker();
+  const visit = ctx.api.addDeliveryVisit(owner, clientId, TOMORROW).visit;
+  const washId = ctx.api.addToDelivery(owner, clientId, TODAY, TOMORROW).wash.id;
+  ctx.api.startWash(worker, washId);
+  const part = ctx.api.completeWash(worker, washId, [{ item_type_id: 'itm_1', qty: 4 }], 6.5, 'partial', 1);
+  assert.strictEqual(part.wash.status, 'partial');
+
+  const def = ctx.api.deferWash(owner, washId, '2026-08-14', 'не достирали');
+  assert.ok(def.ok);
+  assert.strictEqual(def.wash.status, 'planned');
+  assert.strictEqual(def.wash.wash_date, '2026-08-14');
+  assert.strictEqual(def.wash.issue_date, '2026-08-15');
+  assert.strictEqual(def.wash.deferred_from, TODAY);
+  // Постиранная часть сохранена: вес/позиции/мешки не затираются
+  assert.strictEqual(Number(def.wash.dirty_weight_kg), 6.5);
+  assert.strictEqual(Number(def.wash.items_total), 4);
+  // Визит развоза переехал: завтра → послезавтра
+  const v = ctx.db.findById_('Deliveries', visit.id).obj;
+  assert.strictEqual(v.date, '2026-08-15');
+  assert.strictEqual(v.status, 'planned');
+  // Остаток грязного снова «на складе»: карточка не показывает «Нет белья»
+  const dirty = ctx.db.readAll_('Storage').filter(function (s) {
+    return s.client_id === clientId && s.kind === 'dirty' && !s.consumed_at;
+  });
+  assert.strictEqual(dirty.length, 1);
+});
+
+test('deferWash из partial: визит в финальном статусе не двигается, стирка переносится', () => {
+  const ctx = makeCtx();
+  const clientId = seedClient(ctx);
+  const owner = loginOwner();
+  const worker = loginWorker();
+  const driver = loginDriver();
+  const visit = ctx.api.addDeliveryVisit(owner, clientId, TOMORROW).visit;
+  const washId = ctx.api.addToDelivery(owner, clientId, TODAY, TOMORROW).wash.id;
+  ctx.api.startWash(worker, washId);
+  ctx.api.completeWash(worker, washId, [{ item_type_id: 'itm_1', qty: 4 }], 6.5, 'partial', 1);
+  // Чистая часть уехала клиенту: визит → delivered
+  assert.ok(ctx.api.driverAction(driver, visit.id, 'take_clean').ok);
+  assert.ok(ctx.api.driverAction(driver, visit.id, 'deliver_clean').ok);
+
+  const def = ctx.api.deferWash(owner, washId, '2026-08-14', 'достирать остаток');
+  assert.ok(def.ok);
+  assert.strictEqual(def.wash.status, 'planned');
+  assert.strictEqual(ctx.db.findById_('Deliveries', visit.id).obj.date, TOMORROW);
+});
+
+test('deferWash: из done/stored по-прежнему запрещён', () => {
+  const ctx = makeCtx();
+  const clientId = seedClient(ctx);
+  const owner = loginOwner();
+  const washId = ctx.api.addToDelivery(owner, clientId, TODAY, TOMORROW).wash.id;
+  ctx.api.startWash(owner, washId);
+  ctx.api.completeWash(owner, washId, [{ item_type_id: 'itm_1', qty: 2 }], 5);
+  const res = ctx.api.deferWash(owner, washId, '2026-08-14', 'поздно');
+  assert.ok(!res.ok);
+  assert.strictEqual(res.error, 'Нельзя defer из статуса done');
+});
+
+test('notReady: обслуженные точки (выдано/чистое у водителя) не попадают в предупреждение', () => {
+  const ctx = makeCtx();
+  const owner = loginOwner();
+  const worker = loginWorker();
+  const driver = loginDriver();
+  // Клиент 1: чистое выдано — визит закрыт
+  const c1 = seedClient(ctx);
+  const v1 = ctx.api.addDeliveryVisit(owner, c1, TOMORROW).visit;
+  const w1 = ctx.api.addToDelivery(owner, c1, TODAY, TOMORROW).wash.id;
+  ctx.api.startWash(worker, w1);
+  ctx.api.completeWash(worker, w1, [{ item_type_id: 'itm_1', qty: 2 }], 5);
+  assert.ok(ctx.api.driverAction(driver, v1.id, 'take_clean').ok);
+  assert.ok(ctx.api.driverAction(driver, v1.id, 'deliver_clean').ok);
+  // Клиент 2: чистое у водителя, визит ещё открыт
+  const c2 = seedClient(ctx);
+  const v2 = ctx.api.addDeliveryVisit(owner, c2, TOMORROW).visit;
+  const w2 = ctx.api.addToDelivery(owner, c2, TODAY, TOMORROW).wash.id;
+  ctx.api.startWash(worker, w2);
+  ctx.api.completeWash(worker, w2, [{ item_type_id: 'itm_1', qty: 2 }], 5);
+  assert.ok(ctx.api.driverAction(driver, v2.id, 'take_clean').ok);
+  // Клиент 3: чистого нет вообще — должен остаться в предупреждении
+  const c3 = seedClient(ctx);
+  ctx.api.addDeliveryVisit(owner, c3, TOMORROW);
+
+  const notReady = ctx.api.getDeliveryVisits(owner, TOMORROW).notReady;
+  const ids = notReady.map(function (n) { return n.client_id; });
+  assert.ok(ids.indexOf(c1) === -1, 'выданный клиент не «не готов»');
+  assert.ok(ids.indexOf(c2) === -1, 'чистое у водителя — не «не готов»');
+  assert.ok(ids.indexOf(c3) !== -1, 'без чистого — «не готов»');
+});
+
+test('setPickupOnly: подтверждённая точка «только забрать грязное» исчезает из notReady, отмена возвращает', () => {
+  const ctx = makeCtx();
+  const owner = loginOwner();
+  const clientId = seedClient(ctx);
+  const visit = ctx.api.addDeliveryVisit(owner, clientId, TOMORROW).visit;
+
+  // Без чистого белья точка «не готова»
+  let notReady = ctx.api.getDeliveryVisits(owner, TOMORROW).notReady;
+  assert.ok(notReady.some(function (n) { return n.client_id === clientId; }));
+
+  // Подтверждение владельца — предупреждение пропадает
+  const set = ctx.api.setPickupOnly(owner, visit.id, true);
+  assert.ok(set.ok);
+  assert.strictEqual(set.visit.pickup_only, 'да');
+  notReady = ctx.api.getDeliveryVisits(owner, TOMORROW).notReady;
+  assert.ok(!notReady.some(function (n) { return n.client_id === clientId; }));
+
+  // Снятие пометки — точка снова проверяется по обычным правилам
+  const unset = ctx.api.setPickupOnly(owner, visit.id, false);
+  assert.ok(unset.ok);
+  assert.strictEqual(unset.visit.pickup_only, '');
+  notReady = ctx.api.getDeliveryVisits(owner, TOMORROW).notReady;
+  assert.ok(notReady.some(function (n) { return n.client_id === clientId; }));
+});
+
 test('ensureWashesFromDelivery_: визит на завтра → плановая стирка сегодня, идемпотентно', () => {
   const ctx = makeCtx();
   const clientId = seedClient(ctx);
@@ -192,6 +336,31 @@ test('closeShift с OWNER_CHAT_ID: дайджест отправлен, digest_s
   assert.ok(ctx.fetches[0].payload.text.includes('Постирано: 11.5 кг (1 стирок)'));
   const shift = ctx.db.readAll_('Shifts').find(s => s.date === TODAY);
   assert.strictEqual(shift.digest_sent, 'да');
+});
+
+test('closeShift с force: закрывает при незавершённых и предупреждает владельца', async () => {
+  const ctx = makeCtx();
+  ctx.db.appendRow_('Settings', { key: 'OWNER_CHAT_ID', value: '998877' });
+  ctx.db.invalidateRefCache_();
+  const clientId = seedClient(ctx);
+  const owner = loginOwner();
+  const worker = loginWorker();
+  const washId = ctx.api.addToDelivery(owner, clientId, TODAY, TOMORROW).wash.id;
+
+  // Без подтверждения — блок
+  assert.ok(!(await ctx.api.closeShift(worker)).ok);
+
+  // С подтверждением — смена закрыта, владельцу ушло предупреждение
+  const closed = await ctx.api.closeShift(worker, true);
+  assert.ok(closed.ok);
+  assert.strictEqual(closed.shift.status, 'closed');
+  const warn = ctx.fetches.find(f => f.payload.text.includes('закрыта с незавершёнными'));
+  assert.ok(warn, 'предупреждение владельцу отправлено');
+  assert.ok(warn.payload.text.includes('не начата'));
+  assert.ok(warn.payload.text.includes('только владелец'));
+  // В логе зафиксированы незавершённые
+  const ev = ctx.db.readAll_('Log').find(e => e.action === 'shift_close');
+  assert.ok(ev.details.includes(washId));
 });
 
 test('confirmStorageCheck: no_dirty → no_linen; has_dirty возвращает в planned и создаёт dirty-запись', () => {

@@ -25,6 +25,9 @@ test('checkTransition_: допустимые переходы и отказ с �
   const nf = core.checkTransition_('start', null);
   assert.strictEqual(nf.error, 'Стирка не найдена');
   assert.strictEqual(core.checkTransition_('cancel', { status: 'done' }).error, 'Нельзя cancel из статуса done');
+  // Перенос частичной стирки разрешён (достирка остатка), отмена — нет
+  assert.ok(core.checkTransition_('defer', { status: 'partial' }).ok);
+  assert.ok(!core.checkTransition_('cancel', { status: 'partial' }).ok);
 });
 
 test('applyDefer_: статус и вес не трогаем, след переноса', () => {

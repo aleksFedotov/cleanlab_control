@@ -33,12 +33,13 @@ function getVisitsByWeek_(monday) {
 
 // Визит + состояние склада клиента (есть чистое / есть грязное).
 function decorateVisit_(v, clients, storage) {
-  const s = storage[v.client_id] || { dirty: 0, clean: 0, cleanKg: 0, cleanItems: 0 };
+  const s = storage[v.client_id] || { dirty: 0, clean: 0, cleanKg: 0, cleanItems: 0, cleanBags: 0 };
   v.client_name = clientName_(v.client_id, clients);
   v.has_clean = s.clean > 0;
   v.has_dirty = s.dirty > 0;
   v.clean_kg = s.cleanKg;
   v.clean_items = s.cleanItems;
+  v.clean_stock_bags = s.cleanBags;
   return v;
 }
 
@@ -104,6 +105,22 @@ function removeDeliveryVisit(token, visitId) {
     found.obj.status = 'cancelled';
     db.updateRow_(SHEETS.DELIVERIES, found.rowNumber, found.obj);
     logEvent(role, 'visit_cancel', visitId, {});
+    return ok_({ visit: found.obj });
+  });
+}
+
+// Подтверждение владельцем «только забрать грязное»: чистое на точку не нужно,
+// визит перестаёт считаться неготовым к развозу (notReadyForDelivery_).
+function setPickupOnly(token, visitId, flag) {
+  const role = requireRole_(token, ['owner']);
+  if (!role) return err_('Нет доступа');
+  return withLock_(function () {
+    const found = db.findById_(SHEETS.DELIVERIES, visitId);
+    if (!found) return err_('Визит не найден');
+    if (!isOpenVisit_(found.obj)) return err_('Можно менять только запланированные визиты');
+    found.obj.pickup_only = flag ? 'да' : '';
+    db.updateRow_(SHEETS.DELIVERIES, found.rowNumber, found.obj);
+    logEvent(role, 'visit_pickup_only', visitId, { pickup_only: found.obj.pickup_only });
     return ok_({ visit: found.obj });
   });
 }
@@ -198,7 +215,7 @@ function driverTakeAllClean(token, date) {
 function driverAction(token, visitId, action) {
   const role = requireRole_(token, ['driver', 'owner']);
   if (!role) return err_('Нет доступа');
-  const ACTIONS = ['take_clean', 'deliver_clean', 'pickup_dirty', 'empty'];
+  const ACTIONS = ['take_clean', 'deliver_clean', 'pickup_dirty', 'both', 'empty'];
   if (ACTIONS.indexOf(action) === -1) return err_('Неизвестное действие');
   return withLock_(function () {
     const found = db.findById_(SHEETS.DELIVERIES, visitId);
@@ -211,7 +228,14 @@ function driverAction(token, visitId, action) {
       if (takeCleanForVisit_(v) === null) return err_('Чистого белья на складе нет');
     }
 
-    if (action === 'deliver_clean') {
+    if (action === 'both') {
+      // «Отдал чистое и забрал грязное» одной кнопкой: обе операции атомарно.
+      if (!v.clean_taken_at) return err_('Сначала возьмите чистое на складе');
+      if (v.delivered_at) return err_('Чистое уже отдано');
+      if (v.picked_at) return err_('Грязное уже забрано');
+    }
+
+    if (action === 'deliver_clean' || action === 'both') {
       if (!v.clean_taken_at) return err_('Сначала возьмите чистое на складе');
       // Стирки, чьё чистое уехало к клиенту, помечаются выданными
       db.findRowsBy_(SHEETS.STORAGE, function (s) {
@@ -232,7 +256,7 @@ function driverAction(token, visitId, action) {
       v.delivered_at = nowStr_();
     }
 
-    if (action === 'pickup_dirty') {
+    if (action === 'pickup_dirty' || action === 'both') {
       if (v.picked_at) return err_('Грязное уже забрано');
       v.picked_at = nowStr_();
       v.pickup = 'да';
@@ -306,7 +330,7 @@ function migrateWashesToVisits() {
 
 module.exports = {
   VISIT_FINAL, isOpenVisit_, getVisitsByDate_, getVisitsByWeek_, decorateVisit_,
-  getDeliveryVisits, addDeliveryVisit, moveDeliveryVisit, removeDeliveryVisit,
+  getDeliveryVisits, addDeliveryVisit, moveDeliveryVisit, removeDeliveryVisit, setPickupOnly,
   driverCargo_, getDriverRoute, takeCleanForVisit_, driverTakeAllClean,
   driverAction, driverHandover, migrateWashesToVisits
 };

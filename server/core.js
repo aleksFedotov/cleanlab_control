@@ -40,7 +40,7 @@ const TRANSITIONS = {
   complete: { from: ['in_progress'] },
   issue: { from: ['done', 'stored'] },
   cancel: { from: ['planned', 'no_linen'] },
-  defer: { from: ['planned', 'in_progress'] }
+  defer: { from: ['planned', 'in_progress', 'partial'] }
 };
 
 // Проверка перехода: {ok:true} или {ok:false, error}. Повтор недопустим (идемпотентность

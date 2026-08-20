@@ -15,7 +15,7 @@ const {
 } = core;
 const { addStorageEntry_, openStorage_, consumeStorage_, storageSummaryByClient_ } = require('./storage');
 const deliveries = require('./deliveries');
-const { getVisitsByDate_, getVisitsByWeek_, decorateVisit_ } = deliveries;
+const { getVisitsByDate_, getVisitsByWeek_, decorateVisit_, isOpenVisit_ } = deliveries;
 
 // Замена LockService.getScriptLock(): синхронные операции атомарны в одном процессе.
 function withLock_(fn) { return fn(); }
@@ -220,7 +220,40 @@ function deferWash(token, washId, newDate, reason) {
     if (!check.ok) return err_(check.error);
     const w = found.obj;
     const patch = applyDefer_(w, newDate, reason);
-    logEvent(role, 'wash_defer', washId, { from: patch.deferred_from, to: newDate, reason: reason || '' });
+    const details = { from: patch.deferred_from, to: newDate, reason: reason || '' };
+    if (w.status === 'partial') {
+      // Достирка остатка: стирка возвращается в план нового дня, выдача — на
+      // следующий день. Постиранная часть (вес/позиции/clean-запись на складе)
+      // сохраняется; остаток при повторном завершении добавит вторую запись.
+      const oldIssueDate = w.issue_date;
+      const newIssueDate = addDaysStr_(newDate, 1);
+      patch.status = 'planned';
+      patch.issue_date = newIssueDate;
+      // Остаток грязного физически в цеху: восстанавливаем dirty-запись склада,
+      // иначе карточка показывает «Нет белья на складе» (первая запись израсходована
+      // при первом «В работу»). Как verdict has_dirty в confirmStorageCheck.
+      if (openStorage_(w.client_id, 'dirty').length === 0) {
+        addStorageEntry_(w.client_id, 'dirty', {});
+      }
+      // Визит развоза едет следом: «завтра» → «послезавтра». Только planned и
+      // только если на целевую дату у клиента ещё нет визита.
+      const visit = getVisitsByDate_(oldIssueDate).filter(function (x) {
+        return x.client_id === w.client_id && x.status === 'planned';
+      })[0];
+      const dup = getVisitsByDate_(newIssueDate).some(function (x) {
+        return x.client_id === w.client_id;
+      });
+      if (visit && !dup) {
+        const vf = db.findById_(SHEETS.DELIVERIES, visit.id);
+        vf.obj.date = newIssueDate;
+        db.updateRow_(SHEETS.DELIVERIES, vf.rowNumber, vf.obj);
+        logEvent(role, 'visit_move', visit.id, { date: oldIssueDate + ' → ' + newIssueDate, reason: 'wash_defer' });
+        details.visit_moved = true;
+      } else {
+        details.visit_moved = false;
+      }
+    }
+    logEvent(role, 'wash_defer', washId, details);
     Object.keys(patch).forEach(function (k) { w[k] = patch[k]; });
     db.updateRow_(SHEETS.WASHES, found.rowNumber, w);
     return ok_({ wash: w });
@@ -274,7 +307,8 @@ function getShiftCloseState(token) {
   });
 }
 
-// Клиенты развоза на date без готового чистого белья.
+// Клиенты развоза на date без готового чистого белья. Обслуженные точки
+// (закрытый визит или чистое уже у водителя) пропускаем — предупреждать не о чем.
 // Причины: washing_incomplete (стирка дня подготовки не завершена),
 // partial (завершена частично), no_clean (нет чистого на складе).
 function notReadyForDelivery_(date) {
@@ -289,6 +323,10 @@ function notReadyForDelivery_(date) {
   }, 2000).map(function (r) { return r.obj; });
   const out = [];
   visits.forEach(function (v) {
+    // Точка уже обслужена (закрыта или чистое у водителя) — предупреждать не о чем
+    if (!isOpenVisit_(v) || v.clean_taken_at) return;
+    // Владелец подтвердил «только забрать грязное» — чистое не нужно
+    if (v.pickup_only === 'да') return;
     const prep = washes.filter(function (w) {
       return w.client_id === v.client_id && w.wash_date === prepDay;
     });
@@ -306,22 +344,25 @@ function notReadyForDelivery_(date) {
       if (!hasClean) reason = 'no_clean';
     }
     if (reason) {
-      out.push({ client_id: v.client_id, client_name: clientName_(v.client_id, clients), reason: reason });
+      out.push({ client_id: v.client_id, client_name: clientName_(v.client_id, clients), reason: reason, visit_id: v.id });
     }
   });
   return out;
 }
 
-// Закрытие смены (spec §4.4): блокируют незавершённые планы сегодняшнего дня.
+// Закрытие смены (spec §4.4): незавершённые планы дня блокируют закрытие, если
+// нет явного подтверждения (force=true — «мы знаем, что стирки не закончены»).
+// Перенос таких стирок на другой день может сделать только владелец, поэтому
+// при закрытии с незавершёнными владельцу уходит предупреждение в Telegram.
 // Async: отправка дайджеста в Telegram — HTTP-запрос (см. telegram.js).
-async function closeShift(token) {
+async function closeShift(token, force) {
   const role = requireRole_(token, ['owner', 'worker']);
   if (!role) return err_('Нет доступа');
   const today = todayStr_();
   const washes = db.findRowsBy_(SHEETS.WASHES, function (w) { return w.wash_date === today; }, 1000)
     .map(function (r) { return r.obj; });
   const blockers = shiftBlockers_(washes, today);
-  if (blockers.length) {
+  if (blockers.length && !force) {
     return err_('Есть незавершённые стирки: ' + blockers.map(function (w) { return w.id; }).join(', '));
   }
   let shift = getShiftByDate_(today) || (function () {
@@ -338,7 +379,10 @@ async function closeShift(token) {
   s.washes_done = report.washesDone;
   s.washes_deferred = report.deferred;
   db.updateRow_(SHEETS.SHIFTS, shift.rowNumber, s);
-  logEvent(role, 'shift_close', s.id, { total_kg: s.total_kg, washes_done: s.washes_done });
+  const clients = {};
+  db.getClients_().forEach(function (c) { clients[c.id] = c; });
+  logEvent(role, 'shift_close', s.id, { total_kg: s.total_kg, washes_done: s.washes_done,
+    unfinished: blockers.map(function (w) { return w.id; }) });
   // Дайджест (spec §8.3): fallback уже отправил → только короткое подтверждение;
   // иначе — полный дайджест.
   const tg = require('./telegram');
@@ -346,6 +390,14 @@ async function closeShift(token) {
     tg.sendTelegram_(null, 'Смена закрыта в ' + s.closed_at + ' ✓').catch(function () {});
   } else {
     await tg.sendDigestLocked_(today);
+  }
+  // Предупреждение владельцу: смена закрыта с незавершёнными стирками
+  if (blockers.length) {
+    tg.sendTelegram_(null, '⚠ Смена ' + today + ' закрыта с незавершёнными стирками:\n' +
+      blockers.map(function (w) {
+        return '• ' + clientName_(w.client_id, clients) + ' — ' + (w.status === 'in_progress' ? 'в работе' : 'не начата');
+      }).join('\n') +
+      '\nПеренести их на другой день может только владелец.').catch(function () {});
   }
   // Предупреждение владельцу: кто не готов к завтрашнему развозу
   const notReady = notReadyForDelivery_(addDaysStr_(today, 1));
@@ -407,6 +459,35 @@ function cancelWash(token, washId) {
     db.updateRow_(SHEETS.WASHES, found.rowNumber, found.obj);
     logEvent('owner', 'wash_cancel', washId, {});
     return ok_({ wash: found.obj });
+  });
+}
+
+// Полное удаление ошибочно созданной стирки (owner). В отличие от отмены,
+// запись исчезает из отчётов совсем. Разрешено только пока стирка ничего не
+// произвела: planned/no_linen/in_progress/cancelled. У завершённых (done,
+// stored, partial, issued) есть позиции и складские записи — их не трогаем,
+// там правка через editWashData.
+function deleteWash(token, washId) {
+  if (!requireRole_(token, ['owner'])) return err_('Нет доступа');
+  return withLock_(function () {
+    const found = db.findById_(SHEETS.WASHES, washId);
+    if (!found) return err_('Стирка не найдена');
+    const w = found.obj;
+    if (['planned', 'no_linen', 'in_progress', 'cancelled'].indexOf(w.status) === -1) {
+      return err_('Удалить можно только незавершённую стирку (статус: ' + w.status + ')');
+    }
+    // Связанные записи: позиции стирки и неизрасходованные складские строки.
+    // Удаляем снизу вверх, чтобы номера строк не съезжали.
+    [SHEETS.WASH_ITEMS, SHEETS.STORAGE].forEach(function (sheet) {
+      db.findRowsBy_(sheet, function (r) { return r.wash_id === washId; }, 1000)
+        .sort(function (a, b) { return b.rowNumber - a.rowNumber; })
+        .forEach(function (r) { db.deleteRow_(sheet, r.rowNumber); });
+    });
+    logEvent('owner', 'wash_delete', washId, {
+      client_id: w.client_id, wash_date: w.wash_date, status: w.status
+    });
+    db.deleteRow_(SHEETS.WASHES, found.rowNumber);
+    return ok_({ id: washId });
   });
 }
 
@@ -600,7 +681,8 @@ function getDayReport(token, date) {
     .map(function (r) { return r.obj; });
   const log = db.findRowsBy_(SHEETS.LOG, function () { return true; }, 1000).map(function (r) { return r.obj; });
   const report = buildDayReport_(date, washes, log);
-  const dayWashes = washes.filter(function (w) { return w.wash_date === date; }).map(function (w) {
+  // Отчёт — только по стирке: выданные клиенту (issued) в таблицу не включаем
+  const dayWashes = washes.filter(function (w) { return w.wash_date === date && w.status !== 'issued'; }).map(function (w) {
     w.client_name = clientName_(w.client_id, clients);
     w.items = db.findRowsBy_(SHEETS.WASH_ITEMS, function (wi) { return wi.wash_id === w.id; }, 1000)
       .map(function (x) {
@@ -748,7 +830,7 @@ const api = {
   login, logout,
   getDayList, startWash, completeWash, editWashData, deferWash, addUnplannedWash,
   getShiftCloseState, closeShift,
-  getDeliveryPlan, addToDelivery, cancelWash, confirmStorageCheck, markIssued, updateIssueDate,
+  getDeliveryPlan, addToDelivery, cancelWash, deleteWash, confirmStorageCheck, markIssued, updateIssueDate,
   getWeekPlan, addWeekCard, moveWeekCard, removeWeekCard,
   getStorage, getDayReport,
   saveClient, deleteClient, saveItemType, rememberClientItemType, getRefs,
@@ -758,6 +840,7 @@ const api = {
   addDeliveryVisit: deliveries.addDeliveryVisit,
   moveDeliveryVisit: deliveries.moveDeliveryVisit,
   removeDeliveryVisit: deliveries.removeDeliveryVisit,
+  setPickupOnly: deliveries.setPickupOnly,
   getDriverRoute: deliveries.getDriverRoute,
   driverTakeAllClean: deliveries.driverTakeAllClean,
   driverAction: deliveries.driverAction,
@@ -785,7 +868,7 @@ module.exports = {
   ensureShift_, getShiftByDate_, ensureWashesFromDelivery_, notReadyForDelivery_,
   getDayList, startWash, completeWash, editWashData, deferWash, addUnplannedWash,
   getShiftCloseState, closeShift,
-  getDeliveryPlan, addToDelivery, cancelWash, confirmStorageCheck, markIssued, updateIssueDate,
+  getDeliveryPlan, addToDelivery, cancelWash, deleteWash, confirmStorageCheck, markIssued, updateIssueDate,
   getWeekPlan, addWeekCard, moveWeekCard, removeWeekCard,
   getStorage, getDayReport,
   saveClient, deleteClient, saveItemType, rememberClientItemType, getRefs, getTvData,
@@ -793,6 +876,7 @@ module.exports = {
   addDeliveryVisit: deliveries.addDeliveryVisit,
   moveDeliveryVisit: deliveries.moveDeliveryVisit,
   removeDeliveryVisit: deliveries.removeDeliveryVisit,
+  setPickupOnly: deliveries.setPickupOnly,
   getDriverRoute: deliveries.getDriverRoute,
   driverTakeAllClean: deliveries.driverTakeAllClean,
   driverAction: deliveries.driverAction,

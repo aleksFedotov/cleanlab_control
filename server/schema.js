@@ -27,7 +27,7 @@ const HEADERS = {
     'total_kg', 'washes_done', 'washes_deferred', 'digest_sent'],
   Deliveries: ['id', 'date', 'client_id', 'ord', 'status',
     'delivered_at', 'pickup', 'driver_comment', 'created_by', 'created_at',
-    'clean_taken_at', 'clean_bags', 'picked_at', 'dirty_handed_at'],
+    'clean_taken_at', 'clean_bags', 'picked_at', 'dirty_handed_at', 'pickup_only'],
   Storage: ['id', 'client_id', 'kind', 'weight_kg', 'items_total',
     'wash_id', 'created_at', 'consumed_at'],
   Log: ['ts', 'actor', 'action', 'entity', 'details']

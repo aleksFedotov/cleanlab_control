@@ -34,18 +34,23 @@ function consumeStorage_(clientId, kind) {
   return rows.length;
 }
 
-// Сводка по складу: clientId -> { dirty, clean, cleanKg, cleanItems }.
+// Сводка по складу: clientId -> { dirty, clean, cleanKg, cleanItems, cleanBags }.
+// cleanBags — сумма мешков по стиркам чистых записей (мешки хранятся на стирке).
 function storageSummaryByClient_() {
+  const washBags = {};
+  db.findRowsBy_(SHEETS.WASHES, function () { return true; }, 2000)
+    .forEach(function (r) { washBags[r.obj.id] = Number(r.obj.bags) || 0; });
   const summary = {};
   db.findRowsBy_(SHEETS.STORAGE, function (s) { return !s.consumed_at; }, 2000)
     .forEach(function (r) {
       const s = r.obj;
-      if (!summary[s.client_id]) summary[s.client_id] = { dirty: 0, clean: 0, cleanKg: 0, cleanItems: 0 };
+      if (!summary[s.client_id]) summary[s.client_id] = { dirty: 0, clean: 0, cleanKg: 0, cleanItems: 0, cleanBags: 0 };
       if (s.kind === 'dirty') summary[s.client_id].dirty++;
       if (s.kind === 'clean') {
         summary[s.client_id].clean++;
         summary[s.client_id].cleanKg = round1_((summary[s.client_id].cleanKg || 0) + (Number(s.weight_kg) || 0));
         summary[s.client_id].cleanItems += Number(s.items_total) || 0;
+        summary[s.client_id].cleanBags += washBags[s.wash_id] || 0;
       }
     });
   return summary;

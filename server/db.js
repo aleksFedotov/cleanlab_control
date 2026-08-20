@@ -37,6 +37,11 @@ function createTables_(d) {
   for (const [name, cols] of Object.entries(HEADERS)) {
     const defs = cols.map(c => `"${c}" TEXT`).join(', ');
     d.exec(`CREATE TABLE IF NOT EXISTS "${name}" (${defs})`);
+    // Мини-миграция: добавляем колонки, появившиеся в HEADERS после создания БД
+    const existing = d.prepare(`PRAGMA table_info("${name}")`).all().map(r => r.name);
+    cols.filter(c => !existing.includes(c)).forEach(c => {
+      d.exec(`ALTER TABLE "${name}" ADD COLUMN "${c}" TEXT`);
+    });
   }
 }
 
