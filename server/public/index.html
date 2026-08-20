@@ -773,14 +773,16 @@ function loadDayAndCard(id) {
 // Ручной ввод числа (вес/мешки/количество) — по нажатию на значение степпера.
 function openNumInput(title, cur, isFloat, onOk) {
   showDialog('<h2>' + esc(title) + '</h2>' +
-    '<div class="row"><input type="number" inputmode="decimal" id="numInp" value="' + esc(cur) + '"' +
+    '<div class="row"><input type="number" inputmode="decimal" id="numInp" value="" placeholder="' + esc(cur) + '"' +
     (isFloat ? ' step="0.1" min="0"' : ' step="1" min="0"') + '></div>' +
     '<div class="actions"><button class="btn btn-ghost" id="dlgCancel">Отмена</button>' +
     '<button class="btn btn-primary" id="dlgOk">Сохранить</button></div>');
   document.getElementById('dlgCancel').onclick = hideDialog;
   document.getElementById('numInp').focus();
   document.getElementById('dlgOk').onclick = function () {
-    var v = parseFloat(String(document.getElementById('numInp').value).replace(',', '.')) || 0;
+    // Пустой ввод = оставить текущее значение
+    var raw = String(document.getElementById('numInp').value).replace(',', '.').trim();
+    var v = raw === '' ? (parseFloat(cur) || 0) : (parseFloat(raw) || 0);
     v = isFloat ? Math.max(0, Math.round(v * 10) / 10) : Math.max(0, Math.floor(v));
     hideDialog();
     onOk(v);
@@ -920,8 +922,8 @@ function confirmEdit(w) {
   var counts = state.counts[w.id] || {};
   showDialog('<h2>Изменить данные стирки</h2>' +
     '<div class="meta">Новый пересчёт: <b>' + totalQty(counts) + ' шт</b></div>' +
-    '<div class="row"><span>Вес, кг</span><input type="number" inputmode="decimal" step="0.1" min="0" id="editWeight" value="' + (w.dirty_weight_kg || 0) + '"></div>' +
-    '<div class="row"><span>Мешков</span><input type="number" inputmode="numeric" step="1" min="0" id="editBags" value="' + (w.bags || 0) + '"></div>' +
+    '<div class="row"><span>Вес, кг</span><input type="number" inputmode="decimal" step="0.1" min="0" id="editWeight" onfocus="this.select()" value="' + (w.dirty_weight_kg || 0) + '"></div>' +
+    '<div class="row"><span>Мешков</span><input type="number" inputmode="numeric" step="1" min="0" id="editBags" onfocus="this.select()" value="' + (w.bags || 0) + '"></div>' +
     '<div class="actions"><button class="btn btn-ghost" id="dlgCancel">Назад</button>' +
     '<button class="btn btn-primary" id="dlgOk">Сохранить</button></div>');
   document.getElementById('dlgCancel').onclick = hideDialog;
@@ -2015,8 +2017,8 @@ function openEditDialog(w, onSaved) {
   var counts = {};
   (w.items || []).forEach(function (it) { counts[it.item_type_id] = it.qty; });
   showDialog('<h2>Изменить данные: ' + esc(w.client_name) + '</h2>' +
-    '<div class="row"><span>Вес, кг</span><input type="number" inputmode="decimal" step="0.1" min="0" id="editWeight" value="' + (w.dirty_weight_kg || 0) + '"></div>' +
-    '<div class="row"><span>Мешков</span><input type="number" inputmode="numeric" step="1" min="0" id="editBags" value="' + (w.bags || 0) + '"></div>' +
+    '<div class="row"><span>Вес, кг</span><input type="number" inputmode="decimal" step="0.1" min="0" id="editWeight" onfocus="this.select()" value="' + (w.dirty_weight_kg || 0) + '"></div>' +
+    '<div class="row"><span>Мешков</span><input type="number" inputmode="numeric" step="1" min="0" id="editBags" onfocus="this.select()" value="' + (w.bags || 0) + '"></div>' +
     types.map(function (t) {
       return '<div class="item-row"><span class="name">' + esc(t.name) + '</span>' +
         '<div class="stepper"><button data-t="' + t.id + '" data-d="-1">−</button>' +
