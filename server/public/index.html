@@ -583,13 +583,16 @@ function renderWashCard(id) {
   // Набор блоков зависит от учёта клиента (accounting): weight / count / both.
   if (w.status === 'in_progress' || canEdit) {
     var acc = w.client_accounting || 'both';
-    if (w.status === 'in_progress' && acc !== 'count') {
-      html += '<div class="meta res-label">Вес чистого белья</div>' +
-        '<div class="row"><div class="stepper">' +
-        '<button data-w="-1">−1</button><button data-w="-0.1">−0.1</button>' +
-        '<div class="val tap" id="weightVal" title="Нажмите для ввода вручную">' + (weight || 0) + '</div>' +
-        '<button data-w="0.1">+0.1</button><button data-w="1">+1</button><button data-w="5">+5</button></div></div>' +
-        '<div class="meta res-label-sm">Мешки</div>' +
+    if (w.status === 'in_progress') {
+      if (acc !== 'count') {
+        html += '<div class="meta res-label">Вес чистого белья</div>' +
+          '<div class="row"><div class="stepper">' +
+          '<button data-w="-1">−1</button><button data-w="-0.1">−0.1</button>' +
+          '<div class="val tap" id="weightVal" title="Нажмите для ввода вручную">' + (weight || 0) + '</div>' +
+          '<button data-w="0.1">+0.1</button><button data-w="1">+1</button><button data-w="5">+5</button></div></div>';
+      }
+      // Мешки — всегда (обязательны при завершении), даже при учёте «только количество»
+      html += '<div class="meta res-label-sm">Мешки</div>' +
         '<div class="row"><div class="stepper stepper-sm">' +
         '<button data-b="-1">−</button>' +
         '<div class="val tap" id="bagsVal" title="Нажмите для ввода вручную">' + ((state.bags || {})[id] || 0) + '</div>' +
