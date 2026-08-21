@@ -1,11 +1,12 @@
 // Серверное API (spec §6) — порт src/Api.gs. Каждая функция принимает токен первым параметром.
+// Мультитенантность: прачка берётся из сессии (session.laundryId), все чтения/записи
+// операционных таблиц фильтруются по ней; строка чужой прачки для API не существует.
 // LockService не нужен: однопроцессный Node + синхронный better-sqlite3.
 // Express-монтирование: каждая публичная функция → POST /api/<имя>, тело { args: [...] }.
 const { SHEETS } = require('./schema');
 const db = require('./db');
 const time = require('./util/time');
-const { config } = require('./config');
-const { nowStr_, todayStr_, logEvent } = require('./audit');
+const { nowStr_, todayStr_, logEvent, actorOf_ } = require('./audit');
 const { requireRole_ } = require('./auth');
 const core = require('./core');
 const {
@@ -22,21 +23,28 @@ function withLock_(fn) { return fn(); }
 
 function timeStr_() { return time.nowHHMM(); }
 
+// Поиск строки по id с проверкой тенанта: чужая прачка = «не найдено».
+function findTenantRow_(sheet, id, laundryId) {
+  const found = db.findById_(sheet, id);
+  if (!found || found.obj.laundry_id !== String(laundryId)) return null;
+  return found;
+}
+
 // Смена создаётся автоматически при первом действии (upsert по дате, spec §3.7).
-function ensureShift_(date) {
-  const found = db.findRowsBy_(SHEETS.SHIFTS, function (s) { return s.date === date; }, 500);
+function ensureShift_(date, laundryId) {
+  const found = db.findRowsByTenant_(SHEETS.SHIFTS, function (s) { return s.date === date; }, 500, laundryId);
   if (found.length) return found[found.length - 1].obj;
   const shift = {
     id: db.nextId_(SHEETS.SHIFTS, 'shift'), date: date, status: 'open',
     opened_at: nowStr_(), closed_at: '', total_kg: '', washes_done: '',
     washes_deferred: '', digest_sent: ''
   };
-  db.appendRow_(SHEETS.SHIFTS, shift);
+  db.appendRowTenant_(SHEETS.SHIFTS, shift, laundryId);
   return shift;
 }
 
-function getShiftByDate_(date) {
-  const found = db.findRowsBy_(SHEETS.SHIFTS, function (s) { return s.date === date; }, 500);
+function getShiftByDate_(date, laundryId) {
+  const found = db.findRowsByTenant_(SHEETS.SHIFTS, function (s) { return s.date === date; }, 500, laundryId);
   return found.length ? found[found.length - 1] : null;
 }
 
@@ -44,15 +52,15 @@ function getShiftByDate_(date) {
 
 // Автоформирование стирок дня из завтрашнего развоза: клиент в развозе на
 // date+1 → плановая стирка сегодня (выдача завтра). Идемпотентно.
-function ensureWashesFromDelivery_(date) {
+function ensureWashesFromDelivery_(date, laundryId) {
   const nextDay = addDaysStr_(date, 1);
-  const visits = getVisitsByDate_(nextDay);
+  const visits = getVisitsByDate_(nextDay, laundryId);
   if (!visits.length) return;
   // Отменённые тоже считаем «существующими»: иначе стирка, снятая подтверждением
   // «белья нет на складе» (или отмена владельца), будет пересоздана при следующем чтении.
-  const dayWashes = db.findRowsBy_(SHEETS.WASHES, function (w) {
+  const dayWashes = db.findRowsByTenant_(SHEETS.WASHES, function (w) {
     return w.wash_date === date;
-  }, 1000).map(function (r) { return r.obj; });
+  }, 1000, laundryId).map(function (r) { return r.obj; });
   visits.forEach(function (v) {
     const exists = dayWashes.some(function (w) { return w.client_id === v.client_id; });
     if (exists) return;
@@ -63,27 +71,29 @@ function ensureWashesFromDelivery_(date) {
       created_by: 'auto', created_at: nowStr_(),
       started_at: '', done_at: '', issued_at: '', deferred_from: '', deferred_reason: ''
     };
-    db.appendRow_(SHEETS.WASHES, w);
+    db.appendRowTenant_(SHEETS.WASHES, w, laundryId);
     dayWashes.push(w);
-    logEvent('auto', 'wash_create', w.id, { client_id: v.client_id, from_visit: v.id });
+    logEvent('auto', 'wash_create', w.id, { client_id: v.client_id, from_visit: v.id }, laundryId);
   });
 }
 
 function getDayList(token, date) {
-  if (!requireRole_(token, ['owner', 'worker'])) return err_('Нет доступа');
+  const session = requireRole_(token, ['owner', 'worker']);
+  if (!session) return err_('Нет доступа');
+  const laundryId = session.laundryId;
   date = date || todayStr_();
   return withLock_(function () {
-    ensureWashesFromDelivery_(date);
+    ensureWashesFromDelivery_(date, laundryId);
     const clients = {};
-    db.getClients_().forEach(function (c) { clients[c.id] = c; });
-    const washes = db.findRowsBy_(SHEETS.WASHES, function (w) {
+    db.getClients_(laundryId).forEach(function (c) { clients[c.id] = c; });
+    const washes = db.findRowsByTenant_(SHEETS.WASHES, function (w) {
       return isDayWash_(w, date);
-    }, 1000).map(function (r) { return r.obj; });
-    const shift = getShiftByDate_(date);
-    const storage = storageSummaryByClient_();
+    }, 1000, laundryId).map(function (r) { return r.obj; });
+    const shift = getShiftByDate_(date, laundryId);
+    const storage = storageSummaryByClient_(laundryId);
     return ok_({
       date: date,
-      laundryName: db.getSettings_().LAUNDRY_NAME || 'Прачечная PRO',
+      laundryName: db.getSettings_(laundryId).LAUNDRY_NAME || 'Прачечная PRO',
       washes: sortDayList_(washes).map(function (w) {
         w.client_name = clientName_(w.client_id, clients);
         // Состояние склада для раскраски «К работе» (check-storage из спеки)
@@ -97,7 +107,7 @@ function getDayList(token, date) {
         return w;
       }),
       shift: shift ? shift.obj : null,
-      clients: db.getClients_().filter(function (c) { return c.active === 'да'; }),
+      clients: db.getClients_(laundryId).filter(function (c) { return c.active === 'да'; }),
       itemTypes: db.getItemTypes_().filter(function (t) { return t.active === 'да'; })
     });
   });
@@ -106,10 +116,11 @@ function getDayList(token, date) {
 // --- Сотрудник ---
 
 function startWash(token, washId, weightKg) {
-  const role = requireRole_(token, ['owner', 'worker']);
-  if (!role) return err_('Нет доступа');
+  const session = requireRole_(token, ['owner', 'worker']);
+  if (!session) return err_('Нет доступа');
+  const laundryId = session.laundryId;
   return withLock_(function () {
-    const found = db.findById_(SHEETS.WASHES, washId);
+    const found = findTenantRow_(SHEETS.WASHES, washId, laundryId);
     const check = checkTransition_('start', found && found.obj);
     if (!check.ok) return err_(check.error);
     const w = found.obj;
@@ -120,18 +131,19 @@ function startWash(token, washId, weightKg) {
     if (Number(weightKg) > 0) w.dirty_weight_kg = round1_(weightKg);
     db.updateRow_(SHEETS.WASHES, found.rowNumber, w);
     // Грязное бельё клиента уходит со склада в стирку
-    consumeStorage_(w.client_id, 'dirty');
-    ensureShift_(w.wash_date);
-    logEvent(role, 'wash_start', washId, { weight: w.dirty_weight_kg });
+    consumeStorage_(w.client_id, 'dirty', laundryId);
+    ensureShift_(w.wash_date, laundryId);
+    logEvent(actorOf_(session), 'wash_start', washId, { weight: w.dirty_weight_kg }, laundryId);
     return ok_({ wash: w });
   });
 }
 
 function completeWash(token, washId, items, weightKg, mode, bags) {
-  const role = requireRole_(token, ['owner', 'worker']);
-  if (!role) return err_('Нет доступа');
+  const session = requireRole_(token, ['owner', 'worker']);
+  if (!session) return err_('Нет доступа');
+  const laundryId = session.laundryId;
   return withLock_(function () {
-    const found = db.findById_(SHEETS.WASHES, washId);
+    const found = findTenantRow_(SHEETS.WASHES, washId, laundryId);
     const check = checkTransition_('complete', found && found.obj);
     if (!check.ok) return err_(check.error); // повторное завершение не дублирует WashItems
     const w = found.obj;
@@ -162,23 +174,24 @@ function completeWash(token, washId, items, weightKg, mode, bags) {
     // Результат стирки — чистое бельё на складе
     addStorageEntry_(w.client_id, 'clean', {
       weight_kg: w.dirty_weight_kg, items_total: total, wash_id: washId
-    });
-    ensureShift_(w.wash_date);
-    logEvent(role, 'wash_done', washId, { status: w.status, items: valid, kg: w.dirty_weight_kg, bags: w.bags });
+    }, laundryId);
+    ensureShift_(w.wash_date, laundryId);
+    logEvent(actorOf_(session), 'wash_done', washId, { status: w.status, items: valid, kg: w.dirty_weight_kg, bags: w.bags }, laundryId);
     return ok_({ wash: w });
   });
 }
 
 // Правка веса/пересчёта/мешков завершённой (spec §4.2): статус и done_at не меняются.
 function editWashData(token, washId, weightKg, items, bags) {
-  const role = requireRole_(token, ['owner', 'worker']);
-  if (!role) return err_('Нет доступа');
+  const session = requireRole_(token, ['owner', 'worker']);
+  if (!session) return err_('Нет доступа');
+  const laundryId = session.laundryId;
   return withLock_(function () {
-    const found = db.findById_(SHEETS.WASHES, washId);
+    const found = findTenantRow_(SHEETS.WASHES, washId, laundryId);
     if (!found) return err_('Стирка не найдена');
     const w = found.obj;
-    const shift = getShiftByDate_(w.wash_date);
-    if (!canEditWashData_(role, w, shift && shift.obj)) {
+    const shift = getShiftByDate_(w.wash_date, laundryId);
+    if (!canEditWashData_(session.role, w, shift && shift.obj)) {
       return err_('Правка недоступна: смена закрыта');
     }
     const old = { kg: w.dirty_weight_kg, items_total: w.items_total, bags: w.bags };
@@ -200,24 +213,26 @@ function editWashData(token, washId, weightKg, items, bags) {
     w.bags = Math.max(0, Math.floor(Number(bags) || 0));
     db.updateRow_(SHEETS.WASHES, found.rowNumber, w);
     // Синхронно правим clean-запись склада, если она ещё не выдана
-    const st = db.findRowsBy_(SHEETS.STORAGE, function (s) {
+    const st = db.findRowsByTenant_(SHEETS.STORAGE, function (s) {
       return s.wash_id === washId && s.kind === 'clean' && !s.consumed_at;
-    }, 1000);
+    }, 1000, laundryId);
     if (st.length) {
       st[0].obj.weight_kg = w.dirty_weight_kg;
       st[0].obj.items_total = total;
       db.updateRow_(SHEETS.STORAGE, st[0].rowNumber, st[0].obj);
     }
-    logEvent(role, 'wash_edit', washId, { old: old, now: { kg: w.dirty_weight_kg, items_total: total, bags: w.bags } });
+    logEvent(actorOf_(session), 'wash_edit', washId, { old: old, now: { kg: w.dirty_weight_kg, items_total: total, bags: w.bags } }, laundryId);
     return ok_({ wash: w });
   });
 }
 
 function deferWash(token, washId, newDate, reason) {
-  const role = requireRole_(token, ['owner', 'worker']);
-  if (!role) return err_('Нет доступа');
+  const session = requireRole_(token, ['owner', 'worker']);
+  if (!session) return err_('Нет доступа');
+  const laundryId = session.laundryId;
+  const actor = actorOf_(session);
   return withLock_(function () {
-    const found = db.findById_(SHEETS.WASHES, washId);
+    const found = findTenantRow_(SHEETS.WASHES, washId, laundryId);
     const check = checkTransition_('defer', found && found.obj);
     if (!check.ok) return err_(check.error);
     const w = found.obj;
@@ -234,28 +249,28 @@ function deferWash(token, washId, newDate, reason) {
       // Остаток грязного физически в цеху: восстанавливаем dirty-запись склада,
       // иначе карточка показывает «Нет белья на складе» (первая запись израсходована
       // при первом «В работу»). Как verdict has_dirty в confirmStorageCheck.
-      if (openStorage_(w.client_id, 'dirty').length === 0) {
-        addStorageEntry_(w.client_id, 'dirty', {});
+      if (openStorage_(w.client_id, 'dirty', laundryId).length === 0) {
+        addStorageEntry_(w.client_id, 'dirty', {}, laundryId);
       }
       // Визит развоза едет следом: «завтра» → «послезавтра». Только planned и
       // только если на целевую дату у клиента ещё нет визита.
-      const visit = getVisitsByDate_(oldIssueDate).filter(function (x) {
+      const visit = getVisitsByDate_(oldIssueDate, laundryId).filter(function (x) {
         return x.client_id === w.client_id && x.status === 'planned';
       })[0];
-      const dup = getVisitsByDate_(newIssueDate).some(function (x) {
+      const dup = getVisitsByDate_(newIssueDate, laundryId).some(function (x) {
         return x.client_id === w.client_id;
       });
       if (visit && !dup) {
         const vf = db.findById_(SHEETS.DELIVERIES, visit.id);
         vf.obj.date = newIssueDate;
         db.updateRow_(SHEETS.DELIVERIES, vf.rowNumber, vf.obj);
-        logEvent(role, 'visit_move', visit.id, { date: oldIssueDate + ' → ' + newIssueDate, reason: 'wash_defer' });
+        logEvent(actor, 'visit_move', visit.id, { date: oldIssueDate + ' → ' + newIssueDate, reason: 'wash_defer' }, laundryId);
         details.visit_moved = true;
       } else {
         details.visit_moved = false;
       }
     }
-    logEvent(role, 'wash_defer', washId, details);
+    logEvent(actor, 'wash_defer', washId, details, laundryId);
     Object.keys(patch).forEach(function (k) { w[k] = patch[k]; });
     db.updateRow_(SHEETS.WASHES, found.rowNumber, w);
     return ok_({ wash: w });
@@ -264,48 +279,51 @@ function deferWash(token, washId, newDate, reason) {
 
 // Внеплановая стирка из цеха: сегодня, выдача завтра, created_by по роли.
 function addUnplannedWash(token, clientId, comment) {
-  const role = requireRole_(token, ['owner', 'worker']);
-  if (!role) return err_('Нет доступа');
+  const session = requireRole_(token, ['owner', 'worker']);
+  if (!session) return err_('Нет доступа');
+  const laundryId = session.laundryId;
   return withLock_(function () {
     const today = todayStr_();
     // Не дублируем: у клиента уже есть открытая стирка на сегодня
-    const dup = db.findRowsBy_(SHEETS.WASHES, function (x) {
+    const dup = db.findRowsByTenant_(SHEETS.WASHES, function (x) {
       return x.client_id === clientId && x.wash_date === today &&
         ['planned', 'no_linen', 'in_progress'].indexOf(x.status) !== -1;
-    }, 100).length;
+    }, 100, laundryId).length;
     if (dup) return err_('Стирка этого клиента уже в плане на сегодня');
     const w = {
       id: db.nextId_(SHEETS.WASHES, 'wash'), client_id: clientId,
       wash_date: today, issue_date: addDaysStr_(today, 1), status: 'planned',
       dirty_weight_kg: '', items_total: '', comment: comment || '',
-      created_by: role, created_at: nowStr_(),
+      created_by: session.role, created_at: nowStr_(),
       started_at: '', done_at: '', issued_at: '', deferred_from: '', deferred_reason: ''
     };
-    db.appendRow_(SHEETS.WASHES, w);
-    ensureShift_(today);
-    logEvent(role, 'wash_create', w.id, { client_id: clientId, unplanned: true });
+    db.appendRowTenant_(SHEETS.WASHES, w, laundryId);
+    ensureShift_(today, laundryId);
+    logEvent(actorOf_(session), 'wash_create', w.id, { client_id: clientId, unplanned: true }, laundryId);
     return ok_({ wash: w });
   });
 }
 
 function getShiftCloseState(token) {
-  if (!requireRole_(token, ['owner', 'worker'])) return err_('Нет доступа');
+  const session = requireRole_(token, ['owner', 'worker']);
+  if (!session) return err_('Нет доступа');
+  const laundryId = session.laundryId;
   const today = todayStr_();
-  const washes = db.findRowsBy_(SHEETS.WASHES, function (w) { return w.wash_date === today; }, 1000)
+  const washes = db.findRowsByTenant_(SHEETS.WASHES, function (w) { return w.wash_date === today; }, 1000, laundryId)
     .map(function (r) { return r.obj; });
   const clients = {};
-  db.getClients_().forEach(function (c) { clients[c.id] = c; });
+  db.getClients_(laundryId).forEach(function (c) { clients[c.id] = c; });
   const blockers = shiftBlockers_(washes, today).map(function (w) {
     w.client_name = clientName_(w.client_id, clients);
     return w;
   });
-  const log = db.findRowsBy_(SHEETS.LOG, function () { return true; }, 1000).map(function (r) { return r.obj; });
+  const log = db.readTailByTenant_(SHEETS.LOG, 1000, laundryId);
   return ok_({
     date: today,
     blockers: blockers,
-    notReady: notReadyForDelivery_(addDaysStr_(today, 1)),
+    notReady: notReadyForDelivery_(addDaysStr_(today, 1), laundryId),
     report: buildDayReport_(today, washes, log),
-    shift: getShiftByDate_(today) ? getShiftByDate_(today).obj : null
+    shift: getShiftByDate_(today, laundryId) ? getShiftByDate_(today, laundryId).obj : null
   });
 }
 
@@ -313,16 +331,16 @@ function getShiftCloseState(token) {
 // (закрытый визит или чистое уже у водителя) пропускаем — предупреждать не о чем.
 // Причины: washing_incomplete (стирка дня подготовки не завершена),
 // partial (завершена частично), no_clean (нет чистого на складе).
-function notReadyForDelivery_(date) {
-  const visits = getVisitsByDate_(date);
+function notReadyForDelivery_(date, laundryId) {
+  const visits = getVisitsByDate_(date, laundryId);
   if (!visits.length) return [];
   const clients = {};
-  db.getClients_().forEach(function (c) { clients[c.id] = c; });
-  const storage = storageSummaryByClient_();
+  db.getClients_(laundryId).forEach(function (c) { clients[c.id] = c; });
+  const storage = storageSummaryByClient_(laundryId);
   const prepDay = addDaysStr_(date, -1);
-  const washes = db.findRowsBy_(SHEETS.WASHES, function (w) {
+  const washes = db.findRowsByTenant_(SHEETS.WASHES, function (w) {
     return w.status !== 'cancelled';
-  }, 2000).map(function (r) { return r.obj; });
+  }, 2000, laundryId).map(function (r) { return r.obj; });
   const out = [];
   visits.forEach(function (v) {
     // Точка уже обслужена (закрыта или чистое у водителя) — предупреждать не о чем
@@ -358,21 +376,22 @@ function notReadyForDelivery_(date) {
 // при закрытии с незавершёнными владельцу уходит предупреждение в Telegram.
 // Async: отправка дайджеста в Telegram — HTTP-запрос (см. telegram.js).
 async function closeShift(token, force) {
-  const role = requireRole_(token, ['owner', 'worker']);
-  if (!role) return err_('Нет доступа');
+  const session = requireRole_(token, ['owner', 'worker']);
+  if (!session) return err_('Нет доступа');
+  const laundryId = session.laundryId;
   const today = todayStr_();
-  const washes = db.findRowsBy_(SHEETS.WASHES, function (w) { return w.wash_date === today; }, 1000)
+  const washes = db.findRowsByTenant_(SHEETS.WASHES, function (w) { return w.wash_date === today; }, 1000, laundryId)
     .map(function (r) { return r.obj; });
   const blockers = shiftBlockers_(washes, today);
   if (blockers.length && !force) {
     return err_('Есть незавершённые стирки: ' + blockers.map(function (w) { return w.id; }).join(', '));
   }
-  let shift = getShiftByDate_(today) || (function () {
-    ensureShift_(today);
-    return getShiftByDate_(today);
+  let shift = getShiftByDate_(today, laundryId) || (function () {
+    ensureShift_(today, laundryId);
+    return getShiftByDate_(today, laundryId);
   })();
   if (shift.obj.status === 'closed') return err_('Смена уже закрыта');
-  const log = db.findRowsBy_(SHEETS.LOG, function () { return true; }, 1000).map(function (r) { return r.obj; });
+  const log = db.readTailByTenant_(SHEETS.LOG, 1000, laundryId);
   const report = buildDayReport_(today, washes, log);
   const s = shift.obj;
   s.status = 'closed';
@@ -382,16 +401,16 @@ async function closeShift(token, force) {
   s.washes_deferred = report.deferred;
   db.updateRow_(SHEETS.SHIFTS, shift.rowNumber, s);
   const clients = {};
-  db.getClients_().forEach(function (c) { clients[c.id] = c; });
-  logEvent(role, 'shift_close', s.id, { total_kg: s.total_kg, washes_done: s.washes_done,
-    unfinished: blockers.map(function (w) { return w.id; }) });
+  db.getClients_(laundryId).forEach(function (c) { clients[c.id] = c; });
+  logEvent(actorOf_(session), 'shift_close', s.id, { total_kg: s.total_kg, washes_done: s.washes_done,
+    unfinished: blockers.map(function (w) { return w.id; }) }, laundryId);
   // Дайджест (spec §8.3): fallback уже отправил → только короткое подтверждение;
-  // иначе — полный дайджест.
+  // иначе — полный дайджест. Дайджест и чат владельца — per-tenant.
   const tg = require('./telegram');
   if (String(s.digest_sent) === 'да') {
-    tg.sendTelegram_(null, 'Смена закрыта в ' + s.closed_at + ' ✓').catch(function () {});
+    tg.sendTelegram_(null, 'Смена закрыта в ' + s.closed_at + ' ✓', laundryId).catch(function () {});
   } else {
-    await tg.sendDigestLocked_(today);
+    await tg.sendDigestLocked_(today, laundryId);
   }
   // Предупреждение владельцу: смена закрыта с незавершёнными стирками
   if (blockers.length) {
@@ -399,15 +418,15 @@ async function closeShift(token, force) {
       blockers.map(function (w) {
         return '• ' + clientName_(w.client_id, clients) + ' — ' + (w.status === 'in_progress' ? 'в работе' : 'не начата');
       }).join('\n') +
-      '\nПеренести их на другой день может только владелец.').catch(function () {});
+      '\nПеренести их на другой день может только владелец.', laundryId).catch(function () {});
   }
   // Предупреждение владельцу: кто не готов к завтрашнему развозу
-  const notReady = notReadyForDelivery_(addDaysStr_(today, 1));
+  const notReady = notReadyForDelivery_(addDaysStr_(today, 1), laundryId);
   if (notReady.length) {
     const REASONS = { washing_incomplete: 'стирка не завершена', partial: 'стирка частичная', no_clean: 'нет чистого белья' };
     tg.sendTelegram_(null, '⚠ К развозу на ' + addDaysStr_(today, 1) + ' не готовы:\n' +
-      notReady.map(function (n) { return '• ' + n.client_name + ' — ' + REASONS[n.reason]; }).join('\n')
-    ).catch(function () {});
+      notReady.map(function (n) { return '• ' + n.client_name + ' — ' + REASONS[n.reason]; }).join('\n'),
+      laundryId).catch(function () {});
   }
   return ok_({ shift: s, report: report, notReady: notReady });
 }
@@ -415,12 +434,14 @@ async function closeShift(token, force) {
 // --- Владелец ---
 
 function getDeliveryPlan(token, date) {
-  if (!requireRole_(token, ['owner'])) return err_('Нет доступа');
+  const session = requireRole_(token, ['owner']);
+  if (!session) return err_('Нет доступа');
+  const laundryId = session.laundryId;
   const clients = {};
-  db.getClients_().forEach(function (c) { clients[c.id] = c; });
-  const all = db.findRowsBy_(SHEETS.WASHES, function (w) {
+  db.getClients_(laundryId).forEach(function (c) { clients[c.id] = c; });
+  const all = db.findRowsByTenant_(SHEETS.WASHES, function (w) {
     return w.wash_date === date || w.issue_date === date;
-  }, 1000).map(function (r) { return r.obj; });
+  }, 1000, laundryId).map(function (r) { return r.obj; });
   const decorate = function (w) { w.client_name = clientName_(w.client_id, clients); return w; };
   return ok_({
     date: date,
@@ -431,12 +452,14 @@ function getDeliveryPlan(token, date) {
     overdueIssue: all.filter(function (w) {
       return w.issue_date < date && (w.status === 'done' || w.status === 'stored');
     }).map(decorate),
-    clients: db.getClients_().filter(function (c) { return c.active === 'да'; })
+    clients: db.getClients_(laundryId).filter(function (c) { return c.active === 'да'; })
   });
 }
 
 function addToDelivery(token, clientId, washDate, issueDate, comment) {
-  if (!requireRole_(token, ['owner'])) return err_('Нет доступа');
+  const session = requireRole_(token, ['owner']);
+  if (!session) return err_('Нет доступа');
+  const laundryId = session.laundryId;
   return withLock_(function () {
     const w = {
       id: db.nextId_(SHEETS.WASHES, 'wash'), client_id: clientId,
@@ -445,21 +468,23 @@ function addToDelivery(token, clientId, washDate, issueDate, comment) {
       created_by: 'owner', created_at: nowStr_(),
       started_at: '', done_at: '', issued_at: '', deferred_from: '', deferred_reason: ''
     };
-    db.appendRow_(SHEETS.WASHES, w);
-    logEvent('owner', 'wash_create', w.id, { client_id: clientId, wash_date: washDate, issue_date: issueDate });
+    db.appendRowTenant_(SHEETS.WASHES, w, laundryId);
+    logEvent(actorOf_(session), 'wash_create', w.id, { client_id: clientId, wash_date: washDate, issue_date: issueDate }, laundryId);
     return ok_({ wash: w });
   });
 }
 
 function cancelWash(token, washId) {
-  if (!requireRole_(token, ['owner'])) return err_('Нет доступа');
+  const session = requireRole_(token, ['owner']);
+  if (!session) return err_('Нет доступа');
+  const laundryId = session.laundryId;
   return withLock_(function () {
-    const found = db.findById_(SHEETS.WASHES, washId);
+    const found = findTenantRow_(SHEETS.WASHES, washId, laundryId);
     const check = checkTransition_('cancel', found && found.obj);
     if (!check.ok) return err_(check.error);
     found.obj.status = 'cancelled';
     db.updateRow_(SHEETS.WASHES, found.rowNumber, found.obj);
-    logEvent('owner', 'wash_cancel', washId, {});
+    logEvent(actorOf_(session), 'wash_cancel', washId, {}, laundryId);
     return ok_({ wash: found.obj });
   });
 }
@@ -470,9 +495,11 @@ function cancelWash(token, washId) {
 // строки этой стирки (в т.ч. израсходованные — бельё «убирается» из учёта).
 // Выданную клиенту (issued) удалять нельзя — это уже факт выдачи.
 function deleteWash(token, washId) {
-  if (!requireRole_(token, ['owner'])) return err_('Нет доступа');
+  const session = requireRole_(token, ['owner']);
+  if (!session) return err_('Нет доступа');
+  const laundryId = session.laundryId;
   return withLock_(function () {
-    const found = db.findById_(SHEETS.WASHES, washId);
+    const found = findTenantRow_(SHEETS.WASHES, washId, laundryId);
     if (!found) return err_('Стирка не найдена');
     const w = found.obj;
     if (w.status === 'issued') {
@@ -485,10 +512,10 @@ function deleteWash(token, washId) {
         .sort(function (a, b) { return b.rowNumber - a.rowNumber; })
         .forEach(function (r) { db.deleteRow_(sheet, r.rowNumber); });
     });
-    logEvent('owner', 'wash_delete', washId, {
+    logEvent(actorOf_(session), 'wash_delete', washId, {
       client_id: w.client_id, wash_date: w.wash_date, status: w.status,
       kg: w.dirty_weight_kg, items_total: w.items_total
-    });
+    }, laundryId);
     db.deleteRow_(SHEETS.WASHES, found.rowNumber);
     return ok_({ id: washId });
   });
@@ -506,63 +533,68 @@ function deleteWash(token, washId) {
 //    в planned, карточка становится янтарной везде. Запись израсходуется при startWash.
 // Время проверки пишем в done_at (для этих статусов — «когда разобрались с клиентом»).
 function confirmStorageCheck(token, washId, verdict) {
-  const role = requireRole_(token, ['owner', 'worker']);
-  if (!role) return err_('Нет доступа');
+  const session = requireRole_(token, ['owner', 'worker']);
+  if (!session) return err_('Нет доступа');
+  const laundryId = session.laundryId;
   const VERDICTS = { no_dirty: 1, already_clean: 1, has_dirty: 1 };
   if (!VERDICTS[verdict]) return err_('Неизвестный verdict');
   return withLock_(function () {
-    const found = db.findById_(SHEETS.WASHES, washId);
+    const found = findTenantRow_(SHEETS.WASHES, washId, laundryId);
     if (!found) return err_('Стирка не найдена');
     const w = found.obj;
     if (w.status !== 'planned' && w.status !== 'no_linen') {
       return err_('Подтверждение возможно только для стирки «К работе»');
     }
     if (verdict === 'has_dirty') {
-      if (openStorage_(w.client_id, 'dirty').length === 0) {
-        addStorageEntry_(w.client_id, 'dirty', {});
+      if (openStorage_(w.client_id, 'dirty', laundryId).length === 0) {
+        addStorageEntry_(w.client_id, 'dirty', {}, laundryId);
       }
       if (w.status === 'no_linen') {
         w.status = 'planned';
         w.done_at = '';
         db.updateRow_(SHEETS.WASHES, found.rowNumber, w);
       }
-      logEvent(role, 'storage_check', washId, { verdict: verdict });
+      logEvent(actorOf_(session), 'storage_check', washId, { verdict: verdict }, laundryId);
       return ok_({ wash: w });
     }
     w.status = verdict === 'no_dirty' ? 'no_linen' : 'ready_clean';
     w.done_at = nowStr_();
     db.updateRow_(SHEETS.WASHES, found.rowNumber, w);
-    logEvent(role, 'storage_check', washId, { verdict: verdict });
+    logEvent(actorOf_(session), 'storage_check', washId, { verdict: verdict }, laundryId);
     return ok_({ wash: w });
   });
 }
 
 function markIssued(token, washId) {
-  if (!requireRole_(token, ['owner'])) return err_('Нет доступа');
+  const session = requireRole_(token, ['owner']);
+  if (!session) return err_('Нет доступа');
+  const laundryId = session.laundryId;
   return withLock_(function () {
-    const found = db.findById_(SHEETS.WASHES, washId);
+    const found = findTenantRow_(SHEETS.WASHES, washId, laundryId);
     const check = checkTransition_('issue', found && found.obj);
     if (!check.ok) return err_(check.error);
     found.obj.status = 'issued';
     found.obj.issued_at = nowStr_();
     db.updateRow_(SHEETS.WASHES, found.rowNumber, found.obj);
     // Чистая запись этой стирки уходит со склада
-    db.findRowsBy_(SHEETS.STORAGE, function (s) {
+    db.findRowsByTenant_(SHEETS.STORAGE, function (s) {
       return s.wash_id === washId && s.kind === 'clean' && !s.consumed_at;
-    }, 1000).forEach(function (r) {
+    }, 1000, laundryId).forEach(function (r) {
       r.obj.consumed_at = found.obj.issued_at;
       db.updateRow_(SHEETS.STORAGE, r.rowNumber, r.obj);
     });
-    logEvent('owner', 'wash_issue', washId, {});
+    logEvent(actorOf_(session), 'wash_issue', washId, {}, laundryId);
     return ok_({ wash: found.obj });
   });
 }
 
 // Правка issue_date у done/stored статус не меняет (spec §4.3).
 function updateIssueDate(token, washId, issueDate) {
-  if (!requireRole_(token, ['owner'])) return err_('Нет доступа');
+  const session = requireRole_(token, ['owner']);
+  if (!session) return err_('Нет доступа');
+  const laundryId = session.laundryId;
   return withLock_(function () {
-    const found = db.findById_(SHEETS.WASHES, washId);
+    const found = findTenantRow_(SHEETS.WASHES, washId, laundryId);
     if (!found) return err_('Стирка не найдена');
     if (['done', 'stored'].indexOf(found.obj.status) === -1) {
       return err_('Менять дату выдачи можно только у завершённой стирки');
@@ -570,7 +602,7 @@ function updateIssueDate(token, washId, issueDate) {
     const old = found.obj.issue_date;
     found.obj.issue_date = issueDate;
     db.updateRow_(SHEETS.WASHES, found.rowNumber, found.obj);
-    logEvent('owner', 'wash_edit', washId, { issue_date: old + ' → ' + issueDate });
+    logEvent(actorOf_(session), 'wash_edit', washId, { issue_date: old + ' → ' + issueDate }, laundryId);
     return ok_({ wash: found.obj });
   });
 }
@@ -580,32 +612,34 @@ function updateIssueDate(token, washId, issueDate) {
 // на завтра (см. getDayList). Хранение и права — в deliveries.js.
 
 // Копия прошлой недели: planned-визиты со сдвигом +7 дней.
-function copyPrevWeek_(monday) {
-  const src = getVisitsByWeek_(addDaysStr_(monday, -7));
+function copyPrevWeek_(monday, laundryId, actor) {
+  const src = getVisitsByWeek_(addDaysStr_(monday, -7), laundryId);
   src.forEach(function (v) {
-    db.appendRow_(SHEETS.DELIVERIES, {
+    db.appendRowTenant_(SHEETS.DELIVERIES, {
       id: db.nextId_(SHEETS.DELIVERIES, 'del'), date: addDaysStr_(v.date, 7),
       client_id: v.client_id, ord: v.ord, status: 'planned',
       delivered_at: '', pickup: '', driver_comment: '',
       created_by: 'owner', created_at: nowStr_()
-    });
+    }, laundryId);
   });
-  if (src.length) logEvent('owner', 'week_copy', monday, { copied: src.length });
+  if (src.length) logEvent(actor, 'week_copy', monday, { copied: src.length }, laundryId);
 }
 
 function getWeekPlan(token, monday) {
-  if (!requireRole_(token, ['owner'])) return err_('Нет доступа');
+  const session = requireRole_(token, ['owner']);
+  if (!session) return err_('Нет доступа');
+  const laundryId = session.laundryId;
   const mon = mondayOf_(monday || todayStr_());
   return withLock_(function () {
-    let week = getVisitsByWeek_(mon);
+    let week = getVisitsByWeek_(mon, laundryId);
     // Идемпотентная материализация: копируем прошлую неделю, только если эта пустая.
     if (!week.length) {
-      copyPrevWeek_(mon);
-      week = getVisitsByWeek_(mon);
+      copyPrevWeek_(mon, laundryId, actorOf_(session));
+      week = getVisitsByWeek_(mon, laundryId);
     }
     const clients = {};
-    db.getClients_().forEach(function (c) { clients[c.id] = c; });
-    const storage = storageSummaryByClient_();
+    db.getClients_(laundryId).forEach(function (c) { clients[c.id] = c; });
+    const storage = storageSummaryByClient_(laundryId);
     const days = [];
     for (let i = 0; i < 7; i++) {
       const d = addDaysStr_(mon, i);
@@ -617,7 +651,7 @@ function getWeekPlan(token, monday) {
       });
     }
     return ok_({ monday: mon, days: days,
-      clients: db.getClients_().filter(function (c) { return c.active === 'да'; }) });
+      clients: db.getClients_(laundryId).filter(function (c) { return c.active === 'да'; }) });
   });
 }
 
@@ -634,10 +668,12 @@ function removeWeekCard(token, visitId) {
 }
 
 function getStorage(token) {
-  if (!requireRole_(token, ['owner'])) return err_('Нет доступа');
+  const session = requireRole_(token, ['owner']);
+  if (!session) return err_('Нет доступа');
+  const laundryId = session.laundryId;
   const clients = {};
-  db.getClients_().forEach(function (c) { clients[c.id] = c; });
-  const stored = db.findRowsBy_(SHEETS.WASHES, function (w) { return w.status === 'stored'; }, 1000)
+  db.getClients_(laundryId).forEach(function (c) { clients[c.id] = c; });
+  const stored = db.findRowsByTenant_(SHEETS.WASHES, function (w) { return w.status === 'stored'; }, 1000, laundryId)
     .map(function (r) {
       const w = r.obj;
       w.client_name = clientName_(w.client_id, clients);
@@ -649,9 +685,9 @@ function getStorage(token) {
   // Складские записи: грязное (от водителя) и чистое (результат стирок), не израсходованные
   // Статусы и даты выдачи стирок — для раскладки clean-записей по секциям склада
   const washById = {};
-  db.findRowsBy_(SHEETS.WASHES, function () { return true; }, 1000)
+  db.findRowsByTenant_(SHEETS.WASHES, function () { return true; }, 1000, laundryId)
     .forEach(function (r) { washById[r.obj.id] = r.obj; });
-  const open = db.findRowsBy_(SHEETS.STORAGE, function (s) { return !s.consumed_at; }, 2000)
+  const open = db.findRowsByTenant_(SHEETS.STORAGE, function (s) { return !s.consumed_at; }, 2000, laundryId)
     .map(function (r) {
       const s = r.obj;
       s.client_name = clientName_(s.client_id, clients);
@@ -675,14 +711,16 @@ function getStorage(token) {
 }
 
 function getDayReport(token, date) {
-  if (!requireRole_(token, ['owner'])) return err_('Нет доступа');
+  const session = requireRole_(token, ['owner']);
+  if (!session) return err_('Нет доступа');
+  const laundryId = session.laundryId;
   const clients = {};
-  db.getClients_().forEach(function (c) { clients[c.id] = c; });
+  db.getClients_(laundryId).forEach(function (c) { clients[c.id] = c; });
   const types = {};
   db.getItemTypes_().forEach(function (t) { types[t.id] = t.name; });
-  const washes = db.findRowsBy_(SHEETS.WASHES, function () { return true; }, 1000)
+  const washes = db.findRowsByTenant_(SHEETS.WASHES, function () { return true; }, 1000, laundryId)
     .map(function (r) { return r.obj; });
-  const log = db.findRowsBy_(SHEETS.LOG, function () { return true; }, 1000).map(function (r) { return r.obj; });
+  const log = db.readTailByTenant_(SHEETS.LOG, 1000, laundryId);
   const report = buildDayReport_(date, washes, log);
   // Отчёт — только по стирке: выданные клиенту (issued) в таблицу не включаем
   const dayWashes = washes.filter(function (w) { return w.wash_date === date && w.status !== 'issued'; }).map(function (w) {
@@ -694,14 +732,16 @@ function getDayReport(token, date) {
       });
     return w;
   });
-  const shift = getShiftByDate_(date);
+  const shift = getShiftByDate_(date, laundryId);
   return ok_({ report: report, washes: sortDayList_(dayWashes), shift: shift ? shift.obj : null });
 }
 
 // --- Справочники (owner). Записи сбрасывают кэш (spec §10) ---
 
 function saveClient(token, client) {
-  if (!requireRole_(token, ['owner'])) return err_('Нет доступа');
+  const session = requireRole_(token, ['owner']);
+  if (!session) return err_('Нет доступа');
+  const laundryId = session.laundryId;
   return withLock_(function () {
     // Нормализация новых полей: item_types — JSON-массив id, accounting — weight|count|both
     if (client.item_types !== undefined) {
@@ -714,7 +754,7 @@ function saveClient(token, client) {
     }
     let saved;
     if (client.id) {
-      const found = db.findById_(SHEETS.CLIENTS, client.id);
+      const found = findTenantRow_(SHEETS.CLIENTS, client.id, laundryId);
       if (!found) return err_('Клиент не найден');
       Object.keys(client).forEach(function (k) { found.obj[k] = client[k]; });
       db.updateRow_(SHEETS.CLIENTS, found.rowNumber, found.obj);
@@ -727,7 +767,7 @@ function saveClient(token, client) {
         active: 'да', comment: client.comment || '',
         item_types: client.item_types || '', accounting: client.accounting || ''
       };
-      db.appendRow_(SHEETS.CLIENTS, saved);
+      db.appendRowTenant_(SHEETS.CLIENTS, saved, laundryId);
     }
     db.invalidateRefCache_();
     return ok_({ client: saved });
@@ -736,9 +776,11 @@ function saveClient(token, client) {
 
 // Удаление = архивация (active=нет, spec §7.3).
 function deleteClient(token, clientId) {
-  if (!requireRole_(token, ['owner'])) return err_('Нет доступа');
+  const session = requireRole_(token, ['owner']);
+  if (!session) return err_('Нет доступа');
+  const laundryId = session.laundryId;
   return withLock_(function () {
-    const found = db.findById_(SHEETS.CLIENTS, clientId);
+    const found = findTenantRow_(SHEETS.CLIENTS, clientId, laundryId);
     if (!found) return err_('Клиент не найден');
     found.obj.active = 'нет';
     db.updateRow_(SHEETS.CLIENTS, found.rowNumber, found.obj);
@@ -777,9 +819,11 @@ function saveItemType(token, itemType) {
 // Работник с экрана стирки добавил вид белья и попросил запомнить его для клиента.
 // Имеет смысл только когда у клиента уже настроен свой список (иначе показываются все типы).
 function rememberClientItemType(token, clientId, itemTypeId) {
-  if (!requireRole_(token, ['owner', 'worker'])) return err_('Нет доступа');
+  const session = requireRole_(token, ['owner', 'worker']);
+  if (!session) return err_('Нет доступа');
+  const laundryId = session.laundryId;
   return withLock_(function () {
-    const found = db.findById_(SHEETS.CLIENTS, clientId);
+    const found = findTenantRow_(SHEETS.CLIENTS, clientId, laundryId);
     if (!found) return err_('Клиент не найден');
     const list = db.parseJsonList_(found.obj.item_types) || [];
     if (list.indexOf(itemTypeId) === -1) {
@@ -794,19 +838,82 @@ function rememberClientItemType(token, clientId, itemTypeId) {
 
 // Полные справочники для экрана владельца (включая архивные).
 function getRefs(token) {
-  if (!requireRole_(token, ['owner'])) return err_('Нет доступа');
-  return ok_({ clients: db.getClients_(), itemTypes: db.getItemTypes_() });
+  const session = requireRole_(token, ['owner']);
+  if (!session) return err_('Нет доступа');
+  return ok_({ clients: db.getClients_(session.laundryId), itemTypes: db.getItemTypes_() });
 }
 
-// --- TV-табло (spec §5.3): по ключу, только чтение, только агрегаты дня ---
-function getTvData(key) {
-  if (String(key) !== config.TV_KEY || !config.TV_KEY) {
-    return err_('Нет доступа');
+// --- Пользователи (owner): экран «Сотрудники» ---
+
+// Список пользователей прачки (по умолчанию — активной в сессии) + владельцы.
+function listUsers(token, laundryId) {
+  const session = requireRole_(token, ['owner']);
+  if (!session) return err_('Нет доступа');
+  const lid = String(laundryId || session.laundryId);
+  const users = db.readAll_('Users').filter(function (u) {
+    return u.active === 'да' && (u.laundry_id === lid || u.role === 'owner');
+  });
+  return ok_({ users: users });
+}
+
+// Создание аккаунта. PIN уникален в прачке; для owner — глобально
+// (PIN владельца не должен совпадать ни с одним другим, иначе login найдёт не того).
+// Роль client (задел) требует clientId — ссылку на клиента справочника.
+function createUser(token, user) {
+  const session = requireRole_(token, ['owner']);
+  if (!session) return err_('Нет доступа');
+  user = user || {};
+  const ROLES = ['owner', 'worker', 'driver', 'client'];
+  if (ROLES.indexOf(user.role) === -1) return err_('Неизвестная роль');
+  if (!user.name) return err_('Укажите имя');
+  if (!user.pin) return err_('Укажите PIN');
+  if (user.role !== 'owner' && !user.laundryId) return err_('Укажите прачку');
+  if (user.role === 'client' && !user.clientId) return err_('Выберите клиента');
+  const users = db.readAll_('Users').filter(function (u) { return u.active === 'да'; });
+  const pin = String(user.pin);
+  if (user.role === 'owner') {
+    if (users.some(function (u) { return u.pin === pin; })) return err_('PIN уже занят');
+  } else {
+    const taken = users.some(function (u) {
+      return u.pin === pin && (u.role === 'owner' || u.laundry_id === String(user.laundryId));
+    });
+    if (taken) return err_('PIN уже занят в этой прачке');
   }
+  const saved = {
+    id: db.nextId_('Users', 'usr'),
+    laundry_id: user.role === 'owner' ? '' : String(user.laundryId),
+    name: user.name, role: user.role, pin: pin, active: 'да',
+    client_id: user.role === 'client' ? String(user.clientId) : ''
+  };
+  db.appendRow_('Users', saved);
+  logEvent(actorOf_(session), 'user_create', saved.id, { name: saved.name, role: saved.role, laundry_id: saved.laundry_id }, session.laundryId);
+  return ok_({ user: saved });
+}
+
+function deactivateUser(token, id) {
+  const session = requireRole_(token, ['owner']);
+  if (!session) return err_('Нет доступа');
+  const found = db.findById_('Users', id);
+  if (!found) return err_('Пользователь не найден');
+  found.obj.active = 'нет';
+  db.updateRow_('Users', found.rowNumber, found.obj);
+  logEvent(actorOf_(session), 'user_deactivate', id, { name: found.obj.name }, session.laundryId);
+  return ok_({ user: found.obj });
+}
+
+// --- TV-табло (spec §5.3): по ключу прачки, только чтение, только агрегаты дня ---
+// Ключ ищется в per-tenant Settings (TV_KEY), данные — только той прачки.
+function getTvData(key) {
+  if (!key) return err_('Нет доступа');
+  const row = db.readAll_('Settings').filter(function (r) {
+    return r.key === 'TV_KEY' && r.laundry_id && r.value === String(key);
+  })[0];
+  if (!row) return err_('Нет доступа');
+  const laundryId = row.laundry_id;
   const today = todayStr_();
   const clients = {};
-  db.getClients_().forEach(function (c) { clients[c.id] = c; });
-  const washes = db.findRowsBy_(SHEETS.WASHES, function (w) { return isDayWash_(w, today); }, 1000)
+  db.getClients_(laundryId).forEach(function (c) { clients[c.id] = c; });
+  const washes = db.findRowsByTenant_(SHEETS.WASHES, function (w) { return isDayWash_(w, today); }, 1000, laundryId)
     .map(function (r) { return r.obj; });
   const counters = { total: washes.length, planned: 0, in_progress: 0, done: 0, stored: 0, deferred: 0 };
   const cards = sortDayList_(washes).map(function (w) {
@@ -819,24 +926,26 @@ function getTvData(key) {
     };
   });
   return ok_({
-    date: today, laundryName: db.getSettings_().LAUNDRY_NAME || 'Прачечная PRO',
+    date: today, laundryName: db.getSettings_(laundryId).LAUNDRY_NAME || 'Прачечная PRO',
     counters: counters, washes: cards, updatedAt: timeStr_()
   });
 }
 
 // --- Экспорт и монтирование в Express ---
 
-const { login, logout } = require('./auth');
+const { login, logout, switchLaundry, listLaundries } = require('./auth');
 
 // Публичные методы API: имя функции = имя метода (POST /api/<method>, тело { args: [...] }).
+// listLaundries — без токена: нужен экрану входа для выбора прачки.
 const api = {
-  login, logout,
+  login, logout, switchLaundry, listLaundries,
   getDayList, startWash, completeWash, editWashData, deferWash, addUnplannedWash,
   getShiftCloseState, closeShift,
   getDeliveryPlan, addToDelivery, cancelWash, deleteWash, confirmStorageCheck, markIssued, updateIssueDate,
   getWeekPlan, addWeekCard, moveWeekCard, removeWeekCard,
   getStorage, getDayReport,
   saveClient, deleteClient, saveItemType, rememberClientItemType, getRefs,
+  listUsers, createUser, deactivateUser,
   getTvData,
   // Развозы и водитель (логика в deliveries.js)
   getDeliveryVisits: deliveries.getDeliveryVisits,
@@ -868,13 +977,15 @@ function mountApi(app) {
 module.exports = {
   mountApi, api,
   err_, ok_, withLock_, round1_, timeStr_,
+  login, logout, switchLaundry, listLaundries,
   ensureShift_, getShiftByDate_, ensureWashesFromDelivery_, notReadyForDelivery_,
   getDayList, startWash, completeWash, editWashData, deferWash, addUnplannedWash,
   getShiftCloseState, closeShift,
   getDeliveryPlan, addToDelivery, cancelWash, deleteWash, confirmStorageCheck, markIssued, updateIssueDate,
   getWeekPlan, addWeekCard, moveWeekCard, removeWeekCard,
   getStorage, getDayReport,
-  saveClient, deleteClient, saveItemType, rememberClientItemType, getRefs, getTvData,
+  saveClient, deleteClient, saveItemType, rememberClientItemType, getRefs,
+  listUsers, createUser, deactivateUser, getTvData,
   getDeliveryVisits: deliveries.getDeliveryVisits,
   addDeliveryVisit: deliveries.addDeliveryVisit,
   moveDeliveryVisit: deliveries.moveDeliveryVisit,

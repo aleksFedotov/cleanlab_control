@@ -93,7 +93,7 @@ test('buildDigestText_: итоги дня + незавершённые для о
   const clientId = ctx.api.saveClient(owner, { name: 'Отель А' }).client.id;
   const washId = ctx.api.addToDelivery(owner, clientId, TODAY, '2026-08-13').wash.id;
   ctx.api.startWash(owner, washId); // in_progress — незавершённая
-  const text = ctx.telegram.buildDigestText_(TODAY);
+  const text = ctx.telegram.buildDigestText_(TODAY, '1');
   assert.ok(text.includes('итоги ' + TODAY));
   assert.ok(text.includes('стирок не было'));
   assert.ok(text.includes('⚠ Смена ещё не закрыта'));

@@ -12,13 +12,14 @@ function seedClient(ctx, over = {}) {
 
 test('login: неверный PIN отклоняется, верный даёт токен и роль; logout отзывает', () => {
   const ctx = makeCtx();
-  assert.ok(!ctx.auth.login('0000').ok);
-  const owner = ctx.auth.login('1111');
+  assert.ok(!ctx.auth.login('1', '0000').ok);
+  const owner = ctx.auth.login(null, '1111');
   assert.strictEqual(owner.role, 'owner');
-  assert.strictEqual(ctx.auth.login('2222').role, 'worker');
-  assert.strictEqual(ctx.auth.login('3333').role, 'driver');
+  assert.ok(Array.isArray(owner.laundries)); // владельцу — список прачек
+  assert.strictEqual(ctx.auth.login('1', '2222').role, 'worker');
+  assert.strictEqual(ctx.auth.login('1', '3333').role, 'driver');
   // Водителя не пускают в API цеха
-  assert.ok(!ctx.api.getDayList(ctx.auth.login('3333').token, TODAY).ok);
+  assert.ok(!ctx.api.getDayList(ctx.auth.login('1', '3333').token, TODAY).ok);
   // Чужой токен не пускает
   assert.ok(!ctx.api.getDayList('нет-такого', TODAY).ok);
   ctx.auth.logout(owner.token);

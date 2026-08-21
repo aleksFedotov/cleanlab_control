@@ -13,6 +13,7 @@ function setup() {
 }
 
 // Дефолтные настройки (без секретов — они в ENV, spec §3.2).
+// Глобальные строки (laundry_id пуст): per-tenant строки их перекрывают.
 function seedSettings_() {
   const defaults = {
     SCHEMA_VERSION: String(SCHEMA_VERSION),
@@ -20,7 +21,9 @@ function seedSettings_() {
     DIGEST_TIME: '21:30'
   };
   const existing = {};
-  db.readAll_(SHEETS.SETTINGS).forEach(function (row) { existing[row.key] = row.value; });
+  db.readAll_(SHEETS.SETTINGS).forEach(function (row) {
+    if (!row.laundry_id) existing[row.key] = row.value;
+  });
   Object.keys(defaults).forEach(function (key) {
     if (!(key in existing)) db.appendRow_(SHEETS.SETTINGS, { key: key, value: defaults[key] });
   });
@@ -53,14 +56,14 @@ function seedDemoData() {
   // Минимум 12 активных клиентов — при нехватке добиваем демо-клиентами.
   // Первым трем задаём настройки новых фич: свои виды белья и режим учёта.
   const CLIENT_TYPES = ['отель', 'ресторан', 'спа', 'прочее'];
-  const clients = db.getClients_().filter(function (c) { return c.active === 'да'; });
+  const clients = db.getClients_('1').filter(function (c) { return c.active === 'да'; });
   for (let i = clients.length + 1; i <= 12; i++) {
     const cid = 'cli_demo_' + i;
     const row = {
       id: cid, name: 'Демо-клиент ' + i, contact: '+7 900 000-00-' + (10 + i),
       address: 'ул. Демонстрационная, ' + i, type: CLIENT_TYPES[i % CLIENT_TYPES.length],
       storage: i % 3 === 0 ? 'да' : 'нет',
-      active: 'да', comment: '', item_types: '', accounting: ''
+      active: 'да', comment: '', item_types: '', accounting: '', laundry_id: '1'
     };
     if (i === 1) row.item_types = JSON.stringify(['itm_1', 'itm_2', 'itm_4', 'itm_5']);
     if (i === 2) row.accounting = 'weight';
@@ -97,7 +100,7 @@ function seedDemoData() {
         ord: j + 1, status: st,
         delivered_at: past ? d + ' 12:00:00' : '',
         pickup: (st === 'picked' || st === 'both') ? 'да' : '',
-        driver_comment: '', created_by: 'seed', created_at: nowStr_()
+        driver_comment: '', created_by: 'seed', created_at: nowStr_(), laundry_id: '1'
       });
       created++;
       // Прошлые дни: выданным визитам — выполненная стирка, чтобы отчёт не был пустым
@@ -109,7 +112,7 @@ function seedDemoData() {
           dirty_weight_kg: kg, items_total: 20 + j * 4, comment: '',
           created_by: 'seed', created_at: d + ' 08:00:00',
           started_at: d + ' 09:00:00', done_at: d + ' 11:00:00', issued_at: d + ' 12:00:00',
-          deferred_from: '', deferred_reason: '', bags: 2 + (j % 3)
+          deferred_from: '', deferred_reason: '', bags: 2 + (j % 3), laundry_id: '1'
         });
         db.appendRow_(SHEETS.WASH_ITEMS, {
           id: db.nextId_(SHEETS.WASH_ITEMS, 'wi'), wash_id: wid,
@@ -127,7 +130,7 @@ function seedDemoData() {
       dirty_weight_kg: '', items_total: items || '', comment: '',
       created_by: 'seed', created_at: nowStr_(),
       started_at: '', done_at: '', issued_at: '', deferred_from: '', deferred_reason: '',
-      bags: bags || ''
+      bags: bags || '', laundry_id: '1'
     };
     if (status === 'in_progress' || doneLike) w.started_at = today + ' 09:00:00';
     if (doneLike) { w.done_at = today + ' 11:00:00'; w.dirty_weight_kg = kg || ''; }
@@ -138,7 +141,7 @@ function seedDemoData() {
     db.appendRow_(SHEETS.STORAGE, {
       id: db.nextId_(SHEETS.STORAGE, 'st'), client_id: clientId, kind: kind,
       weight_kg: kg || '', items_total: items || '', wash_id: washId || '',
-      created_at: nowStr_(), consumed_at: ''
+      created_at: nowStr_(), consumed_at: '', laundry_id: '1'
     });
   }
 
@@ -163,7 +166,7 @@ function seedDemoData() {
 
   db.appendRow_(SHEETS.SETTINGS, { key: 'DEMO_SEEDED', value: 'да' });
   db.invalidateRefCache_();
-  logEvent('owner', 'seed_demo', '-', { visits: created });
+  logEvent('seed', 'seed_demo', '-', { visits: created }, '1');
   console.log('seedDemoData: создано визитов ' + created);
   return created;
 }

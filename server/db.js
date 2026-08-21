@@ -5,6 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const Database = require('better-sqlite3');
 const { HEADERS } = require('./schema');
+const { config } = require('./config');
 
 const TAIL_ROWS = 500;
 const REF_CACHE_TTL_MS = 5 * 60 * 1000; // 5 минут
@@ -22,6 +23,7 @@ function open(dbPath = DB_PATH) {
   db = new Database(dbPath);
   db.pragma('journal_mode = WAL');
   createTables_(db);
+  migrateToV2_(db);
   return db;
 }
 
@@ -30,6 +32,7 @@ function openTest(dbPath = ':memory:') {
   const testDb = new Database(dbPath);
   testDb.pragma('journal_mode = WAL');
   createTables_(testDb);
+  migrateToV2_(testDb);
   return testDb;
 }
 
@@ -42,6 +45,52 @@ function createTables_(d) {
     cols.filter(c => !existing.includes(c)).forEach(c => {
       d.exec(`ALTER TABLE "${name}" ADD COLUMN "${c}" TEXT`);
     });
+  }
+}
+
+// Разовый сид мультитенантности: срабатывает только на пустой Laundries.
+// Все существующие данные → прачка 1; пользователи создаются из ENV (config).
+// Вторая прачка — только если задан LAUNDRY2_NAME.
+function migrateToV2_(d) {
+  if (readAll_('Laundries', d).length > 0) return;
+  appendRow_('Laundries', { id: '1', name: config.LAUNDRY_NAME, active: 'да' }, d);
+  ['Washes', 'Shifts', 'Deliveries', 'Storage', 'Clients', 'Log'].forEach(name => {
+    d.exec(`UPDATE "${name}" SET laundry_id = '1' WHERE laundry_id IS NULL OR laundry_id = ''`);
+  });
+  // Per-tenant настройки прачки 1 (глобальные строки Settings остаются дефолтами)
+  setTenantSetting_('1', 'LAUNDRY_NAME', config.LAUNDRY_NAME, d);
+  if (config.TV_KEY) setTenantSetting_('1', 'TV_KEY', config.TV_KEY, d);
+  let nextUserId = 1;
+  const addUser = function (laundryId, name, role, pin) {
+    if (!pin) return;
+    appendRow_('Users', {
+      id: 'usr_' + nextUserId++, laundry_id: laundryId, name: name,
+      role: role, pin: String(pin), active: 'да', client_id: ''
+    }, d);
+  };
+  addUser('', 'Владелец', 'owner', config.OWNER_PIN);
+  addUser('1', 'Работник', 'worker', config.WORKER_PIN);
+  addUser('1', 'Водитель', 'driver', config.DRIVER_PIN);
+  if (config.LAUNDRY2_NAME) {
+    appendRow_('Laundries', { id: '2', name: config.LAUNDRY2_NAME, active: 'да' }, d);
+    setTenantSetting_('2', 'LAUNDRY_NAME', config.LAUNDRY2_NAME, d);
+    if (config.TV_KEY_2) setTenantSetting_('2', 'TV_KEY', config.TV_KEY_2, d);
+    addUser('2', 'Работник', 'worker', config.LAUNDRY2_WORKER_PIN);
+    addUser('2', 'Водитель', 'driver', config.LAUNDRY2_DRIVER_PIN);
+  }
+  invalidateRefCache_();
+}
+
+// Per-tenant настройка: upsert строки Settings с laundry_id.
+function setTenantSetting_(laundryId, key, value, d = db) {
+  const found = findRowsBy_('Settings', function (r) {
+    return r.key === key && r.laundry_id === String(laundryId);
+  }, 10, d);
+  if (found.length) {
+    found[0].obj.value = String(value);
+    updateRow_('Settings', found[0].rowNumber, found[0].obj, d);
+  } else {
+    appendRow_('Settings', { key: key, value: String(value), laundry_id: String(laundryId) }, d);
   }
 }
 
@@ -64,6 +113,40 @@ function readAll_(sheetName, d = db) {
   const headers = cols_(sheetName);
   const rows = d.prepare(`SELECT ${headers.map(h => `"${h}"`).join(', ')} FROM "${sheetName}" ORDER BY rowid`).all();
   return rowsToObjects_(headers, rows);
+}
+
+// --- Тенантные варианты: фильтр по laundry_id (колонка есть у операционных таблиц) ---
+
+function readAllByTenant_(sheetName, laundryId, d = db) {
+  const headers = cols_(sheetName);
+  const rows = d.prepare(
+    `SELECT ${headers.map(h => `"${h}"`).join(', ')} FROM "${sheetName}" WHERE laundry_id = ? ORDER BY rowid`
+  ).all(String(laundryId));
+  return rowsToObjects_(headers, rows);
+}
+
+// Последние maxRows строк журнала прачки, в порядке «старые → новые».
+function readTailByTenant_(sheetName, maxRows, laundryId, d = db) {
+  const headers = cols_(sheetName);
+  const n = maxRows || TAIL_ROWS;
+  const rows = d.prepare(
+    `SELECT ${headers.map(h => `"${h}"`).join(', ')} FROM "${sheetName}" WHERE laundry_id = ? ORDER BY rowid DESC LIMIT ?`
+  ).all(String(laundryId), n);
+  rows.reverse();
+  return rowsToObjects_(headers, rows);
+}
+
+// findRowsBy_ с обязательным фильтром по прачке (предикат применяется поверх).
+function findRowsByTenant_(sheetName, pred, maxRows, laundryId, d = db) {
+  return findRowsBy_(sheetName, function (row) {
+    return row.laundry_id === String(laundryId) && pred(row);
+  }, maxRows, d);
+}
+
+// appendRow_ с простановкой laundry_id (только для таблиц, где колонка есть).
+function appendRowTenant_(sheetName, obj, laundryId, d = db) {
+  obj.laundry_id = String(laundryId);
+  appendRow_(sheetName, obj, d);
 }
 
 // Последние maxRows строк журнала, в порядке «старые → новые».
@@ -153,23 +236,35 @@ function cachePut_(key, value) {
 }
 
 function invalidateRefCache_() {
-  Object.keys(REF_CACHE_KEYS).forEach(k => refCache.delete(REF_CACHE_KEYS[k]));
+  // Ключи кэша per-tenant (`ref_clients:1` и т.п.) — чистим весь префикс ref_
+  for (const k of [...refCache.keys()]) if (k.startsWith('ref_')) refCache.delete(k);
 }
 
-function getSettings_(d = db) {
-  const cached = cacheGet_(REF_CACHE_KEYS.Settings);
+// Настройки: глобальные строки (laundry_id пуст) + перекрытие per-tenant.
+function getSettings_(laundryId, d = db) {
+  const key = REF_CACHE_KEYS.Settings + ':' + (laundryId || '');
+  const cached = cacheGet_(key);
   if (cached) return cached;
   const settings = {};
-  readAll_('Settings', d).forEach(row => { settings[row.key] = row.value; });
-  cachePut_(REF_CACHE_KEYS.Settings, settings);
+  const tenantRows = [];
+  readAll_('Settings', d).forEach(row => {
+    if (laundryId && row.laundry_id === String(laundryId)) tenantRows.push(row);
+    else if (!row.laundry_id) settings[row.key] = row.value;
+  });
+  tenantRows.forEach(row => { settings[row.key] = row.value; });
+  cachePut_(key, settings);
   return settings;
 }
 
-function getClients_(d = db) {
-  const cached = cacheGet_(REF_CACHE_KEYS.Clients);
+// Клиенты прачки; без laundryId — все (setup/миграции).
+function getClients_(laundryId, d = db) {
+  const key = REF_CACHE_KEYS.Clients + ':' + (laundryId || '');
+  const cached = cacheGet_(key);
   if (cached) return cached;
-  const clients = readAll_('Clients', d);
-  cachePut_(REF_CACHE_KEYS.Clients, clients);
+  const clients = laundryId
+    ? readAllByTenant_('Clients', laundryId, d)
+    : readAll_('Clients', d);
+  cachePut_(key, clients);
   return clients;
 }
 
@@ -191,5 +286,7 @@ module.exports = {
   TAIL_ROWS, open, openTest, _setDbForTests,
   readAll_, readTail_, appendRow_, nextId_, findRowsBy_, findById_,
   updateRow_, deleteRow_, parseJsonList_,
+  readAllByTenant_, readTailByTenant_, findRowsByTenant_, appendRowTenant_,
+  setTenantSetting_, migrateToV2_,
   invalidateRefCache_, getSettings_, getClients_, getItemTypes_
 };

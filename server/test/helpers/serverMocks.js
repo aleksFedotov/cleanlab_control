@@ -45,8 +45,19 @@ function makeCtx() {
   };
 }
 
-function loginOwner() { return auth.login('1111').token; }
-function loginWorker() { return auth.login('2222').token; }
-function loginDriver() { return auth.login('3333').token; }
+function loginOwner() { return auth.login(null, '1111').token; }
+function loginWorker() { return auth.login('1', '2222').token; }
+function loginDriver() { return auth.login('1', '3333').token; }
 
-module.exports = { makeCtx, loginOwner, loginWorker, loginDriver, TODAY, TOMORROW, FIXED_NOW };
+// Вторая прачка для тестов изоляции: справочник + работник/водитель напрямую в БД.
+function seedLaundry2() {
+  db.appendRow_('Laundries', { id: '2', name: 'Прачка 2', active: 'да' });
+  db.setTenantSetting_('2', 'LAUNDRY_NAME', 'Прачка 2');
+  db.appendRow_('Users', { id: 'usr_w2', laundry_id: '2', name: 'Работник 2', role: 'worker', pin: '5555', active: 'да', client_id: '' });
+  db.appendRow_('Users', { id: 'usr_d2', laundry_id: '2', name: 'Водитель 2', role: 'driver', pin: '6666', active: 'да', client_id: '' });
+  db.invalidateRefCache_();
+}
+function loginWorker2() { return auth.login('2', '5555').token; }
+function loginDriver2() { return auth.login('2', '6666').token; }
+
+module.exports = { makeCtx, loginOwner, loginWorker, loginDriver, seedLaundry2, loginWorker2, loginDriver2, TODAY, TOMORROW, FIXED_NOW };
