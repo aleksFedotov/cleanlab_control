@@ -1303,7 +1303,7 @@ function openDriverVisit(v) {
 // ===== Экран владельца: вкладки =====
 function ownerTabs(active) {
   if (state.role !== 'owner') return '';
-  var tabs = [['day', 'Стирка'], ['delivery', 'Сегодня'], ['week', 'План'], ['storage', 'Склад'], ['report', 'Отчёт'], ['refs', 'Справочники'], ['users', 'Сотрудники']];
+  var tabs = [['day', 'Стирка'], ['delivery', 'Сегодня'], ['week', 'План'], ['storage', 'Склад'], ['report', 'Отчёт'], ['refs', 'Справочники'], ['users', 'Сотрудники'], ['laundries', 'Прачки']];
   return '<div class="tabs">' + tabs.map(function (t) {
     return '<button data-view="' + t[0] + '"' + (t[0] === active ? ' class="active"' : '') + '>' + t[1] + '</button>';
   }).join('') + '</div>';
@@ -1322,6 +1322,7 @@ function navigate(view) {
   else if (view === 'report') renderReport(state.today);
   else if (view === 'refs') renderRefs();
   else if (view === 'users') renderUsers();
+  else if (view === 'laundries') renderLaundries();
 }
 
 function shiftDateStr(dateStr, days) {
@@ -1429,6 +1430,43 @@ function renderUsers() {
 function clientNameOf(clients, id) {
   var c = clients.filter(function (x) { return x.id === id; })[0];
   return c ? c.name : '';
+}
+
+// ===== Прачки (owner): список, добавление, деактивация =====
+function renderLaundries() {
+  appShell('Прачки', 'laundries', '<div class="empty">Загружаем…</div>');
+  api('listLaundries', state.token).then(function (res) {
+    state.laundries = res.laundries; // обновляем переключатель в шапке
+    var html = res.laundries.map(function (l) {
+      var tvUrl = l.tvKey ? '/tv.html?key=' + esc(l.tvKey) : '';
+      return '<div class="row"><span style="flex:2">' + esc(l.name) + '</span>' +
+        '<span style="flex:2">' + (tvUrl
+          ? '<a href="' + tvUrl + '" target="_blank">Табло</a> <span class="cm">' + esc(l.tvKey) + '</span>'
+          : '<span class="cm">нет ключа</span>') + '</span>' +
+        '<span style="width:110px">' + (l.id === state.laundryId ? '<span class="cm">активна</span>' :
+          '<button class="btn btn-ghost" data-deact-l="' + esc(l.id) + '">Отключить</button>') + '</span></div>';
+    }).join('');
+    html += '<h2 style="margin-top:16px">Добавить прачку</h2>' +
+      '<div class="row"><input id="lName" placeholder="Название" style="flex:2">' +
+      '<button class="btn btn-primary" id="lAdd">Добавить</button></div>';
+    setContainer(html);
+    document.getElementById('lAdd').onclick = function () {
+      var name = document.getElementById('lName').value.trim();
+      api('createLaundry', state.token, { name: name }).then(function (r) {
+        toast('Прачка «' + r.laundry.name + '» добавлена ✓');
+        renderLaundries();
+      }).catch(function (e) { toast(e.message, true); });
+    };
+    Array.prototype.forEach.call(document.querySelectorAll('[data-deact-l]'), function (b) {
+      b.onclick = function () {
+        confirmDialog('Отключить прачку? Данные сохранятся, но прачка пропадёт из списков.', 'Отключить', function () {
+          api('deactivateLaundry', state.token, b.dataset.deactL)
+            .then(function () { hideDialog(); toast('Отключена'); renderLaundries(); })
+            .catch(function (e) { hideDialog(); toast(e.message, true); });
+        });
+      };
+    });
+  }).catch(function (e) { setContainer('<div class="empty">' + esc(e.message) + '</div>'); });
 }
 
 // ===== Сегодня (развоз дня): контроль готовности, не планировщик =====
@@ -2388,8 +2426,8 @@ if (state.token) {
       state.date = res.date; state.today = res.date; state.day = res;
       // Переключателю прачек нужен список (при восстановлении сессии его нет в state)
       if (state.role === 'owner') {
-        api('listLaundries').then(function (list) {
-          state.laundries = list.laundries || list || [];
+        api('listLaundries', state.token).then(function (res) {
+          state.laundries = res.laundries || [];
           renderDay();
         }).catch(renderDay);
       } else renderDay();

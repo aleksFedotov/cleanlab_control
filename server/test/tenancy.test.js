@@ -83,9 +83,42 @@ test('owner: switchLaundry меняет активную прачку; worker �
   assert.ok(!ctx.auth.switchLaundry(owner, '99').ok);
   // Работник не может переключаться
   assert.ok(!ctx.auth.switchLaundry(loginWorker(), '2').ok);
-  // listLaundries публичен
-  const list = ctx.api.listLaundries();
-  assert.deepStrictEqual(list.laundries ? list.laundries.map(l => l.id) : list.map(l => l.id), ['1', '2']);
+  // listLaundries — owner-only (вход теперь по логину+паролю, публичный список не нужен)
+  assert.ok(!ctx.api.listLaundries().ok);
+  assert.ok(!ctx.api.listLaundries(loginWorker()).ok);
+  const list = ctx.api.listLaundries(owner);
+  assert.deepStrictEqual(list.laundries.map(l => l.id), ['1', '2']);
+  // В ответе есть TV-ключи (у прачки 1 — 'tv-secret' из ENV-сида)
+  assert.strictEqual(list.laundries[0].tvKey, 'tv-secret');
+});
+
+test('прачки из UI: createLaundry создаёт с TV-ключом; deactivateLaundry с запретами', () => {
+  const ctx = makeCtx();
+  const owner = loginOwner();
+  // Только owner
+  assert.ok(!ctx.api.createLaundry(loginWorker(), { name: 'X' }).ok);
+  assert.ok(!ctx.api.createLaundry(owner, { name: ' ' }).ok);
+  // Создание: id следующий по номеру, TV-ключ сгенерирован, табло отвечает по нему
+  const created = ctx.api.createLaundry(owner, { name: 'Прачка 3' });
+  assert.ok(created.ok);
+  assert.strictEqual(created.laundry.id, '2');
+  assert.ok(created.tvKey);
+  const tv = ctx.api.getTvData(created.tvKey);
+  assert.ok(tv.ok);
+  assert.strictEqual(tv.laundryName, 'Прачка 3');
+  // В списке появилась с ключом
+  const ids = ctx.api.listLaundries(owner).laundries.map(l => l.id);
+  assert.deepStrictEqual(ids, ['1', '2']);
+  // Нельзя деактивировать активную прачку сессии
+  assert.ok(!ctx.api.deactivateLaundry(owner, '1').ok);
+  // Деактивация другой прачки: скрывается из списка, данные остаются
+  assert.ok(ctx.api.deactivateLaundry(owner, '2').ok);
+  assert.deepStrictEqual(ctx.api.listLaundries(owner).laundries.map(l => l.id), ['1']);
+  assert.strictEqual(ctx.db.findById_('Laundries', '2').obj.active, 'нет');
+  // Нельзя деактивировать последнюю активную прачку (даже после переключения)
+  assert.ok(!ctx.api.deactivateLaundry(owner, '1').ok);
+  // Не-owner не может деактивировать
+  assert.ok(!ctx.api.deactivateLaundry(loginWorker(), '1').ok);
 });
 
 test('логин: неверный пароль и чужая учётка не пускают, сообщение одно на все ошибки', () => {

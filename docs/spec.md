@@ -128,10 +128,10 @@
 
 Монтирование: каждая публичная функция → `POST /api/<method>`, тело `{args: [...]}` (`server/api.js`, `mountApi`). Ответ `{ok: true, ...}` / `{ok: false, error}`.
 
-- Публичные (без токена): `listLaundries`, `getTvData(key)`.
+- Публичные (без токена): `login`, `getTvData(key)`.
 - Auth: `login(username, password)`, `logout(token)`, `switchLaundry(token, laundryId)`.
 - Сотрудник: `getDayList(token, date)`, `startWash`, `completeWash(token, washId, items, weightKg, mode, bags)`, `editWashData`, `deferWash`, `addUnplannedWash`, `getShiftCloseState`, `closeShift(token, force)`, `confirmStorageCheck`.
-- Владелец: `getDeliveryPlan`, `addToDelivery`, `cancelWash`, `deleteWash`, `markIssued`, `updateIssueDate`, `getWeekPlan`, `addWeekCard`, `moveWeekCard`, `removeWeekCard`, `getStorage`, `getDayReport`, справочники (`saveClient`, `deleteClient`, `saveItemType`, `rememberClientItemType`, `getRefs`), пользователи (`listUsers`, `createUser`, `resetUserPassword`, `deactivateUser`, `makeTelegramBindCode`).
+- Владелец: `getDeliveryPlan`, `addToDelivery`, `cancelWash`, `deleteWash`, `markIssued`, `updateIssueDate`, `getWeekPlan`, `addWeekCard`, `moveWeekCard`, `removeWeekCard`, `getStorage`, `getDayReport`, справочники (`saveClient`, `deleteClient`, `saveItemType`, `rememberClientItemType`, `getRefs`), пользователи (`listUsers`, `createUser`, `resetUserPassword`, `deactivateUser`, `makeTelegramBindCode`), прачки (`listLaundries` — с TV-ключами, `createLaundry` — с генерацией TV-ключа, `deactivateLaundry` — нельзя отключить активную прачку сессии и последнюю активную).
 - Водитель/развозы (`server/deliveries.js`): `getDeliveryVisits`, `addDeliveryVisit`, `moveDeliveryVisit`, `removeDeliveryVisit`, `setPickupOnly`, `getDriverRoute`, `driverTakeAllClean`, `driverAction`, `driverHandover`.
 - TV: `getTvData(key)` — счётчики дня + стирки текущей даты прачки (клиент, статус, кг, штук, перенос, комментарий).
 - Telegram: `POST /telegram/webhook?secret=<WEBHOOK_SECRET>`; неверный секрет — молчаливый 200.
@@ -191,6 +191,7 @@
 - Кэш справочников TTL 5 мин, сброс при записи; ключи per-tenant.
 - Бэкап SQLite: копия файла БД по cron на VPS (стратегия — в `docs/vps-migration.md`, открытые вопросы).
 - Миграция-сид `migrateToV2_` (`server/db.js`): при пустой `Laundries` все существующие данные → прачка 1, per-tenant Settings (`LAUNDRY_NAME`, `TV_KEY`), пользователи из ENV (owner + worker/driver прачки 1; вторая прачка — только если задан `LAUNDRY2_NAME`, её настройки и пользователи из `LAUNDRY2_*`/`TV_KEY_2`). Срабатывает один раз.
+- Дальше прачки заводятся из UI: вкладка «Прачки» владельца → `createLaundry` (TV-ключ генерируется случайно, кладётся в per-tenant `Settings.TV_KEY`); `deactivateLaundry` — архивация без удаления данных.
 - Bootstrap `setup()` (`server/setup.js`): таблицы, стартовые `ItemTypes`, дефолтные Settings — идемпотентен; таблицы создаются и при старте сервера.
 
 ## 12. Тестирование

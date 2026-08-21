@@ -16,8 +16,9 @@ const loginFails = new Map(); // login → { fails, blockedUntil }
 
 const AUTH_ERROR = 'Неверный логин или пароль';
 
-// Активные прачки (для выбора владельцем и ответа login).
-function listLaundries() {
+// Активные прачки — внутренний список (для login/switchLaundry; без токена).
+// Публичный вариант с TV-ключами — api.listLaundries (owner-only).
+function listActiveLaundries_() {
   return db.readAll_('Laundries')
     .filter(function (l) { return l.active === 'да'; })
     .map(function (l) { return { id: l.id, name: l.name }; });
@@ -63,7 +64,7 @@ function login(username, password) {
   loginFails.delete(username);
   // Роль client — задел под кабинет клиента: аккаунт можно создать, но входа нет
   if (user.role === 'client') return { ok: false, error: 'Доступ для клиента не настроен' };
-  const laundries = listLaundries();
+  const laundries = listActiveLaundries_();
   // Активная прачка в сессии: у owner (laundry_id пуст) — первая активная
   const activeLaundry = user.role === 'owner'
     ? (laundries.length ? laundries[0].id : '')
@@ -119,7 +120,7 @@ function requireRole_(token, roles) {
 function switchLaundry(token, laundryId) {
   const session = requireRole_(token, ['owner']);
   if (!session) return { ok: false, error: 'Нет доступа' };
-  const ok = listLaundries().some(function (l) { return l.id === String(laundryId); });
+  const ok = listActiveLaundries_().some(function (l) { return l.id === String(laundryId); });
   if (!ok) return { ok: false, error: 'Прачка не найдена' };
   const found = db.findRowsBy_('Sessions', function (s) { return s.token === token; }, 10000)[0];
   found.obj.laundry_id = String(laundryId);
@@ -128,7 +129,7 @@ function switchLaundry(token, laundryId) {
 }
 
 module.exports = {
-  login, logout, getSession_, requireRole_, switchLaundry, listLaundries,
+  login, logout, getSession_, requireRole_, switchLaundry,
   hashPassword_: hashPassword, checkPassword_: checkPassword,
   cleanupExpiredSessions_
 };
