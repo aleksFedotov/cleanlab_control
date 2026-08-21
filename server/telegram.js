@@ -1,8 +1,9 @@
 // Telegram: webhook и дайджест (spec §8.3, §9) — порт src/Telegram.gs.
 // UrlFetchApp.fetch → globalThis fetch (Node 18+), отправка асинхронная.
 // Мультитенантность: OWNER_CHAT_ID хранится в Settings per-tenant (в GAS — Script Properties).
-// Привязка чата владельца: бот принимает PIN владельца; если прачка одна — привязывает
-// к ней, если несколько — отвечает списком и ждёт «<PIN> <номер>» (простейший вариант).
+// Привязка чата владельца: владелец генерирует одноразовый 6-значный код на экране
+// «Сотрудники» (api.makeTelegramBindCode) и отправляет его боту; бот пишет chat_id
+// в OWNER_CHAT_ID той прачки, к которой привязан код.
 // Дайджесты смен — per-tenant (по Shifts.laundry_id).
 const { SHEETS } = require('./schema');
 const db = require('./db');
@@ -42,47 +43,31 @@ function activeLaundries_() {
   return db.readAll_('Laundries').filter(function (l) { return l.active === 'да'; });
 }
 
-// PIN владельца ищем среди пользователей с ролью owner (первый owner посеян из ENV).
-function isOwnerPin_(pin) {
-  return db.readAll_('Users').some(function (u) {
-    return u.role === 'owner' && u.active === 'да' && u.pin === String(pin);
-  });
-}
-
-// Использование MVP: /start → бот просит PIN; любое сообщение, равное
-// PIN владельца, фиксирует OWNER_CHAT_ID (spec §9). При нескольких прачках
-// бот просит уточнить номер: «<PIN> 2».
+// Сценарий привязки: владелец отправляет боту 6-значный одноразовый код
+// (сгенерирован на экране «Сотрудники», TTL 10 мин, код привязан к его прачке).
+// /start без кода подсказывает, где взять код.
 async function handleUpdate_(update) {
   const msg = update.message;
   if (!msg || !msg.text) return;
   const text = String(msg.text).trim();
-  // PIN принимается и отдельным сообщением, и в старом формате «/start <PIN>»
+  // Код принимается и отдельным сообщением, и в формате «/start <код>»
   const candidate = text.indexOf('/start') === 0 ? text.slice(6).trim() : text;
-  if (!candidate) {
+  if (!/^\d{6}$/.test(candidate)) {
     if (text.indexOf('/start') === 0) {
-      await sendTelegram_(msg.chat.id, 'Прачечная PRO: введите PIN владельца');
+      await sendTelegram_(msg.chat.id, 'Прачечная PRO: отправьте 6-значный код привязки ' +
+        '(экран «Сотрудники» → «Привязать Telegram»)');
     }
     return;
   }
-  // Формат «<PIN> <номер прачки>» для уточнения при нескольких прачках
-  const parts = candidate.split(/\s+/);
-  const pin = parts[0];
-  if (!isOwnerPin_(pin)) return;
-  const laundries = activeLaundries_();
-  if (!laundries.length) return;
-  let laundry = laundries[0];
-  if (laundries.length > 1) {
-    const idx = Number(parts[1]);
-    if (!idx || !laundries[idx - 1]) {
-      await sendTelegram_(msg.chat.id, 'Прачечная PRO: прачек несколько, уточните номер:\n' +
-        laundries.map(function (l, i) { return (i + 1) + '. ' + l.name; }).join('\n') +
-        '\nОтправьте: ' + pin + ' <номер>');
-      return;
-    }
-    laundry = laundries[idx - 1];
+  const { consumeTelegramBindCode_ } = require('./api');
+  const laundryId = consumeTelegramBindCode_(candidate);
+  if (!laundryId) {
+    await sendTelegram_(msg.chat.id, 'Неверный или просроченный код');
+    return;
   }
-  setOwnerChatId_(msg.chat.id, laundry.id);
-  await sendTelegram_(msg.chat.id, laundry.name + ': дайджесты подключены ✓');
+  const laundry = db.readAll_('Laundries').filter(function (l) { return l.id === laundryId; })[0];
+  setOwnerChatId_(msg.chat.id, laundryId);
+  await sendTelegram_(msg.chat.id, (laundry ? laundry.name : 'Прачка') + ': дайджесты подключены ✓');
 }
 
 // --- Отправка сообщений ---

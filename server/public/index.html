@@ -137,7 +137,7 @@
 
     .pin-wrap { max-width: 340px; margin: 15vh auto 0; text-align: center; }
     .pin-wrap h1 { font-family: var(--f-display); font-size: 26px; font-weight: 800; letter-spacing: -.02em; margin-bottom: 20px; }
-    .pin-wrap input { text-align: center; font-family: var(--f-mono); font-size: 26px; letter-spacing: 8px; margin-bottom: 14px; }
+    .pin-wrap input { font-size: 18px; margin-bottom: 10px; }
     .err { color: var(--danger); margin-top: 10px; min-height: 24px; }
 
     .overlay { position: fixed; inset: 0; background: rgba(15,23,42,.5); display: none; align-items: center; justify-content: center; z-index: 20; }
@@ -368,32 +368,21 @@ function confirmDialog(text, okLabel, onOk) {
 }
 
 // ===== Вход =====
-// Сначала выбор прачки (список публичный), затем PIN. Прачка одна — выбор скрыт.
+// Логин + пароль; прачку выбирать не нужно — она определяется учётной записью
+// (владелец переключает прачки уже после входа, в шапке).
 function renderPin() {
   document.getElementById('app').innerHTML =
     '<div class="pin-wrap"><h1>Прачечная PRO</h1>' +
-    '<div id="laundryPick"></div>' +
-    '<input type="password" inputmode="numeric" id="pinInput" placeholder="PIN" autofocus>' +
+    '<input id="loginInput" placeholder="Логин" autocomplete="username" autofocus>' +
+    '<input type="password" id="passInput" placeholder="Пароль" autocomplete="current-password">' +
     '<button class="btn btn-primary btn-big" id="pinBtn">Войти</button>' +
     '<div class="err" id="pinErr"></div></div>';
-  state.laundryId = null;
-  api('listLaundries').then(function (list) {
-    var laundries = list.laundries || list || [];
-    if (!laundries.length) return;
-    state.laundryId = laundries[0].id;
-    if (laundries.length < 2) return;
-    document.getElementById('laundryPick').innerHTML =
-      '<div class="row" style="margin-bottom:10px"><select id="laundrySel" style="flex:1">' +
-      laundries.map(function (l) {
-        return '<option value="' + esc(l.id) + '">' + esc(l.name) + '</option>';
-      }).join('') + '</select></div>';
-    document.getElementById('laundrySel').onchange = function () { state.laundryId = this.value; };
-  }).catch(function () { /* без списка: вход по PIN владельца всё равно возможен */ });
   var btn = document.getElementById('pinBtn');
-  var input = document.getElementById('pinInput');
+  var loginInput = document.getElementById('loginInput');
+  var passInput = document.getElementById('passInput');
   function doLogin() {
     busy(btn, 'Входим…');
-    api('login', state.laundryId, input.value).then(function (res) {
+    api('login', loginInput.value, passInput.value).then(function (res) {
       state.token = res.token; state.role = res.role; state.name = res.name;
       state.laundryId = res.laundryId;
       state.laundries = res.laundries || [];
@@ -408,7 +397,8 @@ function renderPin() {
     });
   }
   btn.onclick = doLogin;
-  input.onkeydown = function (e) { if (e.key === 'Enter') doLogin(); };
+  passInput.onkeydown = function (e) { if (e.key === 'Enter') doLogin(); };
+  loginInput.onkeydown = function (e) { if (e.key === 'Enter') passInput.focus(); };
 }
 
 // Шапка: имя пользователя + переключатель прачки для владельца (если их несколько)
@@ -1368,13 +1358,14 @@ function renderUsers() {
     .then(function (rr) {
       var users = rr[0].users, clients = rr[1].clients.filter(function (c) { return c.active === 'да'; });
       var html = '<div class="row" style="font-weight:600"><span style="flex:2">Имя</span>' +
-        '<span style="flex:1">Роль</span><span style="flex:1">PIN</span><span style="width:90px"></span></div>';
+        '<span style="flex:1">Роль</span><span style="flex:1">Логин</span><span style="width:200px"></span></div>';
       html += users.map(function (u) {
         return '<div class="row"><span style="flex:2">' + esc(u.name) +
           (u.role === 'client' ? ' <span class="cm">' + esc(clientNameOf(clients, u.client_id)) + '</span>' : '') + '</span>' +
           '<span style="flex:1">' + esc(USER_ROLE_LABELS[u.role] || u.role) + '</span>' +
-          '<span style="flex:1">' + esc(u.pin) + '</span>' +
-          '<span style="width:90px">' + (u.role === 'owner' ? '' :
+          '<span style="flex:1">' + esc(u.login) + '</span>' +
+          '<span style="width:200px">' + (u.role === 'owner' ? '' :
+            '<button class="btn btn-ghost" data-reset="' + esc(u.id) + '">Сбросить пароль</button>' +
             '<button class="btn btn-ghost" data-deact="' + esc(u.id) + '">Отключить</button>') + '</span></div>';
       }).join('');
       html += '<h2 style="margin-top:16px">Добавить</h2>' +
@@ -1382,12 +1373,15 @@ function renderUsers() {
         '<select id="uRole" style="flex:1">' +
         ['worker', 'driver', 'client', 'owner'].map(function (r) {
           return '<option value="' + r + '">' + USER_ROLE_LABELS[r] + '</option>';
-        }).join('') + '</select>' +
-        '<input id="uPin" placeholder="PIN" inputmode="numeric" style="flex:1"></div>' +
+        }).join('') + '</select></div>' +
+        '<div class="row"><input id="uLogin" placeholder="Логин" autocomplete="off" style="flex:1">' +
+        '<input type="password" id="uPass" placeholder="Пароль" autocomplete="new-password" style="flex:1"></div>' +
         '<div class="row" id="uClientRow" style="display:none"><select id="uClient" style="flex:1">' +
         clients.map(function (c) { return '<option value="' + esc(c.id) + '">' + esc(c.name) + '</option>'; }).join('') +
         '</select></div>' +
-        '<button class="btn btn-primary btn-big" id="uAdd">Добавить сотрудника</button>';
+        '<button class="btn btn-primary btn-big" id="uAdd">Добавить сотрудника</button>' +
+        '<button class="btn btn-ghost btn-big" id="uTgBind">Привязать Telegram</button>' +
+        '<div class="row cm" id="uTgCode" style="display:none"></div>';
       setContainer(html);
       document.getElementById('uRole').onchange = function () {
         document.getElementById('uClientRow').style.display = this.value === 'client' ? '' : 'none';
@@ -1396,16 +1390,33 @@ function renderUsers() {
         var role = document.getElementById('uRole').value;
         var payload = {
           laundryId: state.laundryId, name: document.getElementById('uName').value.trim(),
-          role: role, pin: document.getElementById('uPin').value.trim()
+          role: role, login: document.getElementById('uLogin').value.trim(),
+          password: document.getElementById('uPass').value
         };
         if (role === 'client') payload.clientId = document.getElementById('uClient').value;
         api('createUser', state.token, payload)
           .then(function () { toast('Сохранено ✓'); renderUsers(); })
           .catch(function (e) { toast(e.message, true); });
       };
+      document.getElementById('uTgBind').onclick = function () {
+        api('makeTelegramBindCode', state.token).then(function (res) {
+          var box = document.getElementById('uTgCode');
+          box.style.display = '';
+          box.textContent = 'Код привязки: ' + res.code + ' — отправьте его боту в Telegram (действует 10 минут).';
+        }).catch(function (e) { toast(e.message, true); });
+      };
+      Array.prototype.forEach.call(document.querySelectorAll('[data-reset]'), function (b) {
+        b.onclick = function () {
+          var p = prompt('Новый пароль сотрудника:');
+          if (!p) return;
+          api('resetUserPassword', state.token, b.dataset.reset, p)
+            .then(function () { toast('Пароль изменён ✓'); })
+            .catch(function (e) { toast(e.message, true); });
+        };
+      });
       Array.prototype.forEach.call(document.querySelectorAll('[data-deact]'), function (b) {
         b.onclick = function () {
-          confirmDialog('Отключить сотрудника? Вход по его PIN перестанет работать.', 'Отключить', function () {
+          confirmDialog('Отключить сотрудника? Вход под его логином перестанет работать.', 'Отключить', function () {
             api('deactivateUser', state.token, b.dataset.deact)
               .then(function () { hideDialog(); toast('Отключён'); renderUsers(); })
               .catch(function (e) { hideDialog(); toast(e.message, true); });

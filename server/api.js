@@ -4,10 +4,11 @@
 // LockService не нужен: однопроцессный Node + синхронный better-sqlite3.
 // Express-монтирование: каждая публичная функция → POST /api/<имя>, тело { args: [...] }.
 const { SHEETS } = require('./schema');
+const crypto = require('node:crypto');
 const db = require('./db');
 const time = require('./util/time');
 const { nowStr_, todayStr_, logEvent, actorOf_ } = require('./audit');
-const { requireRole_ } = require('./auth');
+const { requireRole_, hashPassword_ } = require('./auth');
 const core = require('./core');
 const {
   addDaysStr_, mondayOf_, checkTransition_, applyDefer_, canEditWashData_,
@@ -846,18 +847,22 @@ function getRefs(token) {
 // --- Пользователи (owner): экран «Сотрудники» ---
 
 // Список пользователей прачки (по умолчанию — активной в сессии) + владельцы.
+// pass_hash/pin из ответа убираем: клиенту хэши не нужны.
 function listUsers(token, laundryId) {
   const session = requireRole_(token, ['owner']);
   if (!session) return err_('Нет доступа');
   const lid = String(laundryId || session.laundryId);
   const users = db.readAll_('Users').filter(function (u) {
     return u.active === 'да' && (u.laundry_id === lid || u.role === 'owner');
+  }).map(function (u) {
+    return { id: u.id, laundry_id: u.laundry_id, name: u.name, role: u.role,
+      login: u.login, active: u.active, client_id: u.client_id };
   });
   return ok_({ users: users });
 }
 
-// Создание аккаунта. PIN уникален в прачке; для owner — глобально
-// (PIN владельца не должен совпадать ни с одним другим, иначе login найдёт не того).
+// Создание аккаунта. Логин глобально уникален (вход — только по логину+паролю,
+// без выбора прачки). Пароль хранится как scrypt-хэш (util/passwords.js).
 // Роль client (задел) требует clientId — ссылку на клиента справочника.
 function createUser(token, user) {
   const session = requireRole_(token, ['owner']);
@@ -866,28 +871,38 @@ function createUser(token, user) {
   const ROLES = ['owner', 'worker', 'driver', 'client'];
   if (ROLES.indexOf(user.role) === -1) return err_('Неизвестная роль');
   if (!user.name) return err_('Укажите имя');
-  if (!user.pin) return err_('Укажите PIN');
+  if (!user.login) return err_('Укажите логин');
+  if (!user.password) return err_('Укажите пароль');
   if (user.role !== 'owner' && !user.laundryId) return err_('Укажите прачку');
   if (user.role === 'client' && !user.clientId) return err_('Выберите клиента');
-  const users = db.readAll_('Users').filter(function (u) { return u.active === 'да'; });
-  const pin = String(user.pin);
-  if (user.role === 'owner') {
-    if (users.some(function (u) { return u.pin === pin; })) return err_('PIN уже занят');
-  } else {
-    const taken = users.some(function (u) {
-      return u.pin === pin && (u.role === 'owner' || u.laundry_id === String(user.laundryId));
-    });
-    if (taken) return err_('PIN уже занят в этой прачке');
-  }
+  const login = String(user.login).trim();
+  const taken = db.readAll_('Users').some(function (u) {
+    return u.active === 'да' && u.login === login;
+  });
+  if (taken) return err_('Логин уже занят');
   const saved = {
     id: db.nextId_('Users', 'usr'),
     laundry_id: user.role === 'owner' ? '' : String(user.laundryId),
-    name: user.name, role: user.role, pin: pin, active: 'да',
-    client_id: user.role === 'client' ? String(user.clientId) : ''
+    name: user.name, role: user.role, pin: '', active: 'да',
+    client_id: user.role === 'client' ? String(user.clientId) : '',
+    login: login, pass_hash: hashPassword_(user.password)
   };
   db.appendRow_('Users', saved);
   logEvent(actorOf_(session), 'user_create', saved.id, { name: saved.name, role: saved.role, laundry_id: saved.laundry_id }, session.laundryId);
-  return ok_({ user: saved });
+  return ok_({ user: { id: saved.id, laundry_id: saved.laundry_id, name: saved.name, role: saved.role, login: saved.login, active: saved.active, client_id: saved.client_id } });
+}
+
+// Сброс пароля пользователя (owner): новый пароль хэшируется, старый перезаписывается.
+function resetUserPassword(token, userId, newPassword) {
+  const session = requireRole_(token, ['owner']);
+  if (!session) return err_('Нет доступа');
+  if (!newPassword) return err_('Укажите пароль');
+  const found = db.findById_('Users', userId);
+  if (!found) return err_('Пользователь не найден');
+  found.obj.pass_hash = hashPassword_(newPassword);
+  db.updateRow_('Users', found.rowNumber, found.obj);
+  logEvent(actorOf_(session), 'user_password_reset', userId, { name: found.obj.name }, session.laundryId);
+  return ok_({ user: found.obj });
 }
 
 function deactivateUser(token, id) {
@@ -899,6 +914,32 @@ function deactivateUser(token, id) {
   db.updateRow_('Users', found.rowNumber, found.obj);
   logEvent(actorOf_(session), 'user_deactivate', id, { name: found.obj.name }, session.laundryId);
   return ok_({ user: found.obj });
+}
+
+// Одноразовые коды привязки Telegram-чата (в памяти процесса, TTL 10 мин).
+// Код генерирует владелец с экрана «Сотрудники»; бот принимает код и пишет
+// chat_id в per-tenant Settings OWNER_CHAT_ID прачки, к которой привязан код.
+const TG_CODE_TTL_MS = 10 * 60 * 1000;
+const telegramBindCodes = new Map(); // code → { laundryId, expiresAt }
+
+function makeTelegramBindCode(token) {
+  const session = requireRole_(token, ['owner']);
+  if (!session) return err_('Нет доступа');
+  // Уборка протухших, чтобы Map не рос
+  const now = Date.now();
+  for (const [c, rec] of telegramBindCodes) if (rec.expiresAt < now) telegramBindCodes.delete(c);
+  const code = String(crypto.randomInt(0, 1000000)).padStart(6, '0');
+  telegramBindCodes.set(code, { laundryId: session.laundryId, expiresAt: now + TG_CODE_TTL_MS });
+  return ok_({ code: code });
+}
+
+// Проверка и погашение кода (вызывается из telegram.js при сообщении боту).
+// Возвращает laundryId при успехе, null — код невалиден или протух.
+function consumeTelegramBindCode_(code) {
+  const rec = telegramBindCodes.get(String(code));
+  if (!rec || Date.now() > rec.expiresAt) return null;
+  telegramBindCodes.delete(String(code));
+  return rec.laundryId;
 }
 
 // --- TV-табло (spec §5.3): по ключу прачки, только чтение, только агрегаты дня ---
@@ -945,7 +986,7 @@ const api = {
   getWeekPlan, addWeekCard, moveWeekCard, removeWeekCard,
   getStorage, getDayReport,
   saveClient, deleteClient, saveItemType, rememberClientItemType, getRefs,
-  listUsers, createUser, deactivateUser,
+  listUsers, createUser, resetUserPassword, deactivateUser, makeTelegramBindCode,
   getTvData,
   // Развозы и водитель (логика в deliveries.js)
   getDeliveryVisits: deliveries.getDeliveryVisits,
@@ -985,7 +1026,8 @@ module.exports = {
   getWeekPlan, addWeekCard, moveWeekCard, removeWeekCard,
   getStorage, getDayReport,
   saveClient, deleteClient, saveItemType, rememberClientItemType, getRefs,
-  listUsers, createUser, deactivateUser, getTvData,
+  listUsers, createUser, resetUserPassword, deactivateUser, makeTelegramBindCode,
+  consumeTelegramBindCode_, getTvData,
   getDeliveryVisits: deliveries.getDeliveryVisits,
   addDeliveryVisit: deliveries.addDeliveryVisit,
   moveDeliveryVisit: deliveries.moveDeliveryVisit,

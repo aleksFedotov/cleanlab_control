@@ -36,7 +36,7 @@
 Глобально: `DIGEST_TIME` (напр. `21:30`), дефолтный `LAUNDRY_NAME`. Per-tenant: `LAUNDRY_NAME`, `TV_KEY`, `OWNER_CHAT_ID`.
 
 ### 3.3 Секреты — ENV (`server/.env`, см. `.env.example`)
-`BOT_TOKEN`, `WEBHOOK_SECRET`, `TV_KEY`, `TV_KEY_2`, пины и имена прачек для сида (`LAUNDRY_NAME`, `OWNER_PIN`, `WORKER_PIN`, `DRIVER_PIN`, `LAUNDRY2_*`). `OWNER_CHAT_ID` в ENV не нужен — бот пишет его в Settings per-tenant.
+`BOT_TOKEN`, `WEBHOOK_SECRET`, `TV_KEY`, `TV_KEY_2`, имя первой прачки (`LAUNDRY_NAME`), логин/пароль владельца (`OWNER_LOGIN`, `OWNER_PASSWORD` — upsert в Users при каждом старте), опционально `LAUNDRY2_NAME`. `OWNER_CHAT_ID` в ENV не нужен — бот пишет его в Settings per-tenant.
 
 ### 3.4 `Clients`
 `id` (`cli_<n>`), `name`, `contact`, `address`, `type` (`отель`/`ресторан`/`спа`/`прочее`), `storage` (`да`/`нет`), `active`, `comment`, `item_types` (JSON-массив id типов белья клиента, пусто = все), `accounting` (`weight`/`count`/`both`, пусто = both), `laundry_id`.
@@ -70,7 +70,10 @@
 События: `wash_create`, `wash_start`, `wash_done`, `wash_issue`, `wash_defer`, `wash_cancel`, `wash_edit`, `wash_delete`, `shift_close`, `storage_check`, `visit_move`, `week_copy`, `user_create`, `user_deactivate` и события водителя.
 
 ### 3.12 `Users`
-`id` (`usr_<n>`), `laundry_id` (пусто у owner), `name`, `role` (`owner`/`worker`/`driver`/`client`), `pin`, `active`, `client_id` (у `client` — ссылка на Clients). PIN уникален в прачке; PIN владельца глобально уникален.
+`id` (`usr_<n>`), `laundry_id` (пусто у owner), `name`, `role` (`owner`/`worker`/`driver`/`client`), `pin` (устаревшее, не используется), `active`, `client_id` (у `client` — ссылка на Clients), `login` (глобально уникален), `pass_hash` (scrypt, формат `salt:hash` в hex).
+
+### 3.12.1 `Sessions`
+`token` (UUID), `user_id`, `laundry_id` (активная прачка сессии), `expires_at` (unix-мс). См. §5.1.
 
 ### 3.13 Требования к выборкам
 Журнальные таблицы (`Washes`, `WashItems`, `Log`) не читаются целиком: выборки «с хвоста» (`ORDER BY rowid DESC LIMIT N`, по умолчанию 500). Чтения/записи — через tenant-варианты (`readTailByTenant_`, `findRowsByTenant_`, `appendRowTenant_`). `readAll_` — только справочники и миграции. Масштаб: ~20 стирок/день на прачку.
@@ -101,12 +104,12 @@
 ## 5. Роли и доступ
 
 ### 5.1 Вход
-- Экран входа: выбор прачки (публичный метод `listLaundries`) → персональный PIN. `login(laundryId, pin)` ищет пользователя: owner — по глобально уникальному PIN без привязки к прачке, остальные — по паре `(laundry_id, pin)`.
+- Экран входа: логин + пароль, без выбора прачки — прачка определяется учётной записью. `login(username, password)` ищет активного пользователя по глобально уникальному логину; пароль хранится как scrypt-хэш `salt:hash` (hex), сравнение — `timingSafeEqual` (`util/passwords.js`). На все ошибки входа — одно сообщение «Неверный логин или пароль». Rate-limit: 5 неудачных попыток по логину → блок на 5 минут (счётчик в памяти процесса).
 - Роль `client`: аккаунт создаётся (с `client_id` на клиента справочника), но вход возвращает «Доступ для клиента не настроен».
-- Сессия: случайный токен (UUID) → `{userId, name, role, laundryId, clientId, expiresAt}` в памяти, TTL 12 ч, скользящее продление при каждом запросе. Токен в `localStorage` клиента.
-- У owner `laundry_id` пуст; активная прачка сессии — выбранная на входе (иначе первая активная), переключается `switchLaundry(token, laundryId)` (в UI — переключатель прачек, список приходит в ответе `login`).
+- Сессия: случайный токен (UUID) → строка таблицы `Sessions(token, user_id, laundry_id, expires_at)` — персистентно (переживает рестарт), TTL 30 дней, скользящее продление при каждом запросе, протухшие строки чистятся при старте и входе. Сессия читается из БД с join Users; деактивация пользователя обесценивает его сессии. Токен в `localStorage` клиента.
+- У owner `laundry_id` пуст; активная прачка сессии (`Sessions.laundry_id`) на входе — первая активная, переключается `switchLaundry(token, laundryId)` (в UI — переключатель прачек, список приходит в ответе `login`).
 - Каждый метод API принимает токен первым параметром; роль и прачка — только из сессии, параметрам от клиента сервер не доверяет.
-- Истечение сессии → клиент показывает форму входа, несохранённые данные на экране не теряются. Явный выход = отзыв токена.
+- Истечение сессии → клиент показывает форму входа, несохранённые данные на экране не теряются. Явный выход = удаление строки Sessions.
 
 ### 5.2 Матрица прав
 | Действие | owner | worker | driver |
@@ -126,9 +129,9 @@
 Монтирование: каждая публичная функция → `POST /api/<method>`, тело `{args: [...]}` (`server/api.js`, `mountApi`). Ответ `{ok: true, ...}` / `{ok: false, error}`.
 
 - Публичные (без токена): `listLaundries`, `getTvData(key)`.
-- Auth: `login(laundryId, pin)`, `logout(token)`, `switchLaundry(token, laundryId)`.
+- Auth: `login(username, password)`, `logout(token)`, `switchLaundry(token, laundryId)`.
 - Сотрудник: `getDayList(token, date)`, `startWash`, `completeWash(token, washId, items, weightKg, mode, bags)`, `editWashData`, `deferWash`, `addUnplannedWash`, `getShiftCloseState`, `closeShift(token, force)`, `confirmStorageCheck`.
-- Владелец: `getDeliveryPlan`, `addToDelivery`, `cancelWash`, `deleteWash`, `markIssued`, `updateIssueDate`, `getWeekPlan`, `addWeekCard`, `moveWeekCard`, `removeWeekCard`, `getStorage`, `getDayReport`, справочники (`saveClient`, `deleteClient`, `saveItemType`, `rememberClientItemType`, `getRefs`), пользователи (`listUsers`, `createUser`, `deactivateUser`).
+- Владелец: `getDeliveryPlan`, `addToDelivery`, `cancelWash`, `deleteWash`, `markIssued`, `updateIssueDate`, `getWeekPlan`, `addWeekCard`, `moveWeekCard`, `removeWeekCard`, `getStorage`, `getDayReport`, справочники (`saveClient`, `deleteClient`, `saveItemType`, `rememberClientItemType`, `getRefs`), пользователи (`listUsers`, `createUser`, `resetUserPassword`, `deactivateUser`, `makeTelegramBindCode`).
 - Водитель/развозы (`server/deliveries.js`): `getDeliveryVisits`, `addDeliveryVisit`, `moveDeliveryVisit`, `removeDeliveryVisit`, `setPickupOnly`, `getDriverRoute`, `driverTakeAllClean`, `driverAction`, `driverHandover`.
 - TV: `getTvData(key)` — счётчики дня + стирки текущей даты прачки (клиент, статус, кг, штук, перенос, комментарий).
 - Telegram: `POST /telegram/webhook?secret=<WEBHOOK_SECRET>`; неверный секрет — молчаливый 200.
@@ -143,7 +146,7 @@
 Список дня (шапка: название прачки, дата ‹ ›, «Закрыть смену»; карточки с чипами статусов и пометками склада; фильтры; «+ Добавить стирку»), карточка стирки (в работу → вес → пересчёт по типам (с учётом `item_types`/`accounting` клиента) → мешки → завершить с подтверждением), перенос, «Изменить данные», закрытие смены (блокировка/force + итоги + «не готовы к развозу»).
 
 ### 7.3 Экран владельца (все экраны сотрудника плюс)
-Переключатель прачек в шапке. Развоз (план на день, выдачи, просроченные), Склад (stored-стирки + записи dirty/clean/частичные остатки), Отчёт за день (сводка + детальная таблица + правка), Канбан «Неделя», справочники Клиенты (с `item_types` и `accounting`) и Типы белья (удаление запрещено, если тип встречается в `WashItems`), экран «Сотрудники» (список пользователей прачки, создание аккаунтов owner/worker/driver/client с проверкой уникальности PIN, деактивация).
+Переключатель прачек в шапке. Развоз (план на день, выдачи, просроченные), Склад (stored-стирки + записи dirty/clean/частичные остатки), Отчёт за день (сводка + детальная таблица + правка), Канбан «Неделя», справочники Клиенты (с `item_types` и `accounting`) и Типы белья (удаление запрещено, если тип встречается в `WashItems`), экран «Сотрудники» (список пользователей прачки, создание аккаунтов owner/worker/driver/client с проверкой глобальной уникальности логина, сброс пароля, привязка Telegram по коду, деактивация).
 
 ### 7.4 Экран водителя
 Маршрут на день (`getDriverRoute`): забрать чистое со склада (мешки), визиты с подтверждением выдачи/забора грязного, комментарий; сдача грязного в цех (`driverHandover` → dirty-записи склада).
@@ -172,7 +175,7 @@
 ## 9. Telegram webhook
 
 - `POST /telegram/webhook?secret=<WEBHOOK_SECRET>`; неверный секрет — молчаливый 200; идемпотентен по `update_id` (ретраи Telegram, Map в памяти, TTL 24 ч).
-- Привязка чата владельца: `/start` → бот просит PIN; сообщение с PIN владельца фиксирует `OWNER_CHAT_ID`. Если активных прачек несколько, бот отвечает списком и ждёт «`<PIN> <номер>`». Формат `/start <PIN>` также поддерживается.
+- Привязка чата владельца: одноразовый 6-значный код (экран «Сотрудники» → `makeTelegramBindCode`, TTL 10 мин, код привязан к активной прачке владельца). Сообщение с кодом (или `/start <код>`) фиксирует `OWNER_CHAT_ID` той прачки; неверный/протухший код — ответ «Неверный или просроченный код». `/start` без кода подсказывает, где взять код.
 - Ответ 200 быстро; отправка сообщений — async `fetch` к Bot API.
 
 ## 10. Канбан «Неделя» (планирование развоза)
@@ -197,9 +200,9 @@ Node-тесты (`node --test`) в `server/test/`: чистое ядро (`core.
 ## 13. Деплой (чек-лист, детали в docs/deploy.md)
 
 1. VPS: Node LTS, Caddy (`reverse_proxy localhost:3100`), домен + авто-HTTPS.
-2. `server/.env` из `.env.example`: `BOT_TOKEN`, пины и имена прачек, `WEBHOOK_SECRET`, `TV_KEY`/`TV_KEY_2`.
+2. `server/.env` из `.env.example`: `BOT_TOKEN`, `LAUNDRY_NAME`, `OWNER_LOGIN`/`OWNER_PASSWORD`, `WEBHOOK_SECRET`, `TV_KEY`/`TV_KEY_2`.
 3. Запуск: `node --env-file=.env index.js` (systemd/PM2, автоперезапуск).
-4. Telegram `setWebhook` на `https://<домен>/telegram/webhook?secret=<WEBHOOK_SECRET>`; `/start` боту с PIN владельца (при двух прачках — «PIN <номер>»).
+4. Telegram `setWebhook` на `https://<домен>/telegram/webhook?secret=<WEBHOOK_SECRET>`; владелец генерирует код привязки на экране «Сотрудники» и отправляет его боту.
 5. TV-ссылки: `/tv.html?key=<TV_KEY>` для каждой прачки.
 
 ## 14. Вне объёма (roadmap)

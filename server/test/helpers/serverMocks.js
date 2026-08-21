@@ -1,14 +1,14 @@
 // Общий контекст для тестов server/-слоёв: in-memory SQLite + фиксированное «сейчас».
 // Аналог tests/helpers/gasMocks.js, но против реальных server-модулей.
 // ВАЖНО: env выставляется до require server-модулей (config.js читает process.env при загрузке).
-process.env.OWNER_PIN = process.env.OWNER_PIN || '1111';
-process.env.WORKER_PIN = process.env.WORKER_PIN || '2222';
-process.env.DRIVER_PIN = process.env.DRIVER_PIN || '3333';
+process.env.OWNER_LOGIN = process.env.OWNER_LOGIN || 'boss';
+process.env.OWNER_PASSWORD = process.env.OWNER_PASSWORD || 'boss-pass';
 process.env.TV_KEY = process.env.TV_KEY || 'tv-secret';
 process.env.BOT_TOKEN = process.env.BOT_TOKEN || 'bot-token';
 process.env.WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || 'hook-secret';
 
 const db = require('../../db');
+const { hashPassword } = require('../../util/passwords');
 
 // Настоящий fetch фиксируем один раз при загрузке модуля: повторные makeCtx
 // не должны захватывать уже подменённый стаб.
@@ -24,10 +24,22 @@ const FIXED_NOW = new Date('2026-08-12T18:30:00Z');
 const TODAY = '2026-08-12';
 const TOMORROW = '2026-08-13';
 
+// Пользователь напрямую в БД (с паролем): v3 сидит только владельца из ENV,
+// остальные учётки тесты создают так.
+function seedUser(id, laundryId, name, role, login, password) {
+  db.appendRow_('Users', {
+    id: id, laundry_id: laundryId, name: name, role: role,
+    pin: '', active: 'да', client_id: '',
+    login: login, pass_hash: hashPassword(password)
+  });
+}
+
 function makeCtx() {
   db._setDbForTests(db.openTest(':memory:'));
   time._setNowForTests(FIXED_NOW);
   setup.setup();
+  seedUser('usr_w1', '1', 'Работник', 'worker', 'worker1', 'worker-pass');
+  seedUser('usr_d1', '1', 'Водитель', 'driver', 'driver1', 'driver-pass');
 
   // Подмена отправки в Telegram Bot API: перехват fetch, код ответа управляемый.
   const fetches = [];
@@ -45,19 +57,19 @@ function makeCtx() {
   };
 }
 
-function loginOwner() { return auth.login(null, '1111').token; }
-function loginWorker() { return auth.login('1', '2222').token; }
-function loginDriver() { return auth.login('1', '3333').token; }
+function loginOwner() { return auth.login('boss', 'boss-pass').token; }
+function loginWorker() { return auth.login('worker1', 'worker-pass').token; }
+function loginDriver() { return auth.login('driver1', 'driver-pass').token; }
 
 // Вторая прачка для тестов изоляции: справочник + работник/водитель напрямую в БД.
 function seedLaundry2() {
   db.appendRow_('Laundries', { id: '2', name: 'Прачка 2', active: 'да' });
   db.setTenantSetting_('2', 'LAUNDRY_NAME', 'Прачка 2');
-  db.appendRow_('Users', { id: 'usr_w2', laundry_id: '2', name: 'Работник 2', role: 'worker', pin: '5555', active: 'да', client_id: '' });
-  db.appendRow_('Users', { id: 'usr_d2', laundry_id: '2', name: 'Водитель 2', role: 'driver', pin: '6666', active: 'да', client_id: '' });
+  seedUser('usr_w2', '2', 'Работник 2', 'worker', 'worker2', 'worker2-pass');
+  seedUser('usr_d2', '2', 'Водитель 2', 'driver', 'driver2', 'driver2-pass');
   db.invalidateRefCache_();
 }
-function loginWorker2() { return auth.login('2', '5555').token; }
-function loginDriver2() { return auth.login('2', '6666').token; }
+function loginWorker2() { return auth.login('worker2', 'worker2-pass').token; }
+function loginDriver2() { return auth.login('driver2', 'driver2-pass').token; }
 
-module.exports = { makeCtx, loginOwner, loginWorker, loginDriver, seedLaundry2, loginWorker2, loginDriver2, TODAY, TOMORROW, FIXED_NOW };
+module.exports = { makeCtx, seedUser, loginOwner, loginWorker, loginDriver, seedLaundry2, loginWorker2, loginDriver2, TODAY, TOMORROW, FIXED_NOW };

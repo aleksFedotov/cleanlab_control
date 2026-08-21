@@ -6,6 +6,7 @@ const path = require('node:path');
 const Database = require('better-sqlite3');
 const { HEADERS } = require('./schema');
 const { config } = require('./config');
+const { hashPassword } = require('./util/passwords');
 
 const TAIL_ROWS = 500;
 const REF_CACHE_TTL_MS = 5 * 60 * 1000; // 5 минут
@@ -24,6 +25,7 @@ function open(dbPath = DB_PATH) {
   db.pragma('journal_mode = WAL');
   createTables_(db);
   migrateToV2_(db);
+  migrateToV3_(db);
   return db;
 }
 
@@ -33,6 +35,7 @@ function openTest(dbPath = ':memory:') {
   testDb.pragma('journal_mode = WAL');
   createTables_(testDb);
   migrateToV2_(testDb);
+  migrateToV3_(testDb);
   return testDb;
 }
 
@@ -79,6 +82,29 @@ function migrateToV2_(d) {
     addUser('2', 'Водитель', 'driver', config.LAUNDRY2_DRIVER_PIN);
   }
   invalidateRefCache_();
+}
+
+// Миграция на логин+пароль (v3): upsert владельца из ENV OWNER_LOGIN/OWNER_PASSWORD.
+// Идемпотентно: если обе переменные заданы, создаёт owner-пользователя или
+// обновляет ему pass_hash и возвращает active=да (напр. после смены пароля в ENV).
+// Без ENV — no-op (пользователей с пустым паролем не создаём).
+function migrateToV3_(d) {
+  if (!config.OWNER_LOGIN || !config.OWNER_PASSWORD) return;
+  const passHash = hashPassword(config.OWNER_PASSWORD);
+  const found = findRowsBy_('Users', function (u) {
+    return u.role === 'owner' && u.login === config.OWNER_LOGIN;
+  }, 100, d)[0];
+  if (found) {
+    found.obj.pass_hash = passHash;
+    found.obj.active = 'да';
+    updateRow_('Users', found.rowNumber, found.obj, d);
+  } else {
+    appendRow_('Users', {
+      id: nextId_('Users', 'usr', d), laundry_id: '', name: 'Владелец',
+      role: 'owner', pin: '', active: 'да', client_id: '',
+      login: config.OWNER_LOGIN, pass_hash: passHash
+    }, d);
+  }
 }
 
 // Per-tenant настройка: upsert строки Settings с laundry_id.
@@ -287,6 +313,6 @@ module.exports = {
   readAll_, readTail_, appendRow_, nextId_, findRowsBy_, findById_,
   updateRow_, deleteRow_, parseJsonList_,
   readAllByTenant_, readTailByTenant_, findRowsByTenant_, appendRowTenant_,
-  setTenantSetting_, migrateToV2_,
+  setTenantSetting_, migrateToV2_, migrateToV3_,
   invalidateRefCache_, getSettings_, getClients_, getItemTypes_
 };

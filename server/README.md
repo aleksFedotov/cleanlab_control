@@ -7,7 +7,7 @@
 ```bash
 cd server
 npm install        # один раз
-cp .env.example .env   # заполнить токены, пины и имена прачек
+cp .env.example .env   # заполнить токены, OWNER_LOGIN/OWNER_PASSWORD и имена прачек
 node --env-file=.env index.js
 ```
 
@@ -21,7 +21,7 @@ node --env-file=.env index.js
 
 ## Мультитенантность
 
-Несколько прачек в одной установке: таблицы `Laundries` и `Users`, `laundry_id` в операционных таблицах. Вход: выбор прачки + персональный PIN; роли `owner` (все прачки, переключение через `switchLaundry`), `worker`, `driver`, `client` (задел, вход не настроен). При первом старте на пустой БД `migrateToV2_` (db.js) сидит прачки и пользователей из ENV. Подробности — `docs/spec.md`.
+Несколько прачек в одной установке: таблицы `Laundries` и `Users`, `laundry_id` в операционных таблицах. Вход: логин + пароль (scrypt-хэш в Users, логин глобально уникален); роли `owner` (все прачки, переключение через `switchLaundry`), `worker`, `driver`, `client` (задел, вход не настроен). Сессии персистентные — таблица `Sessions`, TTL 30 дней. При первом старте на пустой БД `migrateToV2_` (db.js) сидит прачки, а `migrateToV3_` upsert-ит владельца из ENV при каждом старте. Подробности — `docs/spec.md`.
 
 ## Инициализация данных
 
@@ -33,7 +33,7 @@ node --env-file=.env -e "require('./setup').setup()"
 
 ## Конфигурация (server/.env)
 
-См. `.env.example`: `BOT_TOKEN`, `LAUNDRY_NAME`, `OWNER_PIN`, `WORKER_PIN`, `DRIVER_PIN`, опционально `LAUNDRY2_NAME` / `LAUNDRY2_WORKER_PIN` / `LAUNDRY2_DRIVER_PIN`, `WEBHOOK_SECRET`, `TV_KEY` / `TV_KEY_2`, `PORT` (по умолчанию 3100), `DB_PATH`, `APP_TZ` (по умолчанию Europe/Moscow). `OWNER_CHAT_ID` не нужен — бот запишет его в Settings per-tenant после ввода PIN владельца (при нескольких прачках — «PIN <номер>»).
+См. `.env.example`: `BOT_TOKEN`, `LAUNDRY_NAME`, `OWNER_LOGIN`, `OWNER_PASSWORD`, опционально `LAUNDRY2_NAME`, `WEBHOOK_SECRET`, `TV_KEY` / `TV_KEY_2`, `PORT` (по умолчанию 3100), `DB_PATH`, `APP_TZ` (по умолчанию Europe/Moscow). `OWNER_CHAT_ID` не нужен — бот запишет его в Settings per-tenant после ввода одноразового 6-значного кода привязки (экран «Сотрудники»).
 
 ## Тесты
 

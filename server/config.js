@@ -4,8 +4,13 @@
 const config = {
   PORT: Number(process.env.PORT || 3100),
   BOT_TOKEN: process.env.BOT_TOKEN || '',
-  // Первая прачка: имя и пины первых пользователей (сидится в migrateToV2_ при пустой Laundries)
+  // Первая прачка: имя (сидится в migrateToV2_ при пустой Laundries)
   LAUNDRY_NAME: process.env.LAUNDRY_NAME || 'Прачечная PRO',
+  // Владелец: логин+пароль, upsert в Users при старте (migrateToV3_)
+  OWNER_LOGIN: process.env.OWNER_LOGIN || '',
+  OWNER_PASSWORD: process.env.OWNER_PASSWORD || '',
+  // Устаревшие PIN-переменные: читаются только сидом migrateToV2_ для старых БД.
+  // Новые развёртывания их не задают — пустые значения отключают сид PIN-пользователей.
   OWNER_PIN: process.env.OWNER_PIN || '',
   WORKER_PIN: process.env.WORKER_PIN || '',
   DRIVER_PIN: process.env.DRIVER_PIN || '',

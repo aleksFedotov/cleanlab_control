@@ -2,7 +2,7 @@
 // персональные пользователи (в т.ч. задел роли client), TV-ключи per-tenant.
 const test = require('node:test');
 const assert = require('node:assert');
-const { makeCtx, loginOwner, loginWorker, loginDriver, seedLaundry2, loginWorker2, loginDriver2, TODAY, TOMORROW } = require('./helpers/serverMocks');
+const { makeCtx, seedUser, loginOwner, loginWorker, loginDriver, seedLaundry2, loginWorker2, loginDriver2, TODAY, TOMORROW } = require('./helpers/serverMocks');
 
 // Клиент + стирка + визит в активной прачке владельца
 function seedWash(ctx, owner, name) {
@@ -88,12 +88,45 @@ test('owner: switchLaundry меняет активную прачку; worker �
   assert.deepStrictEqual(list.laundries ? list.laundries.map(l => l.id) : list.map(l => l.id), ['1', '2']);
 });
 
-test('чужой PIN не пускает: PIN прачки 1 не работает в прачке 2', () => {
+test('логин: неверный пароль и чужая учётка не пускают, сообщение одно на все ошибки', () => {
   const ctx = makeCtx();
   seedLaundry2();
-  assert.ok(!ctx.auth.login('2', '2222').ok);
-  assert.ok(!ctx.auth.login('1', '5555').ok);
-  assert.ok(ctx.auth.login('2', '5555').ok);
+  assert.strictEqual(ctx.auth.login('worker1', 'не-то').error, 'Неверный логин или пароль');
+  assert.strictEqual(ctx.auth.login('нет-такого', 'worker-pass').error, 'Неверный логин или пароль');
+  assert.strictEqual(ctx.auth.login('boss', 'worker-pass').error, 'Неверный логин или пароль');
+  // Своя пара логин+пароль работает независимо от прачки
+  assert.ok(ctx.auth.login('worker2', 'worker2-pass').ok);
+});
+
+test('сессия персистентна: валидна после переоткрытия БД (симуляция рестарта)', () => {
+  const fs = require('node:fs');
+  const os = require('node:os');
+  const path = require('node:path');
+  const tmp = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'cleanlab-')), 'test.sqlite');
+  const ctx = makeCtx();
+  const h1 = ctx.db.openTest(tmp);
+  ctx.db._setDbForTests(h1);
+  seedUser('usr_w1', '1', 'Работник', 'worker', 'w', 'p');
+  const token = ctx.auth.login('w', 'p').token;
+  // «Рестарт»: новый handle к тому же файлу БД (in-memory Map сессий не пережил бы его)
+  h1.close();
+  const h2 = ctx.db.openTest(tmp);
+  ctx.db._setDbForTests(h2);
+  const s = ctx.auth.getSession_(token);
+  assert.ok(s);
+  assert.strictEqual(s.name, 'Работник');
+  assert.strictEqual(s.laundryId, '1');
+  h2.close();
+  fs.rmSync(path.dirname(tmp), { recursive: true, force: true });
+});
+
+test('rate-limit: после 5 неудачных попыток логин блокируется на 5 минут', () => {
+  const ctx = makeCtx();
+  for (let i = 0; i < 5; i++) assert.ok(!ctx.auth.login('worker1', 'не-то').ok);
+  // Даже верный пароль не пускает, пока идёт блок
+  assert.strictEqual(ctx.auth.login('worker1', 'worker-pass').error, 'Неверный логин или пароль');
+  // Другой логин не затронут
+  assert.ok(ctx.auth.login('boss', 'boss-pass').ok);
 });
 
 test('Log.actor содержит имя и роль пользователя', () => {
@@ -106,33 +139,40 @@ test('Log.actor содержит имя и роль пользователя', (
   assert.strictEqual(ev.laundry_id, '1');
 });
 
-test('пользователи: createUser проверяет уникальность PIN; роль client не входит', () => {
+test('пользователи: логин глобально уникален; resetUserPassword; деактивация закрывает вход', () => {
   const ctx = makeCtx();
   const owner = loginOwner();
   // Обычный работник прачки 1
-  const u = ctx.api.createUser(owner, { laundryId: '1', name: 'Пётр', role: 'worker', pin: '7777' });
+  const u = ctx.api.createUser(owner, { laundryId: '1', name: 'Пётр', role: 'worker', login: 'petr', password: 'p1' });
   assert.ok(u.ok);
-  assert.ok(ctx.auth.login('1', '7777').ok);
-  // Дубль PIN в той же прачке отклонён
-  assert.ok(!ctx.api.createUser(owner, { laundryId: '1', name: 'Иван', role: 'driver', pin: '7777' }).ok);
-  // PIN владельца занять нельзя
-  assert.ok(!ctx.api.createUser(owner, { laundryId: '1', name: 'Иван', role: 'driver', pin: '1111' }).ok);
-  // PIN owner глобально уникален
-  assert.ok(!ctx.api.createUser(owner, { name: 'Второй владелец', role: 'owner', pin: '7777' }).ok);
+  assert.ok(ctx.auth.login('petr', 'p1').ok);
+  // Дубль логина отклонён — глобально, в любой прачке и роли
+  assert.ok(!ctx.api.createUser(owner, { laundryId: '1', name: 'Иван', role: 'driver', login: 'petr', password: 'p2' }).ok);
+  assert.ok(!ctx.api.createUser(owner, { name: 'Второй владелец', role: 'owner', login: 'boss', password: 'p2' }).ok);
   // Роль client требует clientId; вход для неё не настроен
-  assert.ok(!ctx.api.createUser(owner, { laundryId: '1', name: 'Клиент', role: 'client', pin: '8888' }).ok);
+  assert.ok(!ctx.api.createUser(owner, { laundryId: '1', name: 'Клиент', role: 'client', login: 'k1', password: 'p3' }).ok);
   const clientId = ctx.api.saveClient(owner, { name: 'Отель А' }).client.id;
-  const cu = ctx.api.createUser(owner, { laundryId: '1', name: 'Клиент', role: 'client', pin: '8888', clientId: clientId });
+  const cu = ctx.api.createUser(owner, { laundryId: '1', name: 'Клиент', role: 'client', login: 'k1', password: 'p3', clientId: clientId });
   assert.ok(cu.ok);
   assert.strictEqual(cu.user.client_id, clientId);
-  const login = ctx.auth.login('1', '8888');
+  const login = ctx.auth.login('k1', 'p3');
   assert.ok(!login.ok);
   assert.ok(/не настроен/.test(login.error));
-  // Список и деактивация
+  // listUsers не отдаёт pass_hash и pin
   const users = ctx.api.listUsers(owner, '1').users;
   assert.ok(users.some(x => x.name === 'Пётр'));
+  users.forEach(function (x) {
+    assert.strictEqual(x.pass_hash, undefined);
+    assert.strictEqual(x.pin, undefined);
+  });
+  // Сброс пароля: старый не работает, новый работает (только owner)
+  assert.ok(!ctx.api.resetUserPassword(loginWorker(), u.user.id, 'новый').ok);
+  assert.ok(ctx.api.resetUserPassword(owner, u.user.id, 'новый').ok);
+  assert.ok(!ctx.auth.login('petr', 'p1').ok);
+  assert.ok(ctx.auth.login('petr', 'новый').ok);
+  // Деактивация закрывает вход
   assert.ok(ctx.api.deactivateUser(owner, u.user.id).ok);
-  assert.ok(!ctx.auth.login('1', '7777').ok);
+  assert.ok(!ctx.auth.login('petr', 'новый').ok);
   // Не-owner не может управлять пользователями
   assert.ok(!ctx.api.listUsers(loginWorker(), '1').ok);
 });
@@ -160,15 +200,26 @@ test('TV-ключи per-tenant: ключ выдаёт данные только 
   assert.ok(!ctx.api.getTvData('чужой-ключ').ok);
 });
 
-test('telegram: при двух прачках бот просит уточнить номер, «PIN 2» привязывает к прачке 2', async () => {
+test('telegram: привязка чата по одноразовому 6-значному коду (per-tenant)', async () => {
   const ctx = makeCtx();
   seedLaundry2();
-  // PIN без номера → список прачок
-  await ctx.telegram.handleUpdate_({ message: { text: '1111', chat: { id: 555 } } });
-  assert.ok(ctx.fetches[0].payload.text.includes('несколько'));
-  // «PIN 2» → привязка к прачке 2
-  await ctx.telegram.handleUpdate_({ message: { text: '1111 2', chat: { id: 555 } } });
+  const owner = loginOwner();
+  // Код привязан к активной прачке владельца
+  ctx.auth.switchLaundry(owner, '2');
+  const code = ctx.api.makeTelegramBindCode(owner).code;
+  assert.ok(/^\d{6}$/.test(code));
+  // Неверный код — отказ, привязки нет
+  const bad = code === '000000' ? '999999' : '000000';
+  await ctx.telegram.handleUpdate_({ message: { text: bad, chat: { id: 555 } } });
+  assert.ok(ctx.fetches[0].payload.text.includes('Неверный или просроченный код'));
+  assert.strictEqual(ctx.telegram.getOwnerChatId_('2'), '');
+  // Валидный код → chat_id пишется в Settings прачки 2; код одноразовый
+  await ctx.telegram.handleUpdate_({ message: { text: code, chat: { id: 555 } } });
   assert.ok(ctx.fetches[1].payload.text.includes('Прачка 2'));
   assert.strictEqual(ctx.telegram.getOwnerChatId_('2'), '555');
   assert.strictEqual(ctx.telegram.getOwnerChatId_('1'), '');
+  await ctx.telegram.handleUpdate_({ message: { text: code, chat: { id: 777 } } });
+  assert.ok(ctx.fetches[2].payload.text.includes('Неверный или просроченный код'));
+  // makeTelegramBindCode — только owner
+  assert.ok(!ctx.api.makeTelegramBindCode(loginWorker()).ok);
 });

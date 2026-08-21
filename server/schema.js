@@ -1,7 +1,7 @@
 // Схема данных CleanLab Control — порт src/Schema.gs.
 // Таблицы SQLite = листам Sheets, колонки = HEADERS. Все значения храним как TEXT
 // (даты — строками формата схемы), как и в Sheets.
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3;
 
 const SHEETS = {
   SETTINGS: 'Settings',
@@ -14,7 +14,8 @@ const SHEETS = {
   STORAGE: 'Storage',
   LOG: 'Log',
   LAUNDRIES: 'Laundries',
-  USERS: 'Users'
+  USERS: 'Users',
+  SESSIONS: 'Sessions'
 };
 
 // Мультитенантность: laundry_id — во всех операционных таблицах.
@@ -40,7 +41,11 @@ const HEADERS = {
   // Персональные аккаунты. role: owner | worker | driver | client.
   // У owner laundry_id пуст — доступ ко всем прачкам (активная выбирается в сессии).
   // У client (задел) client_id ссылается на Clients.
-  Users: ['id', 'laundry_id', 'name', 'role', 'pin', 'active', 'client_id']
+  Users: ['id', 'laundry_id', 'name', 'role', 'pin', 'active', 'client_id', 'login', 'pass_hash'],
+  // Персистентные сессии (замена in-memory Map): token → пользователь.
+  // laundry_id — активная прачка сессии (для owner меняется через switchLaundry).
+  // expires_at — unix-мс строкой; скользящее продление при каждом запросе.
+  Sessions: ['token', 'user_id', 'laundry_id', 'expires_at']
 };
 
 // Стартовое наполнение ItemTypes (spec §3.4).
