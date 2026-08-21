@@ -1,4 +1,4 @@
-// Точка входа VPS-бэкенда CleanLab Control (Прачка360).
+// Точка входа VPS-бэкенда CleanLab Control (Прачечная PRO).
 // Express на localhost:3100; снаружи — Caddy reverse_proxy с авто-HTTPS.
 const path = require('node:path');
 const express = require('express');

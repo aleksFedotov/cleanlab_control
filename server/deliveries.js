@@ -155,7 +155,7 @@ function getDriverRoute(token, date) {
   const storage = storageSummaryByClient_();
   return ok_({
     date: date,
-    laundryName: db.getSettings_().LAUNDRY_NAME || 'Прачка360',
+    laundryName: db.getSettings_().LAUNDRY_NAME || 'Прачечная PRO',
     cargo: driverCargo_(),
     visits: getVisitsByDate_(date).map(function (v) {
       const c = clients[v.client_id] || {};

@@ -51,9 +51,9 @@ async function handleUpdate_(update) {
   const candidate = text.indexOf('/start') === 0 ? text.slice(6).trim() : text;
   if (candidate && candidate === config.OWNER_PIN) {
     setOwnerChatId_(msg.chat.id);
-    await sendTelegram_(msg.chat.id, 'Прачка360: дайджесты подключены ✓');
+    await sendTelegram_(msg.chat.id, 'Прачечная PRO: дайджесты подключены ✓');
   } else if (text.indexOf('/start') === 0) {
-    await sendTelegram_(msg.chat.id, 'Прачка360: введите PIN владельца');
+    await sendTelegram_(msg.chat.id, 'Прачечная PRO: введите PIN владельца');
   }
 }
 
@@ -89,7 +89,7 @@ function buildDigestText_(date) {
     .filter(function (w) { return DONE_STATUSES.indexOf(w.status) !== -1; })
     .map(function (w) { return formatWashLine_(w, clientName_(w.client_id, clients)); });
   const shift = getShiftByDate_(date);
-  let text = formatDigest_(db.getSettings_().LAUNDRY_NAME || 'Прачка360', date, report, lines,
+  let text = formatDigest_(db.getSettings_().LAUNDRY_NAME || 'Прачечная PRO', date, report, lines,
     shift && shift.obj);
   // Fallback-дайджест: список незавершённых
   const closed = shift && shift.obj.status === 'closed';

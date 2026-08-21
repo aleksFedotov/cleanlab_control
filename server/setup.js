@@ -16,7 +16,7 @@ function setup() {
 function seedSettings_() {
   const defaults = {
     SCHEMA_VERSION: String(SCHEMA_VERSION),
-    LAUNDRY_NAME: 'Прачка360',
+    LAUNDRY_NAME: 'Прачечная PRO',
     DIGEST_TIME: '21:30'
   };
   const existing = {};

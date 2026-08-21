@@ -83,7 +83,7 @@ function getDayList(token, date) {
     const storage = storageSummaryByClient_();
     return ok_({
       date: date,
-      laundryName: db.getSettings_().LAUNDRY_NAME || 'Прачка360',
+      laundryName: db.getSettings_().LAUNDRY_NAME || 'Прачечная PRO',
       washes: sortDayList_(washes).map(function (w) {
         w.client_name = clientName_(w.client_id, clients);
         // Состояние склада для раскраски «К работе» (check-storage из спеки)
@@ -819,7 +819,7 @@ function getTvData(key) {
     };
   });
   return ok_({
-    date: today, laundryName: db.getSettings_().LAUNDRY_NAME || 'Прачка360',
+    date: today, laundryName: db.getSettings_().LAUNDRY_NAME || 'Прачечная PRO',
     counters: counters, washes: cards, updatedAt: timeStr_()
   });
 }

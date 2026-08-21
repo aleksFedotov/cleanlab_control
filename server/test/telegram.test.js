@@ -47,7 +47,7 @@ test('webhook: PIN владельца фиксирует OWNER_CHAT_ID в Settin
     let res = await post(url + '?secret=hook-secret', { update_id: 1, message: { text: '/start', chat: { id: 555 } } });
     assert.strictEqual(res.status, 200);
     assert.strictEqual(ctx.fetches.length, 1);
-    assert.strictEqual(ctx.fetches[0].payload.text, 'Прачка360: введите PIN владельца');
+    assert.strictEqual(ctx.fetches[0].payload.text, 'Прачечная PRO: введите PIN владельца');
     assert.strictEqual(ctx.fetches[0].payload.chat_id, 555);
 
     // PIN отдельным сообщением
