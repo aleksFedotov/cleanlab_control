@@ -1359,17 +1359,30 @@ function renderUsers() {
     .then(function (rr) {
       var users = rr[0].users, clients = rr[1].clients.filter(function (c) { return c.active === 'да'; });
       var html = '<div class="row" style="font-weight:600"><span style="flex:2">Имя</span>' +
-        '<span style="flex:1">Роль</span><span style="flex:1">Логин</span><span style="width:200px"></span></div>';
+        '<span style="flex:1">Роль</span><span style="flex:1">Логин</span><span style="width:290px"></span></div>';
       html += users.map(function (u) {
-        return '<div class="row"><span style="flex:2">' + esc(u.name) +
+        var inactive = u.active !== 'да';
+        // Кнопки: у всех «Изменить»; у активных не-owner — «Сбросить пароль»/«Отключить»;
+        // у отключённых — «Включить». Себя отключить не даст и сервер.
+        var btns = '<button class="btn btn-ghost" data-edit="' + esc(u.id) + '">Изменить</button>';
+        if (inactive) {
+          btns += '<button class="btn btn-ghost" data-react="' + esc(u.id) + '">Включить</button>';
+        } else if (u.role !== 'owner') {
+          btns += '<button class="btn btn-ghost" data-reset="' + esc(u.id) + '">Сбросить пароль</button>' +
+            '<button class="btn btn-ghost" data-deact="' + esc(u.id) + '">Отключить</button>';
+        }
+        return '<div class="row"' + (inactive ? ' style="opacity:.5"' : '') +
+          '><span style="flex:2">' + esc(u.name) +
+          (inactive ? ' <span class="cm">(отключён)</span>' : '') +
           (u.role === 'client' ? ' <span class="cm">' + esc(clientNameOf(clients, u.client_id)) + '</span>' : '') + '</span>' +
           '<span style="flex:1">' + esc(USER_ROLE_LABELS[u.role] || u.role) + '</span>' +
           '<span style="flex:1">' + esc(u.login) + '</span>' +
-          '<span style="width:200px">' + (u.role === 'owner' ? '' :
-            '<button class="btn btn-ghost" data-reset="' + esc(u.id) + '">Сбросить пароль</button>' +
-            '<button class="btn btn-ghost" data-deact="' + esc(u.id) + '">Отключить</button>') + '</span></div>';
+          '<span style="width:290px">' + btns + '</span></div>';
       }).join('');
-      html += '<h2 style="margin-top:16px">Добавить</h2>' +
+      // Форма добавления/редактирования: в режиме редактирования пароль скрыт
+      // (его меняет «Сбросить пароль»), id редактируемого — в data-edit-id формы.
+      html += '<h2 style="margin-top:16px" id="uFormTitle">Добавить</h2>' +
+        '<div id="uForm" data-edit-id="">' +
         '<div class="row"><input id="uName" placeholder="Имя" style="flex:2">' +
         '<select id="uRole" style="flex:1">' +
         ['worker', 'driver', 'client', 'owner'].map(function (r) {
@@ -1381,6 +1394,7 @@ function renderUsers() {
         clients.map(function (c) { return '<option value="' + esc(c.id) + '">' + esc(c.name) + '</option>'; }).join('') +
         '</select></div>' +
         '<button class="btn btn-primary btn-big" id="uAdd">Добавить сотрудника</button>' +
+        '<button class="btn btn-ghost btn-big" id="uCancelEdit" style="display:none">Отмена</button></div>' +
         '<button class="btn btn-ghost btn-big" id="uTgBind">Привязать Telegram</button>' +
         '<div class="row cm" id="uTgCode" style="display:none"></div>';
       setContainer(html);
@@ -1389,16 +1403,53 @@ function renderUsers() {
       };
       document.getElementById('uAdd').onclick = function () {
         var role = document.getElementById('uRole').value;
+        var editId = document.getElementById('uForm').dataset.editId;
         var payload = {
-          laundryId: state.laundryId, name: document.getElementById('uName').value.trim(),
-          role: role, login: document.getElementById('uLogin').value.trim(),
-          password: document.getElementById('uPass').value
+          name: document.getElementById('uName').value.trim(),
+          role: role, login: document.getElementById('uLogin').value.trim()
         };
         if (role === 'client') payload.clientId = document.getElementById('uClient').value;
-        api('createUser', state.token, payload)
-          .then(function () { toast('Сохранено ✓'); renderUsers(); })
-          .catch(function (e) { toast(e.message, true); });
+        if (editId) {
+          payload.id = editId;
+          api('updateUser', state.token, payload)
+            .then(function () { toast('Сохранено ✓'); renderUsers(); })
+            .catch(function (e) { toast(e.message, true); });
+        } else {
+          payload.laundryId = state.laundryId;
+          payload.password = document.getElementById('uPass').value;
+          api('createUser', state.token, payload)
+            .then(function () { toast('Сохранено ✓'); renderUsers(); })
+            .catch(function (e) { toast(e.message, true); });
+        }
       };
+      // Режим редактирования: заполнить форму текущими значениями
+      function enterEdit(u) {
+        document.getElementById('uForm').dataset.editId = u.id;
+        document.getElementById('uFormTitle').textContent = 'Изменить: ' + u.name;
+        document.getElementById('uName').value = u.name;
+        document.getElementById('uRole').value = u.role;
+        document.getElementById('uLogin').value = u.login;
+        document.getElementById('uPass').style.display = 'none';
+        document.getElementById('uClientRow').style.display = u.role === 'client' ? '' : 'none';
+        if (u.role === 'client' && u.client_id) document.getElementById('uClient').value = u.client_id;
+        document.getElementById('uAdd').textContent = 'Сохранить';
+        document.getElementById('uCancelEdit').style.display = '';
+        document.getElementById('uName').focus();
+      }
+      document.getElementById('uCancelEdit').onclick = function () { renderUsers(); };
+      Array.prototype.forEach.call(document.querySelectorAll('[data-edit]'), function (b) {
+        b.onclick = function () {
+          var u = users.filter(function (x) { return x.id === b.dataset.edit; })[0];
+          if (u) enterEdit(u);
+        };
+      });
+      Array.prototype.forEach.call(document.querySelectorAll('[data-react]'), function (b) {
+        b.onclick = function () {
+          api('reactivateUser', state.token, b.dataset.react)
+            .then(function () { toast('Включён ✓'); renderUsers(); })
+            .catch(function (e) { toast(e.message, true); });
+        };
+      });
       document.getElementById('uTgBind').onclick = function () {
         api('makeTelegramBindCode', state.token).then(function (res) {
           var box = document.getElementById('uTgCode');
@@ -1443,7 +1494,8 @@ function renderLaundries() {
         '<span style="flex:2">' + (tvUrl
           ? '<a href="' + tvUrl + '" target="_blank">Табло</a> <span class="cm">' + esc(l.tvKey) + '</span>'
           : '<span class="cm">нет ключа</span>') + '</span>' +
-        '<span style="width:110px">' + (l.id === state.laundryId ? '<span class="cm">активна</span>' :
+        '<span style="width:210px"><button class="btn btn-ghost" data-ren-l="' + esc(l.id) + '" data-name="' + esc(l.name) + '">Переименовать</button>' +
+          (l.id === state.laundryId ? '<span class="cm">активна</span>' :
           '<button class="btn btn-ghost" data-deact-l="' + esc(l.id) + '">Отключить</button>') + '</span></div>';
     }).join('');
     html += '<h2 style="margin-top:16px">Добавить прачку</h2>' +
@@ -1457,6 +1509,15 @@ function renderLaundries() {
         renderLaundries();
       }).catch(function (e) { toast(e.message, true); });
     };
+    Array.prototype.forEach.call(document.querySelectorAll('[data-ren-l]'), function (b) {
+      b.onclick = function () {
+        var name = prompt('Новое название прачки:', b.dataset.name);
+        if (!name || !name.trim()) return;
+        api('updateLaundry', state.token, { id: b.dataset.renL, name: name.trim() })
+          .then(function () { toast('Сохранено ✓'); renderLaundries(); })
+          .catch(function (e) { toast(e.message, true); });
+      };
+    });
     Array.prototype.forEach.call(document.querySelectorAll('[data-deact-l]'), function (b) {
       b.onclick = function () {
         confirmDialog('Отключить прачку? Данные сохранятся, но прачка пропадёт из списков.', 'Отключить', function () {

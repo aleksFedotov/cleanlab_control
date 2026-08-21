@@ -67,7 +67,7 @@
 
 ### 3.11 `Log`
 `ts`, `actor` (роль), `action`, `entity`, `details` (JSON/текст), `laundry_id`.
-События: `wash_create`, `wash_start`, `wash_done`, `wash_issue`, `wash_defer`, `wash_cancel`, `wash_edit`, `wash_delete`, `shift_close`, `storage_check`, `visit_move`, `week_copy`, `user_create`, `user_deactivate` и события водителя.
+События: `wash_create`, `wash_start`, `wash_done`, `wash_issue`, `wash_defer`, `wash_cancel`, `wash_edit`, `wash_delete`, `shift_close`, `storage_check`, `visit_move`, `week_copy`, `user_create`, `user_update`, `user_deactivate`, `user_reactivate`, `user_password_reset`, `laundry_create`, `laundry_update`, `laundry_deactivate` и события водителя.
 
 ### 3.12 `Users`
 `id` (`usr_<n>`), `laundry_id` (пусто у owner), `name`, `role` (`owner`/`worker`/`driver`/`client`), `pin` (устаревшее, не используется), `active`, `client_id` (у `client` — ссылка на Clients), `login` (глобально уникален), `pass_hash` (scrypt, формат `salt:hash` в hex).
@@ -131,7 +131,7 @@
 - Публичные (без токена): `login`, `getTvData(key)`.
 - Auth: `login(username, password)`, `logout(token)`, `switchLaundry(token, laundryId)`.
 - Сотрудник: `getDayList(token, date)`, `startWash`, `completeWash(token, washId, items, weightKg, mode, bags)`, `editWashData`, `deferWash`, `addUnplannedWash`, `getShiftCloseState`, `closeShift(token, force)`, `confirmStorageCheck`.
-- Владелец: `getDeliveryPlan`, `addToDelivery`, `cancelWash`, `deleteWash`, `markIssued`, `updateIssueDate`, `getWeekPlan`, `addWeekCard`, `moveWeekCard`, `removeWeekCard`, `getStorage`, `getDayReport`, справочники (`saveClient`, `deleteClient`, `saveItemType`, `rememberClientItemType`, `getRefs`), пользователи (`listUsers`, `createUser`, `resetUserPassword`, `deactivateUser`, `makeTelegramBindCode`), прачки (`listLaundries` — с TV-ключами, `createLaundry` — с генерацией TV-ключа, `deactivateLaundry` — нельзя отключить активную прачку сессии и последнюю активную).
+- Владелец: `getDeliveryPlan`, `addToDelivery`, `cancelWash`, `deleteWash`, `markIssued`, `updateIssueDate`, `getWeekPlan`, `addWeekCard`, `moveWeekCard`, `removeWeekCard`, `getStorage`, `getDayReport`, справочники (`saveClient`, `deleteClient`, `saveItemType`, `rememberClientItemType`, `getRefs`), пользователи (`listUsers` — включая отключённых, `createUser`, `updateUser` — имя/роль/логин/clientId, пароль не трогает; нельзя менять роль и отключать самого себя, `resetUserPassword`, `deactivateUser`, `reactivateUser`, `makeTelegramBindCode`), прачки (`listLaundries` — с TV-ключами, `createLaundry` — с генерацией TV-ключа, `updateLaundry` — переименование (Laundries + per-tenant `LAUNDRY_NAME`), `deactivateLaundry` — нельзя отключить активную прачку сессии и последнюю активную).
 - Водитель/развозы (`server/deliveries.js`): `getDeliveryVisits`, `addDeliveryVisit`, `moveDeliveryVisit`, `removeDeliveryVisit`, `setPickupOnly`, `getDriverRoute`, `driverTakeAllClean`, `driverAction`, `driverHandover`.
 - TV: `getTvData(key)` — счётчики дня + стирки текущей даты прачки (клиент, статус, кг, штук, перенос, комментарий).
 - Telegram: `POST /telegram/webhook?secret=<WEBHOOK_SECRET>`; неверный секрет — молчаливый 200.

@@ -881,6 +881,22 @@ function createLaundry(token, data) {
   });
 }
 
+// Переименование прачки: запись в Laundries + per-tenant Settings LAUNDRY_NAME.
+function updateLaundry(token, data) {
+  const session = requireRole_(token, ['owner']);
+  if (!session) return err_('Нет доступа');
+  const name = String((data && data.name) || '').trim();
+  if (!name) return err_('Укажите название прачки');
+  const found = db.findById_('Laundries', data && data.id);
+  if (!found) return err_('Прачка не найдена');
+  found.obj.name = name;
+  db.updateRow_('Laundries', found.rowNumber, found.obj);
+  db.setTenantSetting_(found.obj.id, 'LAUNDRY_NAME', name);
+  db.invalidateRefCache_();
+  logEvent(actorOf_(session), 'laundry_update', found.obj.id, { name: name }, session.laundryId);
+  return ok_({ laundry: { id: found.obj.id, name: name } });
+}
+
 // Деактивация прачки: данные не удаляются, прачка пропадает из списков.
 // Нельзя деактивировать активную прачку текущей сессии и последнюю активную.
 function deactivateLaundry(token, id) {
@@ -903,13 +919,14 @@ function deactivateLaundry(token, id) {
 // --- Пользователи (owner): экран «Сотрудники» ---
 
 // Список пользователей прачки (по умолчанию — активной в сессии) + владельцы.
+// Отдаём и неактивных (active=нет) — UI их помечает и предлагает «Включить».
 // pass_hash/pin из ответа убираем: клиенту хэши не нужны.
 function listUsers(token, laundryId) {
   const session = requireRole_(token, ['owner']);
   if (!session) return err_('Нет доступа');
   const lid = String(laundryId || session.laundryId);
   const users = db.readAll_('Users').filter(function (u) {
-    return u.active === 'да' && (u.laundry_id === lid || u.role === 'owner');
+    return u.laundry_id === lid || u.role === 'owner';
   }).map(function (u) {
     return { id: u.id, laundry_id: u.laundry_id, name: u.name, role: u.role,
       login: u.login, active: u.active, client_id: u.client_id };
@@ -961,14 +978,69 @@ function resetUserPassword(token, userId, newPassword) {
   return ok_({ user: found.obj });
 }
 
+// Правка аккаунта: имя, роль, логин, clientId (при роли client). Пароль не
+// трогаем — для этого resetUserPassword. Логин глобально уникален (кроме самого
+// пользователя). Нельзя менять роль самому себе (owner по своему userId).
+function updateUser(token, user) {
+  const session = requireRole_(token, ['owner']);
+  if (!session) return err_('Нет доступа');
+  user = user || {};
+  const found = db.findById_('Users', user.id);
+  if (!found) return err_('Пользователь не найден');
+  const ROLES = ['owner', 'worker', 'driver', 'client'];
+  if (user.role !== undefined && ROLES.indexOf(user.role) === -1) return err_('Неизвестная роль');
+  if (user.name !== undefined && !String(user.name).trim()) return err_('Укажите имя');
+  if (String(user.id) === String(session.userId) && user.role !== undefined && user.role !== found.obj.role) {
+    return err_('Нельзя изменить роль самому себе');
+  }
+  const u = found.obj;
+  if (user.name !== undefined) u.name = String(user.name).trim();
+  if (user.role !== undefined) u.role = user.role;
+  if (user.login !== undefined) {
+    const login = String(user.login).trim();
+    if (!login) return err_('Укажите логин');
+    const taken = db.readAll_('Users').some(function (x) {
+      return x.active === 'да' && x.login === login && x.id !== u.id;
+    });
+    if (taken) return err_('Логин уже занят');
+    u.login = login;
+  }
+  // Роль client требует ссылку на клиента; у остальных ролей client_id пуст
+  if (user.clientId !== undefined || user.role !== undefined) {
+    const cid = user.clientId !== undefined ? user.clientId : u.client_id;
+    if (u.role === 'client') {
+      if (!cid) return err_('Выберите клиента');
+      u.client_id = String(cid);
+    } else {
+      u.client_id = '';
+    }
+  }
+  db.updateRow_('Users', found.rowNumber, u);
+  logEvent(actorOf_(session), 'user_update', u.id, { name: u.name, role: u.role, login: u.login }, session.laundryId);
+  return ok_({ user: { id: u.id, laundry_id: u.laundry_id, name: u.name, role: u.role, login: u.login, active: u.active, client_id: u.client_id } });
+}
+
 function deactivateUser(token, id) {
   const session = requireRole_(token, ['owner']);
   if (!session) return err_('Нет доступа');
+  if (String(id) === String(session.userId)) return err_('Нельзя отключить самого себя');
   const found = db.findById_('Users', id);
   if (!found) return err_('Пользователь не найден');
   found.obj.active = 'нет';
   db.updateRow_('Users', found.rowNumber, found.obj);
   logEvent(actorOf_(session), 'user_deactivate', id, { name: found.obj.name }, session.laundryId);
+  return ok_({ user: found.obj });
+}
+
+// Возврат доступа отключённому пользователю (пара к deactivateUser).
+function reactivateUser(token, id) {
+  const session = requireRole_(token, ['owner']);
+  if (!session) return err_('Нет доступа');
+  const found = db.findById_('Users', id);
+  if (!found) return err_('Пользователь не найден');
+  found.obj.active = 'да';
+  db.updateRow_('Users', found.rowNumber, found.obj);
+  logEvent(actorOf_(session), 'user_reactivate', id, { name: found.obj.name }, session.laundryId);
   return ok_({ user: found.obj });
 }
 
@@ -1034,14 +1106,14 @@ const { login, logout, switchLaundry } = require('./auth');
 
 // Публичные методы API: имя функции = имя метода (POST /api/<method>, тело { args: [...] }).
 const api = {
-  login, logout, switchLaundry, listLaundries, createLaundry, deactivateLaundry,
+  login, logout, switchLaundry, listLaundries, createLaundry, updateLaundry, deactivateLaundry,
   getDayList, startWash, completeWash, editWashData, deferWash, addUnplannedWash,
   getShiftCloseState, closeShift,
   getDeliveryPlan, addToDelivery, cancelWash, deleteWash, confirmStorageCheck, markIssued, updateIssueDate,
   getWeekPlan, addWeekCard, moveWeekCard, removeWeekCard,
   getStorage, getDayReport,
   saveClient, deleteClient, saveItemType, rememberClientItemType, getRefs,
-  listUsers, createUser, resetUserPassword, deactivateUser, makeTelegramBindCode,
+  listUsers, createUser, updateUser, resetUserPassword, deactivateUser, reactivateUser, makeTelegramBindCode,
   getTvData,
   // Развозы и водитель (логика в deliveries.js)
   getDeliveryVisits: deliveries.getDeliveryVisits,
@@ -1073,7 +1145,7 @@ function mountApi(app) {
 module.exports = {
   mountApi, api,
   err_, ok_, withLock_, round1_, timeStr_,
-  login, logout, switchLaundry, listLaundries, createLaundry, deactivateLaundry,
+  login, logout, switchLaundry, listLaundries, createLaundry, updateLaundry, deactivateLaundry,
   ensureShift_, getShiftByDate_, ensureWashesFromDelivery_, notReadyForDelivery_,
   getDayList, startWash, completeWash, editWashData, deferWash, addUnplannedWash,
   getShiftCloseState, closeShift,
@@ -1081,7 +1153,7 @@ module.exports = {
   getWeekPlan, addWeekCard, moveWeekCard, removeWeekCard,
   getStorage, getDayReport,
   saveClient, deleteClient, saveItemType, rememberClientItemType, getRefs,
-  listUsers, createUser, resetUserPassword, deactivateUser, makeTelegramBindCode,
+  listUsers, createUser, updateUser, resetUserPassword, deactivateUser, reactivateUser, makeTelegramBindCode,
   consumeTelegramBindCode_, getTvData,
   getDeliveryVisits: deliveries.getDeliveryVisits,
   addDeliveryVisit: deliveries.addDeliveryVisit,

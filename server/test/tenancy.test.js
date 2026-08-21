@@ -121,6 +121,56 @@ test('прачки из UI: createLaundry создаёт с TV-ключом; dea
   assert.ok(!ctx.api.deactivateLaundry(loginWorker(), '1').ok);
 });
 
+test('прачки: updateLaundry переименовывает (Laundries + Settings), пустое имя отклонено', () => {
+  const ctx = makeCtx();
+  const owner = loginOwner();
+  assert.ok(!ctx.api.updateLaundry(loginWorker(), { id: '1', name: 'X' }).ok);
+  assert.ok(!ctx.api.updateLaundry(owner, { id: '1', name: ' ' }).ok);
+  assert.ok(!ctx.api.updateLaundry(owner, { id: '99', name: 'X' }).ok);
+  assert.ok(ctx.api.updateLaundry(owner, { id: '1', name: 'Главная прачка' }).ok);
+  assert.strictEqual(ctx.db.findById_('Laundries', '1').obj.name, 'Главная прачка');
+  assert.strictEqual(ctx.db.getSettings_('1').LAUNDRY_NAME, 'Главная прачка');
+  // Имя подтянулось в список и в день
+  assert.strictEqual(ctx.api.listLaundries(owner).laundries[0].name, 'Главная прачка');
+  assert.strictEqual(ctx.api.getDayList(owner, TODAY).laundryName, 'Главная прачка');
+});
+
+test('пользователи: updateUser правит логин/роль, защита от себя; reactivateUser возвращает доступ', () => {
+  const ctx = makeCtx();
+  const owner = loginOwner();
+  const u = ctx.api.createUser(owner, { laundryId: '1', name: 'Пётр', role: 'worker', login: 'petr', password: 'p1' }).user;
+  // Только owner
+  assert.ok(!ctx.api.updateUser(loginWorker(), { id: u.id, name: 'X' }).ok);
+  // Правка имени и логина; старый логин перестаёт работать, новый — работает
+  assert.ok(ctx.api.updateUser(owner, { id: u.id, name: 'Пётр Иванов', login: 'petr2' }).ok);
+  assert.ok(!ctx.auth.login('petr', 'p1').ok);
+  assert.ok(ctx.auth.login('petr2', 'p1').ok); // пароль не тронут
+  // Конфликт логина с другим пользователем отклонён; с самим собой — ок
+  assert.ok(!ctx.api.updateUser(owner, { id: u.id, login: 'worker1' }).ok);
+  assert.ok(ctx.api.updateUser(owner, { id: u.id, login: 'petr2' }).ok);
+  // Смена роли worker → driver
+  assert.ok(ctx.api.updateUser(owner, { id: u.id, role: 'driver' }).ok);
+  assert.strictEqual(ctx.auth.login('petr2', 'p1').role, 'driver');
+  assert.ok(!ctx.api.updateUser(owner, { id: u.id, role: 'admin' }).ok);
+  // Нельзя менять роль самому себе и отключать себя
+  const me = ctx.db.readAll_('Users').find(x => x.login === 'boss');
+  assert.ok(!ctx.api.updateUser(owner, { id: me.id, role: 'worker' }).ok);
+  assert.ok(!ctx.api.deactivateUser(owner, me.id).ok);
+  // Отключение и возврат доступа
+  assert.ok(ctx.api.deactivateUser(owner, u.id).ok);
+  assert.ok(!ctx.auth.login('petr2', 'p1').ok);
+  // Неактивный виден в списке (помечен active=нет)
+  const listed = ctx.api.listUsers(owner, '1').users.find(x => x.id === u.id);
+  assert.strictEqual(listed.active, 'нет');
+  assert.ok(ctx.api.reactivateUser(owner, u.id).ok);
+  assert.ok(ctx.auth.login('petr2', 'p1').ok);
+  // Роль client при правке требует clientId
+  assert.ok(!ctx.api.updateUser(owner, { id: u.id, role: 'client' }).ok);
+  const clientId = ctx.api.saveClient(owner, { name: 'Отель А' }).client.id;
+  assert.ok(ctx.api.updateUser(owner, { id: u.id, role: 'client', clientId: clientId }).ok);
+  assert.strictEqual(ctx.db.findById_('Users', u.id).obj.client_id, clientId);
+});
+
 test('логин: неверный пароль и чужая учётка не пускают, сообщение одно на все ошибки', () => {
   const ctx = makeCtx();
   seedLaundry2();
