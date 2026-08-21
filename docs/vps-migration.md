@@ -1,6 +1,8 @@
 # План миграции CleanLab Control с Google Apps Script на VPS
 
-Статус: **Этап 2 выполнен** (ветка `vps-migration`, монорепо): бэкенд перенесён в `server/` (Express + SQLite), фронт — `server/public/` с fetch-адаптером, Telegram — `/telegram/webhook`, 41 тест нового слоя + 65 GAS-тестов зелёные. Дальше: этап 1 (VPS/домен/Caddy) и этап 3 (миграция данных).
+> **Статус: миграция завершена.** VPS-версия (`server/`, Express + SQLite) — единственная; GAS-версия (`src/*.gs`) удалена из репозитория. Поверх добавлена мультитенантность (таблицы `Laundries`/`Users`, `laundry_id` в операционных таблицах, per-tenant TV-ключи и Telegram-чаты). Документ оставлен как историческая запись плана; актуальное состояние — в `docs/spec.md` и `docs/deploy.md`.
+
+Статус на момент плана: **Этап 2 выполнен** (ветка `vps-migration`, монорепо): бэкенд перенесён в `server/` (Express + SQLite), фронт — `server/public/` с fetch-адаптером, Telegram — `/telegram/webhook`, 41 тест нового слоя + 65 GAS-тестов зелёные. Дальше: этап 1 (VPS/домен/Caddy) и этап 3 (миграция данных).
 
 ## Принятые решения (итоги обсуждения)
 

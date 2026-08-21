@@ -1,6 +1,8 @@
 # CleanLab Control — Тикеты MVP
 
 > По `docs/spec.md`. Порядок — по зависимостям. Реализация — строго по одному одобренному тикету за цикл.
+>
+> **Архив:** тикеты T1–T9 писались под Google Apps Script (`src/*.gs`) и выполнены; платформа затем переехала на VPS (`server/`, Express + SQLite), GAS-версия удалена. Пути `src/` в T1–T9 относятся к исторической реализации.
 
 ## T1. Скелет проекта и тестраннер
 - `appsscript.json` (timeZone `Europe/Moscow`, webapp-деплой, oauthScopes), `.clasp.json`-шаблон, `.gitignore`, `package.json` с Node test runner (`node --test`).

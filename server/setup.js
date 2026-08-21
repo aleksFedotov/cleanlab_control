@@ -47,23 +47,30 @@ function seedItemTypes_() {
 
 const DEMO_PER_DAY = 5;
 
-function seedDemoData() {
-  if (db.getSettings_().DEMO_SEEDED === 'да') {
-    console.log('seedDemoData: уже выполнено (флаг DEMO_SEEDED в Settings)');
+// Задел мультитенантности: сидим конкретную прачку (по умолчанию — первую).
+// Флаг идемпотентности per-tenant: DEMO_SEEDED в Settings с laundry_id прачки.
+function seedDemoData(laundryId) {
+  laundryId = laundryId || '1';
+  // Проверяем только tenant-строку: глобальный флаг (от сида прачки 1 до v2) не должен блокировать другие прачки
+  const seeded = db.findRowsBy_(SHEETS.SETTINGS, function (r) {
+    return r.key === 'DEMO_SEEDED' && r.laundry_id === laundryId && r.value === 'да';
+  }, 1)[0];
+  if (seeded) {
+    console.log('seedDemoData: прачка ' + laundryId + ' уже засеяна (флаг DEMO_SEEDED)');
     return 0;
   }
 
   // Минимум 12 активных клиентов — при нехватке добиваем демо-клиентами.
   // Первым трем задаём настройки новых фич: свои виды белья и режим учёта.
   const CLIENT_TYPES = ['отель', 'ресторан', 'спа', 'прочее'];
-  const clients = db.getClients_('1').filter(function (c) { return c.active === 'да'; });
+  const clients = db.getClients_(laundryId).filter(function (c) { return c.active === 'да'; });
   for (let i = clients.length + 1; i <= 12; i++) {
-    const cid = 'cli_demo_' + i;
+    const cid = 'cli_demo_' + laundryId + '_' + i;
     const row = {
       id: cid, name: 'Демо-клиент ' + i, contact: '+7 900 000-00-' + (10 + i),
       address: 'ул. Демонстрационная, ' + i, type: CLIENT_TYPES[i % CLIENT_TYPES.length],
       storage: i % 3 === 0 ? 'да' : 'нет',
-      active: 'да', comment: '', item_types: '', accounting: '', laundry_id: '1'
+      active: 'да', comment: '', item_types: '', accounting: '', laundry_id: laundryId
     };
     if (i === 1) row.item_types = JSON.stringify(['itm_1', 'itm_2', 'itm_4', 'itm_5']);
     if (i === 2) row.accounting = 'weight';
@@ -100,7 +107,7 @@ function seedDemoData() {
         ord: j + 1, status: st,
         delivered_at: past ? d + ' 12:00:00' : '',
         pickup: (st === 'picked' || st === 'both') ? 'да' : '',
-        driver_comment: '', created_by: 'seed', created_at: nowStr_(), laundry_id: '1'
+        driver_comment: '', created_by: 'seed', created_at: nowStr_(), laundry_id: laundryId
       });
       created++;
       // Прошлые дни: выданным визитам — выполненная стирка, чтобы отчёт не был пустым
@@ -112,7 +119,7 @@ function seedDemoData() {
           dirty_weight_kg: kg, items_total: 20 + j * 4, comment: '',
           created_by: 'seed', created_at: d + ' 08:00:00',
           started_at: d + ' 09:00:00', done_at: d + ' 11:00:00', issued_at: d + ' 12:00:00',
-          deferred_from: '', deferred_reason: '', bags: 2 + (j % 3), laundry_id: '1'
+          deferred_from: '', deferred_reason: '', bags: 2 + (j % 3), laundry_id: laundryId
         });
         db.appendRow_(SHEETS.WASH_ITEMS, {
           id: db.nextId_(SHEETS.WASH_ITEMS, 'wi'), wash_id: wid,
@@ -130,7 +137,7 @@ function seedDemoData() {
       dirty_weight_kg: '', items_total: items || '', comment: '',
       created_by: 'seed', created_at: nowStr_(),
       started_at: '', done_at: '', issued_at: '', deferred_from: '', deferred_reason: '',
-      bags: bags || '', laundry_id: '1'
+      bags: bags || '', laundry_id: laundryId
     };
     if (status === 'in_progress' || doneLike) w.started_at = today + ' 09:00:00';
     if (doneLike) { w.done_at = today + ' 11:00:00'; w.dirty_weight_kg = kg || ''; }
@@ -141,7 +148,7 @@ function seedDemoData() {
     db.appendRow_(SHEETS.STORAGE, {
       id: db.nextId_(SHEETS.STORAGE, 'st'), client_id: clientId, kind: kind,
       weight_kg: kg || '', items_total: items || '', wash_id: washId || '',
-      created_at: nowStr_(), consumed_at: '', laundry_id: '1'
+      created_at: nowStr_(), consumed_at: '', laundry_id: laundryId
     });
   }
 
@@ -164,9 +171,9 @@ function seedDemoData() {
   const wPart2 = mkWash(m[1], 'partial', 5, 12, 1);              // partial
   mkStorage(m[1], 'clean', 5, 12, wPart2);
 
-  db.appendRow_(SHEETS.SETTINGS, { key: 'DEMO_SEEDED', value: 'да' });
+  db.setTenantSetting_(laundryId, 'DEMO_SEEDED', 'да');
   db.invalidateRefCache_();
-  logEvent('seed', 'seed_demo', '-', { visits: created }, '1');
+  logEvent('seed', 'seed_demo', '-', { visits: created }, laundryId);
   console.log('seedDemoData: создано визитов ' + created);
   return created;
 }
