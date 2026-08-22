@@ -1,0 +1,171 @@
+/* «План» — недельная доска развоза (спека §5). Цвета/радиусы/тени — только var(--...). */
+
+.board {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 10px;
+  align-items: start;
+}
+
+.col {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-l);
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 180px;
+}
+
+/* Сегодняшний день подсвечен (спека §5) */
+.today {
+  background: var(--bluing-soft);
+  border-color: var(--bluing-border);
+}
+
+.colHead {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--text-2);
+}
+
+.today .colHead {
+  color: var(--bluing);
+}
+
+.card {
+  text-align: left;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-m);
+  box-shadow: var(--shadow-card);
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.card:hover {
+  border-color: var(--bluing-border);
+}
+
+.cardName {
+  font-size: 13.5px;
+  font-weight: 700;
+}
+
+.cardMeta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.cardFlags {
+  font-size: 11.5px;
+  color: var(--text-3);
+}
+
+.add {
+  margin-top: auto;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-m);
+  color: var(--text-4);
+  padding: 7px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-size: 12.5px;
+}
+
+.add:hover {
+  color: var(--bluing);
+  border-color: var(--bluing-border);
+  background: var(--bluing-soft);
+}
+
+.today .add:hover {
+  background: var(--surface);
+}
+
+/* --- Диалоги --- */
+
+.dialogHint {
+  color: var(--text-3);
+  font-size: 12.5px;
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.dialogLabel {
+  color: var(--text-3);
+  font-size: 12.5px;
+  margin: 12px 0 6px;
+}
+
+.pickList {
+  max-height: 50vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.pick {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  padding: 6px 4px;
+  border-radius: var(--radius-s);
+  cursor: pointer;
+}
+
+.pick:hover {
+  background: var(--neutral-bg);
+}
+
+.pick input {
+  width: auto;
+}
+
+.pickTaken {
+  color: var(--text-4);
+  cursor: default;
+}
+
+.quickRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.dateRow {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.dateRow input {
+  flex: 1;
+}
+
+.delBtn {
+  color: var(--danger);
+}
+
+@media (max-width: 1000px) {
+  .board {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .board {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

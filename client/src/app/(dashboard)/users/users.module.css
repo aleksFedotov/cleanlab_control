@@ -1,0 +1,96 @@
+/* Стили страницы «Сотрудники». Цвета/радиусы — только токены globals.css. */
+
+/* Бейдж роли — нейтральный тон StatusBadge (спека §5: «нейтральные цвета») */
+.roleBadge {
+  display: inline-block;
+  padding: 5px 11px;
+  border-radius: var(--radius-pill);
+  font-size: 11.5px;
+  font-weight: 700;
+  line-height: 1.2;
+  white-space: nowrap;
+  color: var(--neutral);
+  background: var(--neutral-bg);
+}
+
+/* Отключённые сотрудники приглушены (legacy: opacity .5 на строку) */
+.inactive {
+  opacity: 0.5;
+}
+
+.nameWrap {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.sub {
+  color: var(--text-4);
+  font-size: 12px;
+}
+
+.actions {
+  display: flex;
+  gap: 2px;
+  justify-content: flex-end;
+}
+
+/* Формы в модалках */
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.formRow {
+  display: flex;
+  gap: 10px;
+}
+.formRow .field {
+  flex: 1;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-3);
+}
+
+.err {
+  font-size: 12px;
+  color: var(--danger);
+}
+
+/* Код привязки Telegram */
+.tgCode {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+  font-size: 30px;
+  font-weight: 800;
+  letter-spacing: 6px;
+  text-align: center;
+  color: var(--bluing);
+  background: var(--bluing-soft);
+  border-radius: var(--radius-m);
+  padding: 14px;
+  margin-bottom: 10px;
+}
+
+.tgHint {
+  font-size: 12.5px;
+  color: var(--text-3);
+}
+
+/* Скелетон списка */
+.skel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}

@@ -1,0 +1,114 @@
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap);
+}
+
+.skel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.searchWrap {
+  position: relative;
+  max-width: 420px;
+}
+
+.searchIcon {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-4);
+  pointer-events: none;
+}
+
+.search {
+  padding-left: 36px;
+}
+
+.cellName {
+  font-weight: 700;
+  color: var(--text);
+}
+
+.sub {
+  color: var(--text-3);
+  font-size: 12.5px;
+}
+
+.muted {
+  opacity: 0.55;
+}
+
+.rowActions {
+  display: inline-flex;
+  gap: 2px;
+}
+
+/* --- Формы в модалках --- */
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  color: var(--text);
+}
+
+.twoCol {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.section {
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.sectionTitle {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--text-4);
+}
+
+.hint {
+  font-size: 12.5px;
+  color: var(--text-3);
+}
+
+.checkList {
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.checkRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  cursor: pointer;
+}
+
+.checkRow input {
+  width: auto;
+  flex-shrink: 0;
+}
+
+.err {
+  color: var(--danger);
+  font-size: 12.5px;
+  margin-top: 4px;
+}
+
+@media (max-width: 640px) {
+  .twoCol {
+    grid-template-columns: 1fr;
+  }
+}

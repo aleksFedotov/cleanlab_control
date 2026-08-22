@@ -72,6 +72,64 @@ node --env-file=.env -e "require('./setup').setup()"
 
 Если смена не закрыта, в `DIGEST_TIME` (Settings, по умолчанию 21:30) шлётся fallback-дайджест по каждой активной прачке. На VPS это cron/таймер, вызывающий `fallbackDigestTrigger` (см. `docs/vps-migration.md`).
 
+## 6.5. Next.js фронт (client/)
+
+Новый фронт — Next.js в `client/` (клиентский SPA, App Router). Express API не меняется.
+
+```bash
+cd client
+npm install
+npm run build
+npm start   # next start, localhost:3000
+```
+
+Для постоянной работы — второй systemd-сервис (или PM2) рядом с Express.
+
+### Caddy: разводка трафика
+
+`/api/*` и табло остаются на Express (:3100), остальное уходит в Next (:3000):
+
+```
+cleanlab.example.com {
+  handle /api/* {
+    reverse_proxy localhost:3100
+  }
+  handle /tv.html {
+    reverse_proxy localhost:3100
+  }
+  handle {
+    reverse_proxy localhost:3000
+  }
+}
+```
+
+### Плавный переход (feature flag)
+
+Чтобы не переключать всех сразу, старый фронт остаётся в `server/public/`.
+Вариант отката/постепенного включения — по cookie `frontend=next`:
+
+```
+cleanlab.example.com {
+  handle /api/* {
+    reverse_proxy localhost:3100
+  }
+  handle /tv.html {
+    reverse_proxy localhost:3100
+  }
+  # Новый фронт — только с cookie frontend=next
+  handle {
+    @next cookie frontend=next
+    reverse_proxy @next localhost:3000
+    reverse_proxy localhost:3100
+  }
+}
+```
+
+Проверка нового фронта: `document.cookie = 'frontend=next'` в консоли браузера и перезагрузка.
+Откат: удалить cookie. После стабилизации схему упрощаем до верхней (всё, кроме /api и /tv.html, → Next).
+
+Сессии (токен в localStorage, ключи `cl_*`) общие для обоих фронтов — перелогин не нужен.
+
 ## 7. Табло цеха
 
 Ссылка: `https://<домен>/tv.html?key=<TV_KEY>` (прачка 2 — `TV_KEY_2`). Держать в секрете — это единственная защита табло. Ключ определяет, данные какой прачки показывать.

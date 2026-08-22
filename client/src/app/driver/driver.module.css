@@ -1,0 +1,157 @@
+.gap {
+  height: 14px;
+}
+
+.meta {
+  font-size: 13.5px;
+  color: var(--text-2);
+  margin: 4px 0;
+}
+
+.metaDim {
+  font-size: 12.5px;
+  color: var(--text-4);
+  margin: 4px 0;
+}
+
+/* Крупная кнопка-действие на всю ширину (спека §6: ≥48px, radius 12px) */
+.bigBtn {
+  width: 100%;
+  min-height: 48px;
+  border-radius: 12px;
+  font-size: 15px;
+  margin-top: 8px;
+  justify-content: center;
+}
+
+/* «Следующий адрес» — выделенная карточка */
+.nextCard {
+  border-color: var(--bluing);
+  border-width: 1.5px;
+}
+
+.nextName {
+  font-size: 17px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  margin-bottom: 2px;
+}
+
+.inlineIcon {
+  vertical-align: -2px;
+  margin-right: 2px;
+  color: var(--text-4);
+}
+
+.phone {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 6px 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--bluing);
+  text-decoration: none;
+  min-height: 32px;
+}
+
+.mapsLink {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 48px;
+  margin-top: 8px;
+  border-radius: 12px;
+  font-size: 15px;
+  color: var(--bluing);
+  text-decoration: none;
+  border: 1px solid var(--border);
+  background: var(--surface);
+}
+
+/* Компактные карточки «Далее» и истории */
+.compactCard {
+  margin-bottom: 8px;
+  padding: 12px 14px;
+}
+
+.cardName {
+  font-size: 14.5px;
+  font-weight: 700;
+}
+
+.histRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+/* «Чистое на складе» — строки с чекбоксами */
+.takeRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0;
+  cursor: pointer;
+  border-bottom: 1px solid var(--border);
+}
+
+.takeRow:last-of-type {
+  border-bottom: none;
+}
+
+.takeChk {
+  width: 22px;
+  height: 22px;
+  flex: none;
+  accent-color: var(--bluing);
+}
+
+.takeName {
+  flex: 1;
+  font-size: 14.5px;
+  font-weight: 600;
+}
+
+.takeAddr {
+  display: block;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--text-4);
+}
+
+.takeBags {
+  font-size: 16px;
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Навигация по датам в истории */
+.dateNav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.dateNavLabel {
+  font-size: 14px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.todayWrap {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 10px;
+}
+
+/* Профиль */
+.profileName {
+  font-size: 17px;
+  font-weight: 800;
+  margin-bottom: 2px;
+}

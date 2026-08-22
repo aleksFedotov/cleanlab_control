@@ -1,0 +1,231 @@
+/* Сегодня (развоз дня) — спека §5. Цвета/радиусы только из globals.css. */
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap);
+}
+
+/* --- Сводка / фильтры --- */
+
+.skelStats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--gap);
+}
+
+/* --- Блок «Не готовы к развозу» (legacy .blockers) --- */
+
+.blockers {
+  background: var(--warn-bg);
+  border-radius: var(--radius-l);
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.blockersTitle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+  font-size: 13.5px;
+  color: var(--warn);
+}
+
+.bRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.bName {
+  flex: 1;
+  font-size: 13.5px;
+  min-width: 0;
+}
+
+.bWhy {
+  color: var(--text-3);
+  font-size: 12.5px;
+}
+
+/* --- Сетка карточек визитов: 2 колонки, 1 на мобильном --- */
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--gap);
+}
+
+.visit {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+}
+
+/* Просроченный визит — красная левая кромка 3px (спека §5) */
+.visitLate {
+  border-left: 3px solid var(--late);
+}
+
+/* Time-чип: mono 13px/700, --bluing на --bluing-soft, две строки */
+.timeChip {
+  flex: none;
+  min-width: 52px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1.3;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--bluing);
+  background: var(--bluing-soft);
+  border-radius: var(--radius-m);
+  padding: 6px 8px;
+}
+
+.visitMain {
+  flex: 1;
+  min-width: 0;
+}
+
+.visitName {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.visitDetails {
+  font-size: 12.5px;
+  color: var(--text-3);
+  margin-top: 2px;
+}
+
+.visitSide {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Текстовый чип для состояний вне словаря статусов («Только забрать грязное») */
+.noteChip {
+  font-size: 12px;
+  color: var(--text-3);
+  background: var(--neutral-bg);
+  border-radius: var(--radius-pill);
+  padding: 3px 10px;
+  white-space: nowrap;
+}
+
+.rmBtn {
+  display: flex;
+  align-items: center;
+  padding: 6px;
+  border-radius: var(--radius-s);
+  color: var(--text-4);
+}
+
+.rmBtn:hover {
+  color: var(--danger);
+  background: var(--late-bg);
+}
+
+.addBtn {
+  width: 100%;
+}
+
+/* --- Модалка «Добавить в развоз» --- */
+
+.modalDate {
+  font-size: 12.5px;
+  color: var(--text-3);
+  margin-bottom: 8px;
+}
+
+.search {
+  margin-bottom: 8px;
+}
+
+.pickList {
+  max-height: 50vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.pickRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: var(--radius-m);
+  cursor: pointer;
+}
+
+.pickRow:hover {
+  background: var(--bg);
+}
+
+.pickRowTaken {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.pickRowTaken:hover {
+  background: none;
+}
+
+.pickMain {
+  flex: 1;
+  min-width: 0;
+}
+
+.pickName {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.pickMeta {
+  font-size: 12.5px;
+  color: var(--text-3);
+}
+
+.pickTaken {
+  flex: none;
+  font-size: 12.5px;
+  color: var(--text-3);
+}
+
+.pickAdd {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-s);
+  background: var(--bluing-soft);
+  color: var(--bluing);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.pickEmpty {
+  padding: 16px 0;
+  text-align: center;
+  color: var(--text-4);
+  font-size: 13px;
+}
+
+/* --- Мобильная раскладка --- */
+
+@media (max-width: 1023px) {
+  .grid {
+    grid-template-columns: 1fr;
+  }
+  .skelStats {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}

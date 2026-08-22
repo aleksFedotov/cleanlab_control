@@ -1,0 +1,124 @@
+/* ===== Дизайн-система «Чистая вода» — токены (дизайн-спецификация §1) ===== */
+:root {
+  /* Акцент (фирменный синий) */
+  --bluing: #2563eb;
+  --bluing-hover: #1d4ed8;
+  --bluing-soft: #eff6ff;
+  --bluing-soft-2: #dbeafe;
+  --bluing-border: #bfdbfe;
+
+  /* Нейтрали */
+  --bg: #f8fafc;
+  --surface: #ffffff;
+  --border: #e2e8f0;
+  --text: #0f172a;
+  --text-2: #475569;
+  --text-3: #64748b;
+  --text-4: #94a3b8;
+
+  /* Статусы (текст / фон бейджа) */
+  --ok: #16a34a;
+  --ok-bg: #dcfce7;
+  --wash: #1d4ed8;
+  --wash-bg: #dbeafe;
+  --warn: #d97706;
+  --warn-bg: #fef3c7;
+  --late: #b91c1c;
+  --late-bg: #fee2e2;
+  --neutral: #475569;
+  --neutral-bg: #f1f5f9;
+
+  /* Опасное действие */
+  --danger: #dc2626;
+  --danger-hover: #b91c1c;
+
+  /* Формы, тени, отступы */
+  --radius-s: 8px;
+  --radius-m: 10px;
+  --radius-l: 14px;
+  --radius-xl: 20px;
+  --radius-pill: 999px;
+
+  --shadow-card: 0 1px 2px rgba(15, 23, 42, 0.05);
+  --shadow-pop: 0 16px 40px rgba(15, 23, 42, 0.12);
+
+  --gap: 14px;
+  --content-max: 1100px;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  font-family: var(--font-sans), system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+}
+
+button {
+  font: inherit;
+  cursor: pointer;
+  border: none;
+  background: none;
+}
+
+button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+input,
+select,
+textarea {
+  font: inherit;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-s);
+  width: 100%;
+  background: var(--surface);
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  border-color: var(--bluing);
+  outline: none;
+  box-shadow: 0 0 0 3px var(--bluing-soft);
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible {
+  outline: 3px solid rgba(37, 99, 235, 0.35);
+  outline-offset: 1px;
+}
+
+a {
+  color: var(--bluing);
+  text-decoration: none;
+}
+
+/* Числа, которые обновляются, — не «прыгают» (спека §1) */
+.mono {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+    animation: none !important;
+  }
+}
