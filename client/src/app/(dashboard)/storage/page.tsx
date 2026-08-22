@@ -24,6 +24,7 @@ import styles from './storage.module.css';
 const FILTERS = [
   { key: 'all', label: 'Все' },
   { key: 'dirty', label: 'К стирке' },
+  { key: 'partial', label: 'Частичные' },
   { key: 'clean', label: 'Готово' },
   { key: 'attn', label: 'Требует решения' },
 ];
@@ -71,6 +72,7 @@ export default function StoragePage() {
     () => ({
       all: entries.length,
       dirty: entries.filter((e) => e.kind === 'dirty').length,
+      partial: entries.filter((e) => e.kind === 'partial').length,
       clean: entries.filter((e) => e.kind === 'clean').length,
       attn: entries.filter((e) => e.attn).length,
     }),

@@ -83,6 +83,12 @@ function QueuedWashCard({
               : 'Нет белья на складе'}
         </div>
       )}
+      {w.partial_rest && (
+        <div className={styles.washMeta}>
+          Частично постирано: готово {(w.prev_items || []).reduce((s, it) => s + it.qty, 0)} поз.,{' '}
+          {w.prev_kg} кг, {w.prev_bags} мешк. — остаток грязный
+        </div>
+      )}
       <div className={styles.washActions}>
         {dirtyOk && (
           <Button variant="ghost" className={styles.bigBtn} onClick={onStart}>

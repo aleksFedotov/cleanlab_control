@@ -38,6 +38,11 @@ export interface DayWash extends Wash {
   has_clean: boolean;
   client_item_types: string[];
   client_accounting: 'weight' | 'count' | 'both';
+  // Остаток частичной стирки: часть уже постирана в предыдущем заходе
+  partial_rest?: boolean;
+  prev_items?: { item_type_id: string; qty: number; item_name?: string }[];
+  prev_kg?: number | '';
+  prev_bags?: number | '';
 }
 
 export interface Shift {
@@ -128,6 +133,7 @@ export interface StorageRow {
   laundry_id: string;
   client_name: string;
   wash_status: string;
+  wash_hold?: number; // 1 — владелец решил «оставить на складе» (partial + hold)
   issue_date: string;
   bags: number;
 }

@@ -196,7 +196,10 @@ export default function WashCardPage() {
 
   // --- Производные значения (как в legacy renderWashCard) ---
   const counts = countsMap[id] || {};
-  const weight = weightsMap[id] != null ? weightsMap[id] : num(w.dirty_weight_kg) || 0;
+  // При достирке (partial_rest) форма вводит ДЕЛЬТУ остатка: не префиллим вес
+  // первой части, иначе completeWash суммирует его дважды (server/api.js completeWash).
+  const weight =
+    weightsMap[id] != null ? weightsMap[id] : w.partial_rest ? 0 : num(w.dirty_weight_kg) || 0;
   const bagsVal = bagsMap[id] || 0;
   const extra = extraMap[id] || [];
   const checkedDirty = !!checkedMap[id];
@@ -236,7 +239,8 @@ export default function WashCardPage() {
 
   // --- Сохранение результата (legacy saveResult) ---
   function saveResult() {
-    const kgVal = weightsMap[id] != null ? weightsMap[id] : num(w!.dirty_weight_kg) || 0;
+    const kgVal =
+      weightsMap[id] != null ? weightsMap[id] : w!.partial_rest ? 0 : num(w!.dirty_weight_kg) || 0;
     const bagsCount = bagsMap[id] || 0;
     if (acc !== 'count' && kgVal <= 0) {
       toast('Укажите вес чистого белья', 'err');
@@ -268,6 +272,22 @@ export default function WashCardPage() {
         </Button>
       </div>
       <PageHeader title={w.client_name} actions={<StatusBadge status={w.status} />} />
+
+      {w.partial_rest && (
+        <Card>
+          <div className={styles.meta}>
+            Уже постирано:{' '}
+            {(w.prev_items || [])
+              .map((it) => `${it.item_name || it.item_type_id} ×${it.qty}`)
+              .join(', ')}
+            {w.prev_kg !== '' && w.prev_kg != null && <> · {num(w.prev_kg)} кг</>}
+            {num(w.prev_bags) > 0 && <> · {num(w.prev_bags)} мешк.</>}
+          </div>
+          <div className={styles.meta}>
+            В форму ниже вносите только остаток — итоги стирки посчитаются вместе.
+          </div>
+        </Card>
+      )}
 
       {w.comment && (
         <Card>
@@ -332,6 +352,9 @@ export default function WashCardPage() {
             {acc !== 'count' && (
               <>
                 <div className={styles.resLabel}>Вес чистого белья</div>
+                {w.partial_rest && w.prev_kg !== '' && w.prev_kg != null && (
+                  <div className={styles.meta}>в первой части: {num(w.prev_kg)} кг</div>
+                )}
                 <div className={styles.rowBtns}>
                   <Stepper
                     value={weight}
@@ -351,6 +374,9 @@ export default function WashCardPage() {
             )}
             {/* Мешки — всегда (обязательны при завершении), даже при учёте «только количество» */}
             <div className={styles.resLabel}>Мешки</div>
+            {w.partial_rest && num(w.prev_bags) > 0 && (
+              <div className={styles.meta}>в первой части: {num(w.prev_bags)} мешк.</div>
+            )}
             <div className={styles.rowBtns}>
               <Stepper
                 value={bagsVal}

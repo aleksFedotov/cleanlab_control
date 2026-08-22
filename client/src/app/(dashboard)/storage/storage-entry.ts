@@ -11,6 +11,8 @@ export interface StorageEntry {
   kind: StorageKind;
   id: string;
   washId: string; // только для partial (id стирки)
+  washStatus: string; // только для partial: статус стирки-источника (partial/planned/in_progress)
+  hold: boolean; // partial: владелец решил «оставить на складе»
   client_id: string;
   client_name: string;
   kg: number;
@@ -39,7 +41,7 @@ export function buildEntries(res: StorageRes, today: string): StorageEntry[] {
 
   res.stored.forEach((w) => {
     entries.push({
-      kind: 'clean', id: w.id, washId: '', client_id: w.client_id, client_name: w.client_name,
+      kind: 'clean', id: w.id, washId: '', washStatus: '', hold: false, client_id: w.client_id, client_name: w.client_name,
       kg: num(w.dirty_weight_kg), total: num(w.items_total), bags: num(w.bags),
       items: w.items || [], issue_date: w.issue_date, since: '',
       attn: false, overdueDays: 0, rank: 0, statusKey: '', statusText: '',
@@ -47,7 +49,7 @@ export function buildEntries(res: StorageRes, today: string): StorageEntry[] {
   });
   (res.cleanReady || []).forEach((s) => {
     entries.push({
-      kind: 'clean', id: s.wash_id, washId: '', client_id: s.client_id, client_name: s.client_name,
+      kind: 'clean', id: s.wash_id, washId: '', washStatus: '', hold: false, client_id: s.client_id, client_name: s.client_name,
       kg: num(s.weight_kg), total: num(s.items_total), bags: num(s.bags),
       items: [], issue_date: s.issue_date || '', since: '',
       attn: false, overdueDays: 0, rank: 0, statusKey: '', statusText: '',
@@ -55,7 +57,7 @@ export function buildEntries(res: StorageRes, today: string): StorageEntry[] {
   });
   (res.partialClean || []).forEach((s) => {
     entries.push({
-      kind: 'partial', id: s.id, washId: s.wash_id, client_id: s.client_id, client_name: s.client_name,
+      kind: 'partial', id: s.id, washId: s.wash_id, washStatus: s.wash_status, hold: s.wash_hold === 1, client_id: s.client_id, client_name: s.client_name,
       kg: num(s.weight_kg), total: num(s.items_total), bags: num(s.bags),
       items: [], issue_date: '', since: (s.created_at || '').slice(0, 10),
       attn: false, overdueDays: 0, rank: 0, statusKey: '', statusText: '',
@@ -63,7 +65,7 @@ export function buildEntries(res: StorageRes, today: string): StorageEntry[] {
   });
   (res.dirty || []).forEach((s) => {
     entries.push({
-      kind: 'dirty', id: s.id, washId: '', client_id: s.client_id, client_name: s.client_name,
+      kind: 'dirty', id: s.id, washId: '', washStatus: '', hold: false, client_id: s.client_id, client_name: s.client_name,
       kg: 0, total: 0, bags: 0,
       items: [], issue_date: '', since: (s.created_at || '').slice(0, 10),
       attn: false, overdueDays: 0, rank: 0, statusKey: '', statusText: '',
@@ -78,10 +80,25 @@ export function buildEntries(res: StorageRes, today: string): StorageEntry[] {
       e.statusText = 'Ожидает стирки';
       e.rank = 1;
     } else if (e.kind === 'partial') {
-      e.attn = true;
       e.statusKey = 'partial';
-      e.statusText = 'Требует решения владельца';
-      e.rank = 0;
+      if (e.hold) {
+        // Решение «оставить на складе» принято — не требует внимания
+        e.attn = false;
+        e.statusText = 'Частичная · оставлено на складе';
+        e.rank = 3;
+      } else if (e.washStatus === 'planned' || e.washStatus === 'in_progress') {
+        // Остаток уже в плане/в работе — решение принято, внимания не требует
+        e.attn = false;
+        e.statusText =
+          e.washStatus === 'in_progress'
+            ? 'Частичная · остаток в работе'
+            : 'Частичная · остаток к стирке';
+        e.rank = 1;
+      } else {
+        e.attn = true;
+        e.statusText = 'Требует решения владельца';
+        e.rank = 0;
+      }
     } else {
       const d = daysDiff(e.issue_date, today);
       if (d > 0) {

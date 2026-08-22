@@ -52,6 +52,12 @@ export function StorageCardModal({ entry: e, types, onClose }: StorageCardModalP
     invalidate: 'operational',
     onSuccess: () => { onClose(); toast('Перенесено ✓'); },
   });
+  // «Оставить на складе» — решение владельца запоминаем на сервере (hold),
+  // иначе запись продолжает висеть как «требует решения».
+  const holdPartial = useApiMutation('holdPartialWash', {
+    invalidate: 'operational',
+    onSuccess: () => { onClose(); toast('Осталось на складе ✓'); },
+  });
   // Legacy после «Добавить в развоз» склад НЕ перезагружает — только тост.
   const addDelivery = useApiMutation('addDeliveryVisit', {
     invalidate: ['deliveryVisits'],
@@ -174,9 +180,15 @@ export function StorageCardModal({ entry: e, types, onClose }: StorageCardModalP
               </b>
             </div>
             <div className={styles.meta}>
-              На складе с {e.since}. Клиент НЕ готов к развозу — решение принимает владелец.
+              На складе с {e.since}.{' '}
+              {e.washStatus !== 'partial'
+                ? 'Остаток уже в плане стирки — достирка идёт по карточке дня.'
+                : e.hold
+                  ? 'Решение принято: оставлено на складе — вернуть в стирку можно в любой момент.'
+                  : 'Клиент НЕ готов к развозу — решение принимает владелец.'}
             </div>
-            <div className={styles.actions}>
+            {e.washStatus === 'partial' && (
+              <div className={styles.actions}>
               <Button
                 className={styles.actionBtn}
                 busy={deferReturn.isPending}
@@ -187,17 +199,18 @@ export function StorageCardModal({ entry: e, types, onClose }: StorageCardModalP
               <Button variant="ghost" className={styles.actionBtn} onClick={() => setView('defer')}>
                 Перенести на другой день
               </Button>
-              <Button
-                variant="ghost"
-                className={styles.actionBtn}
-                onClick={() => {
-                  onClose();
-                  toast('Осталось на складе — вернуть в стирку можно в любой момент');
-                }}
-              >
-                Оставить на складе
-              </Button>
-            </div>
+              {!e.hold && (
+                <Button
+                  variant="ghost"
+                  className={styles.actionBtn}
+                  busy={holdPartial.isPending}
+                  onClick={() => holdPartial.mutate([e.washId])}
+                >
+                  Оставить на складе
+                </Button>
+              )}
+              </div>
+            )}
           </>
         )}
 

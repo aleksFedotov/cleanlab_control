@@ -92,6 +92,20 @@ function getDayList(token, date) {
     }, 1000, laundryId).map(function (r) { return r.obj; });
     const shift = getShiftByDate_(date, laundryId);
     const storage = storageSummaryByClient_(laundryId);
+    // Признак «остаток частичной стирки»: стирка planned/in_progress, у которой
+    // уже есть WashItems (пишутся только при завершении). Грузим один раз для всех
+    // id стирок дня и группируем, чтобы не делать запрос на каждую стирку.
+    const dayIds = {};
+    washes.forEach(function (w) {
+      if (w.status === 'planned' || w.status === 'in_progress') dayIds[w.id] = true;
+    });
+    const prevItems = {};
+    db.findRowsBy_(SHEETS.WASH_ITEMS, function (wi) { return !!dayIds[wi.wash_id]; }, 1000)
+      .forEach(function (r) {
+        (prevItems[r.obj.wash_id] = prevItems[r.obj.wash_id] || []).push(r.obj);
+      });
+    const types = {};
+    db.getItemTypes_().forEach(function (t) { types[t.id] = t.name; });
     return ok_({
       date: date,
       laundryName: db.getSettings_(laundryId).LAUNDRY_NAME || 'Прачечная PRO',
@@ -105,6 +119,20 @@ function getDayList(token, date) {
         const cl = clients[w.client_id] || {};
         w.client_item_types = db.parseJsonList_(cl.item_types);
         w.client_accounting = cl.accounting === 'weight' || cl.accounting === 'count' ? cl.accounting : 'both';
+        // Остаток частичной стирки: показываем, что часть уже постирана
+        const prev = prevItems[w.id];
+        if (prev && prev.length) {
+          w.partial_rest = true;
+          w.prev_items = prev.map(function (wi) {
+            return {
+              item_type_id: wi.item_type_id,
+              qty: Number(wi.qty) || 0,
+              item_name: types[wi.item_type_id] || wi.item_type_id
+            };
+          });
+          w.prev_kg = w.dirty_weight_kg;
+          w.prev_bags = w.bags;
+        }
         return w;
       }),
       shift: shift ? shift.obj : null,
@@ -167,17 +195,28 @@ function completeWash(token, washId, items, weightKg, mode, bags) {
     // mode='partial': чистая часть на складе, но клиент НЕ готов к выдаче;
     // владелец вручную ставит остаток в стирку позже
     w.status = mode === 'partial' ? 'partial' : completionStatus_(w.wash_date, w.issue_date);
-    w.items_total = total;
-    w.bags = Math.max(0, Math.floor(Number(bags) || 0)); // мешков получилось после стирки
-    w.dirty_weight_kg = round1_(weightKg);
+    // Достирка остатка частичной стирки (у стирки уже есть WashItems — их пишет
+    // только завершение): итоги суммируем с первой частью, иначе затирались бы.
+    const prevTotal = db.findRowsBy_(SHEETS.WASH_ITEMS, function (wi) {
+      return wi.wash_id === washId;
+    }, 1000).length - valid.length > 0;
+    if (prevTotal) {
+      w.items_total = (Number(w.items_total) || 0) + total;
+      w.bags = (Number(w.bags) || 0) + Math.max(0, Math.floor(Number(bags) || 0));
+      w.dirty_weight_kg = round1_((Number(w.dirty_weight_kg) || 0) + Number(weightKg));
+    } else {
+      w.items_total = total;
+      w.bags = Math.max(0, Math.floor(Number(bags) || 0)); // мешков получилось после стирки
+      w.dirty_weight_kg = round1_(weightKg);
+    }
     w.done_at = nowStr_();
     db.updateRow_(SHEETS.WASHES, found.rowNumber, w);
-    // Результат стирки — чистое бельё на складе
+    // Результат стирки — чистое бельё на складе (достирка добавляет вторую clean-запись)
     addStorageEntry_(w.client_id, 'clean', {
-      weight_kg: w.dirty_weight_kg, items_total: total, wash_id: washId
+      weight_kg: round1_(weightKg), items_total: total, wash_id: washId
     }, laundryId);
     ensureShift_(w.wash_date, laundryId);
-    logEvent(actorOf_(session), 'wash_done', washId, { status: w.status, items: valid, kg: w.dirty_weight_kg, bags: w.bags }, laundryId);
+    logEvent(actorOf_(session), 'wash_done', washId, { status: w.status, items: valid, kg: w.dirty_weight_kg, bags: w.bags, rest: prevTotal || undefined }, laundryId);
     return ok_({ wash: w });
   });
 }
@@ -242,7 +281,8 @@ function deferWash(token, washId, newDate, reason) {
     if (w.status === 'partial') {
       // Достирка остатка: стирка возвращается в план нового дня, выдача — на
       // следующий день. Постиранная часть (вес/позиции/clean-запись на складе)
-      // сохраняется; остаток при повторном завершении добавит вторую запись.
+      // сохраняется; остаток при повторном завершении добавит вторую clean-запись
+      // склада, а итоги стирки (items_total/bags/dirty_weight_kg) суммируются.
       const oldIssueDate = w.issue_date;
       const newIssueDate = addDaysStr_(newDate, 1);
       patch.status = 'planned';
@@ -274,6 +314,25 @@ function deferWash(token, washId, newDate, reason) {
     logEvent(actor, 'wash_defer', washId, details, laundryId);
     Object.keys(patch).forEach(function (k) { w[k] = patch[k]; });
     db.updateRow_(SHEETS.WASHES, found.rowNumber, w);
+    return ok_({ wash: w });
+  });
+}
+
+// «Оставить на складе» по частичной (spec: решение принимает владелец): запоминаем
+// решение маркером hold в deferred_reason, дату НЕ переносим, статус остаётся partial.
+// Иначе запись навсегда висит «требует решения», хотя решение уже принято.
+function holdPartialWash(token, washId) {
+  const session = requireRole_(token, ['owner']);
+  if (!session) return err_('Нет доступа');
+  const laundryId = session.laundryId;
+  return withLock_(function () {
+    const found = findTenantRow_(SHEETS.WASHES, washId, laundryId);
+    if (!found) return err_('Стирка не найдена');
+    const w = found.obj;
+    if (w.status !== 'partial') return err_('Не частичная стирка');
+    w.deferred_reason = 'hold'; // маркер решения «оставить на складе»
+    db.updateRow_(SHEETS.WASHES, found.rowNumber, w);
+    logEvent(actorOf_(session), 'wash_hold', washId, {}, laundryId);
     return ok_({ wash: w });
   });
 }
@@ -694,11 +753,15 @@ function getStorage(token) {
       s.client_name = clientName_(s.client_id, clients);
       const w = washById[s.wash_id];
       s.wash_status = w ? w.status : '';
+      // Решение владельца «оставить на складе» по частичной (holdPartialWash)
+      s.wash_hold = w && w.status === 'partial' && w.deferred_reason === 'hold' ? 1 : 0;
       s.issue_date = w ? w.issue_date : '';
       s.bags = w ? (Number(w.bags) || 0) : 0;
       return s;
     });
-  // Остатки частичных стирок: clean-записи, чья стирка в статусе partial
+  // Остатки частичных стирок: clean-записи, чья стирка в статусе partial, а также
+  // planned/in_progress с уже постиранной частью (перенесённый остаток — clean-запись
+  // есть, а стирка снова в плане; без этого такая запись пропадала бы со склада).
   // (у done/stored-стирок clean-записи тоже есть — их не считаем остатками).
   return ok_({
     stored: stored,
@@ -706,7 +769,9 @@ function getStorage(token) {
     clean: open.filter(function (s) { return s.kind === 'clean'; }),
     // cleanReady — чистое полностью завершённых (done) стирок: stored показываются карточками выше
     cleanReady: open.filter(function (s) { return s.kind === 'clean' && s.wash_status === 'done'; }),
-    partialClean: open.filter(function (s) { return s.kind === 'clean' && s.wash_status === 'partial'; }),
+    partialClean: open.filter(function (s) {
+      return s.kind === 'clean' && ['partial', 'planned', 'in_progress'].indexOf(s.wash_status) !== -1;
+    }),
     itemTypes: db.getItemTypes_()
   });
 }
@@ -1107,7 +1172,7 @@ const { login, logout, switchLaundry } = require('./auth');
 // Публичные методы API: имя функции = имя метода (POST /api/<method>, тело { args: [...] }).
 const api = {
   login, logout, switchLaundry, listLaundries, createLaundry, updateLaundry, deactivateLaundry,
-  getDayList, startWash, completeWash, editWashData, deferWash, addUnplannedWash,
+  getDayList, startWash, completeWash, editWashData, deferWash, holdPartialWash, addUnplannedWash,
   getShiftCloseState, closeShift,
   getDeliveryPlan, addToDelivery, cancelWash, deleteWash, confirmStorageCheck, markIssued, updateIssueDate,
   getWeekPlan, addWeekCard, moveWeekCard, removeWeekCard,
@@ -1147,7 +1212,7 @@ module.exports = {
   err_, ok_, withLock_, round1_, timeStr_,
   login, logout, switchLaundry, listLaundries, createLaundry, updateLaundry, deactivateLaundry,
   ensureShift_, getShiftByDate_, ensureWashesFromDelivery_, notReadyForDelivery_,
-  getDayList, startWash, completeWash, editWashData, deferWash, addUnplannedWash,
+  getDayList, startWash, completeWash, editWashData, deferWash, holdPartialWash, addUnplannedWash,
   getShiftCloseState, closeShift,
   getDeliveryPlan, addToDelivery, cancelWash, deleteWash, confirmStorageCheck, markIssued, updateIssueDate,
   getWeekPlan, addWeekCard, moveWeekCard, removeWeekCard,

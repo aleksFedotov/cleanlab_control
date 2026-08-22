@@ -43,6 +43,13 @@ export function WashCard({ w }: { w: DayWash }) {
           <CheckCircle2 size={13} /> Чистое бельё · проверено {timeOf(w.done_at)}
         </div>
       )}
+      {w.partial_rest && (
+        <div className={`${styles.cm} ${styles.cmWarn}`}>
+          <AlertTriangle size={13} /> Частично постирано: готово{' '}
+          {(w.prev_items || []).reduce((s, it) => s + it.qty, 0)} поз., {num(w.prev_kg)} кг,{' '}
+          {num(w.prev_bags)} меш. — остаток грязный
+        </div>
+      )}
       {w.status === 'planned' && (
         <div className={`${styles.cm} ${w.has_dirty ? styles.cmWarn : ''}`}>
           {w.has_dirty
