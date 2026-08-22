@@ -1,4 +1,4 @@
-// Тесты server/telegram.js: webhook (секрет, идемпотентность, PIN-логин) и дайджест.
+// Тесты server/telegram.js: webhook (секрет, идемпотентность, привязка по коду) и дайджест.
 // Грани поведения — из tests/telegram.test.js (GAS).
 const test = require('node:test');
 const assert = require('node:assert');
@@ -40,26 +40,34 @@ test('webhook: неверный/отсутствующий секрет — мо
   } finally { server.close(); }
 });
 
-test('webhook: PIN владельца фиксирует OWNER_CHAT_ID в Settings; /start просит PIN', async () => {
+test('webhook: код привязки фиксирует OWNER_CHAT_ID в Settings; /start подсказывает про код', async () => {
   const { ctx, server, url, post } = await startWebhook();
   try {
-    // /start без PIN
+    // /start без кода
     let res = await post(url + '?secret=hook-secret', { update_id: 1, message: { text: '/start', chat: { id: 555 } } });
     assert.strictEqual(res.status, 200);
     assert.strictEqual(ctx.fetches.length, 1);
-    assert.strictEqual(ctx.fetches[0].payload.text, 'Прачечная PRO: введите PIN владельца');
+    assert.ok(ctx.fetches[0].payload.text.includes('код привязки'));
     assert.strictEqual(ctx.fetches[0].payload.chat_id, 555);
 
-    // PIN отдельным сообщением
-    res = await post(url + '?secret=hook-secret', { update_id: 2, message: { text: '1111', chat: { id: 555 } } });
+    // Неверный код
+    res = await post(url + '?secret=hook-secret', { update_id: 2, message: { text: '123456', chat: { id: 555 } } });
     assert.strictEqual(res.status, 200);
-    assert.strictEqual(ctx.fetches.length, 2);
-    assert.ok(ctx.fetches[1].payload.text.includes('дайджесты подключены'));
+    assert.ok(ctx.fetches[1].payload.text.includes('Неверный или просроченный код'));
+    assert.strictEqual(ctx.db.readAll_('Settings').find(r => r.key === 'OWNER_CHAT_ID'), undefined);
+
+    // Валидный код отдельным сообщением
+    const owner = loginOwner();
+    const code = ctx.api.makeTelegramBindCode(owner).code;
+    res = await post(url + '?secret=hook-secret', { update_id: 3, message: { text: code, chat: { id: 555 } } });
+    assert.strictEqual(res.status, 200);
+    assert.ok(ctx.fetches[2].payload.text.includes('дайджесты подключены'));
     const row = ctx.db.readAll_('Settings').find(r => r.key === 'OWNER_CHAT_ID');
     assert.strictEqual(row.value, '555');
 
-    // Старый формат «/start <PIN>» тоже работает
-    await post(url + '?secret=hook-secret', { update_id: 3, message: { text: '/start 1111', chat: { id: 777 } } });
+    // Формат «/start <код>» тоже работает (код уже погашен → новый код)
+    const code2 = ctx.api.makeTelegramBindCode(owner).code;
+    await post(url + '?secret=hook-secret', { update_id: 4, message: { text: '/start ' + code2, chat: { id: 777 } } });
     const row2 = ctx.db.readAll_('Settings').find(r => r.key === 'OWNER_CHAT_ID');
     assert.strictEqual(row2.value, '777');
   } finally { server.close(); }
@@ -93,7 +101,7 @@ test('buildDigestText_: итоги дня + незавершённые для о
   const clientId = ctx.api.saveClient(owner, { name: 'Отель А' }).client.id;
   const washId = ctx.api.addToDelivery(owner, clientId, TODAY, '2026-08-13').wash.id;
   ctx.api.startWash(owner, washId); // in_progress — незавершённая
-  const text = ctx.telegram.buildDigestText_(TODAY);
+  const text = ctx.telegram.buildDigestText_(TODAY, '1');
   assert.ok(text.includes('итоги ' + TODAY));
   assert.ok(text.includes('стирок не было'));
   assert.ok(text.includes('⚠ Смена ещё не закрыта'));

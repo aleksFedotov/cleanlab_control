@@ -1,0 +1,29 @@
+.loading {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-l);
+  box-shadow: var(--shadow-card);
+  padding: 16px;
+}
+
+.tvCell {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tvKey {
+  color: var(--text-4);
+  font-size: 12px;
+}
+
+.muted {
+  color: var(--text-4);
+  font-size: 12.5px;
+}
+
+.actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}

@@ -8,6 +8,7 @@ const { mountApi } = require('./api');
 const { mountTelegram } = require('./telegram');
 
 db.open();
+require('./auth').cleanupExpiredSessions_();
 
 const app = express();
 app.use(express.json());

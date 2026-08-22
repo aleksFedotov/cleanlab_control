@@ -1,0 +1,16 @@
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-l);
+  box-shadow: var(--shadow-card);
+  padding: 16px 18px;
+}
+
+.interactive {
+  cursor: pointer;
+  transition: border-color 0.15s ease, transform 0.15s ease;
+}
+.interactive:hover {
+  border-color: var(--bluing-border);
+  transform: translateY(-1px);
+}

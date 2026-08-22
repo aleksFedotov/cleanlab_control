@@ -6,14 +6,21 @@ const time = require('./util/time');
 function nowStr_() { return time.now(); }
 function todayStr_() { return time.today(); }
 
-function logEvent(actor, action, entity, details) {
+// actor — строка «Имя (роль)»; laundryId — прачка события (пусто = глобальное).
+function logEvent(actor, action, entity, details, laundryId) {
   db.appendRow_(SHEETS.LOG, {
     ts: nowStr_(),
     actor: actor,
     action: action,
     entity: entity,
-    details: typeof details === 'string' ? details : JSON.stringify(details)
+    details: typeof details === 'string' ? details : JSON.stringify(details),
+    laundry_id: laundryId ? String(laundryId) : ''
   });
 }
 
-module.exports = { nowStr_, todayStr_, logEvent };
+// «Имя (роль)» из сессии для Log.actor
+function actorOf_(session) {
+  return session.name + ' (' + session.role + ')';
+}
+
+module.exports = { nowStr_, todayStr_, logEvent, actorOf_ };

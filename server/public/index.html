@@ -137,7 +137,7 @@
 
     .pin-wrap { max-width: 340px; margin: 15vh auto 0; text-align: center; }
     .pin-wrap h1 { font-family: var(--f-display); font-size: 26px; font-weight: 800; letter-spacing: -.02em; margin-bottom: 20px; }
-    .pin-wrap input { text-align: center; font-family: var(--f-mono); font-size: 26px; letter-spacing: 8px; margin-bottom: 14px; }
+    .pin-wrap input { font-size: 18px; margin-bottom: 10px; }
     .err { color: var(--danger); margin-top: 10px; min-height: 24px; }
 
     .overlay { position: fixed; inset: 0; background: rgba(15,23,42,.5); display: none; align-items: center; justify-content: center; z-index: 20; }
@@ -244,6 +244,9 @@
 var state = {
   token: localStorage.getItem('cl_token') || null,
   role: localStorage.getItem('cl_role') || null,
+  name: localStorage.getItem('cl_name') || null,           // имя пользователя
+  laundryId: localStorage.getItem('cl_laundry') || null,   // активная прачка
+  laundries: [],           // список прачек (для владельца — переключатель)
   date: null,            // 'yyyy-MM-dd' — всегда с сервера
   day: null,             // ответ getDayList
   counts: {},            // washId -> {itemTypeId: qty} несохранённый пересчёт
@@ -318,8 +321,9 @@ function toast(msg, isErr) {
 }
 function backToPin() {
   // Несохранённые данные на экране (state.counts/weights) не сбрасываем
-  state.token = null; state.role = null;
+  state.token = null; state.role = null; state.name = null; state.laundries = [];
   localStorage.removeItem('cl_token'); localStorage.removeItem('cl_role');
+  localStorage.removeItem('cl_name'); localStorage.removeItem('cl_laundry');
   renderPin();
 }
 function esc(s) {
@@ -364,20 +368,28 @@ function confirmDialog(text, okLabel, onOk) {
 }
 
 // ===== Вход =====
+// Логин + пароль; прачку выбирать не нужно — она определяется учётной записью
+// (владелец переключает прачки уже после входа, в шапке).
 function renderPin() {
   document.getElementById('app').innerHTML =
     '<div class="pin-wrap"><h1>Прачечная PRO</h1>' +
-    '<input type="password" inputmode="numeric" id="pinInput" placeholder="PIN" autofocus>' +
+    '<input id="loginInput" placeholder="Логин" autocomplete="username" autofocus>' +
+    '<input type="password" id="passInput" placeholder="Пароль" autocomplete="current-password">' +
     '<button class="btn btn-primary btn-big" id="pinBtn">Войти</button>' +
     '<div class="err" id="pinErr"></div></div>';
   var btn = document.getElementById('pinBtn');
-  var input = document.getElementById('pinInput');
+  var loginInput = document.getElementById('loginInput');
+  var passInput = document.getElementById('passInput');
   function doLogin() {
     busy(btn, 'Входим…');
-    api('login', input.value).then(function (res) {
-      state.token = res.token; state.role = res.role;
+    api('login', loginInput.value, passInput.value).then(function (res) {
+      state.token = res.token; state.role = res.role; state.name = res.name;
+      state.laundryId = res.laundryId;
+      state.laundries = res.laundries || [];
       localStorage.setItem('cl_token', res.token);
       localStorage.setItem('cl_role', res.role);
+      localStorage.setItem('cl_name', res.name || '');
+      localStorage.setItem('cl_laundry', res.laundryId || '');
       if (res.role === 'driver') loadDriver(); else loadDay();
     }).catch(function (e) {
       unbusy(btn);
@@ -385,7 +397,32 @@ function renderPin() {
     });
   }
   btn.onclick = doLogin;
-  input.onkeydown = function (e) { if (e.key === 'Enter') doLogin(); };
+  passInput.onkeydown = function (e) { if (e.key === 'Enter') doLogin(); };
+  loginInput.onkeydown = function (e) { if (e.key === 'Enter') passInput.focus(); };
+}
+
+// Шапка: имя пользователя + переключатель прачки для владельца (если их несколько)
+function headerUser() {
+  var html = '';
+  if (state.role === 'owner' && state.laundries.length > 1) {
+    html += '<select id="laundrySwitch" title="Прачка">' +
+      state.laundries.map(function (l) {
+        return '<option value="' + esc(l.id) + '"' + (l.id === state.laundryId ? ' selected' : '') + '>' + esc(l.name) + '</option>';
+      }).join('') + '</select>';
+  }
+  if (state.name) html += '<span class="chip">' + esc(state.name) + '</span>';
+  return html;
+}
+function bindLaundrySwitch() {
+  var sel = document.getElementById('laundrySwitch');
+  if (!sel) return;
+  sel.onchange = function () {
+    api('switchLaundry', state.token, sel.value).then(function () {
+      state.laundryId = sel.value;
+      localStorage.setItem('cl_laundry', sel.value);
+      navigate(state.role === 'owner' ? (state.view || 'day') : 'day');
+    }).catch(function (e) { toast(e.message, true); });
+  };
 }
 
 // ===== Список дня =====
@@ -429,7 +466,7 @@ function renderDay() {
   var day = state.day;
   var shiftClosed = day.shift && day.shift.status === 'closed';
   var html = '<div class="app-header"><h1>' + esc(day.laundryName || 'Прачечная PRO') + '</h1>' +
-    '<div class="spacer"></div>' +
+    '<div class="spacer"></div>' + headerUser() +
     (shiftClosed
       ? '<span class="chip chip-done">Смена закрыта в ' + esc(day.shift.closed_at) + '</span>'
       : '<button class="btn btn-danger" id="closeShiftBtn">Закрыть смену</button>') +
@@ -454,6 +491,7 @@ function renderDay() {
   if (closeBtn) closeBtn.onclick = openShiftClose;
   document.getElementById('addWashBtn').onclick = openAddWash;
   bindTabs();
+  bindLaundrySwitch();
   renderWashList();
 }
 
@@ -1265,7 +1303,7 @@ function openDriverVisit(v) {
 // ===== Экран владельца: вкладки =====
 function ownerTabs(active) {
   if (state.role !== 'owner') return '';
-  var tabs = [['day', 'Стирка'], ['delivery', 'Сегодня'], ['week', 'План'], ['storage', 'Склад'], ['report', 'Отчёт'], ['refs', 'Справочники']];
+  var tabs = [['day', 'Стирка'], ['delivery', 'Сегодня'], ['week', 'План'], ['storage', 'Склад'], ['report', 'Отчёт'], ['refs', 'Справочники'], ['users', 'Сотрудники'], ['laundries', 'Прачки']];
   return '<div class="tabs">' + tabs.map(function (t) {
     return '<button data-view="' + t[0] + '"' + (t[0] === active ? ' class="active"' : '') + '>' + t[1] + '</button>';
   }).join('') + '</div>';
@@ -1283,6 +1321,8 @@ function navigate(view) {
   else if (view === 'storage') renderStorage();
   else if (view === 'report') renderReport(state.today);
   else if (view === 'refs') renderRefs();
+  else if (view === 'users') renderUsers();
+  else if (view === 'laundries') renderLaundries();
 }
 
 function shiftDateStr(dateStr, days) {
@@ -1300,15 +1340,195 @@ function weekdayOf(dateStr) {
 // Каркас экрана владельца: шапка + вкладки + контейнер
 function appShell(title, tab, containerHtml, wide) {
   document.getElementById('app').innerHTML =
-    '<div class="app-header"><h1>' + esc(title) + '</h1><div class="spacer"></div>' +
+    '<div class="app-header"><h1>' + esc(title) + '</h1><div class="spacer"></div>' + headerUser() +
     '<button class="btn btn-ghost" id="logoutBtn">Выход</button></div>' +
     ownerTabs(tab) + '<div class="container' + (wide ? ' wide' : '') + '">' + containerHtml + '</div>';
   document.getElementById('logoutBtn').onclick = function () {
     api('logout', state.token).finally(backToPin);
   };
   bindTabs();
+  bindLaundrySwitch();
 }
 function setContainer(html) { document.querySelector('.container').innerHTML = html; }
+
+// ===== Сотрудники (owner): пользователи активной прачки =====
+var USER_ROLE_LABELS = { owner: 'Владелец', worker: 'Работник', driver: 'Водитель', client: 'Клиент' };
+function renderUsers() {
+  appShell('Сотрудники', 'users', '<div class="empty">Загружаем…</div>');
+  Promise.all([api('listUsers', state.token), api('getRefs', state.token)])
+    .then(function (rr) {
+      var users = rr[0].users, clients = rr[1].clients.filter(function (c) { return c.active === 'да'; });
+      var html = '<div class="row" style="font-weight:600"><span style="flex:2">Имя</span>' +
+        '<span style="flex:1">Роль</span><span style="flex:1">Логин</span><span style="width:290px"></span></div>';
+      html += users.map(function (u) {
+        var inactive = u.active !== 'да';
+        // Кнопки: у всех «Изменить»; у активных не-owner — «Сбросить пароль»/«Отключить»;
+        // у отключённых — «Включить». Себя отключить не даст и сервер.
+        var btns = '<button class="btn btn-ghost" data-edit="' + esc(u.id) + '">Изменить</button>';
+        if (inactive) {
+          btns += '<button class="btn btn-ghost" data-react="' + esc(u.id) + '">Включить</button>';
+        } else if (u.role !== 'owner') {
+          btns += '<button class="btn btn-ghost" data-reset="' + esc(u.id) + '">Сбросить пароль</button>' +
+            '<button class="btn btn-ghost" data-deact="' + esc(u.id) + '">Отключить</button>';
+        }
+        return '<div class="row"' + (inactive ? ' style="opacity:.5"' : '') +
+          '><span style="flex:2">' + esc(u.name) +
+          (inactive ? ' <span class="cm">(отключён)</span>' : '') +
+          (u.role === 'client' ? ' <span class="cm">' + esc(clientNameOf(clients, u.client_id)) + '</span>' : '') + '</span>' +
+          '<span style="flex:1">' + esc(USER_ROLE_LABELS[u.role] || u.role) + '</span>' +
+          '<span style="flex:1">' + esc(u.login) + '</span>' +
+          '<span style="width:290px">' + btns + '</span></div>';
+      }).join('');
+      // Форма добавления/редактирования: в режиме редактирования пароль скрыт
+      // (его меняет «Сбросить пароль»), id редактируемого — в data-edit-id формы.
+      html += '<h2 style="margin-top:16px" id="uFormTitle">Добавить</h2>' +
+        '<div id="uForm" data-edit-id="">' +
+        '<div class="row"><input id="uName" placeholder="Имя" style="flex:2">' +
+        '<select id="uRole" style="flex:1">' +
+        ['worker', 'driver', 'client', 'owner'].map(function (r) {
+          return '<option value="' + r + '">' + USER_ROLE_LABELS[r] + '</option>';
+        }).join('') + '</select></div>' +
+        '<div class="row"><input id="uLogin" placeholder="Логин" autocomplete="off" style="flex:1">' +
+        '<input type="password" id="uPass" placeholder="Пароль" autocomplete="new-password" style="flex:1"></div>' +
+        '<div class="row" id="uClientRow" style="display:none"><select id="uClient" style="flex:1">' +
+        clients.map(function (c) { return '<option value="' + esc(c.id) + '">' + esc(c.name) + '</option>'; }).join('') +
+        '</select></div>' +
+        '<button class="btn btn-primary btn-big" id="uAdd">Добавить сотрудника</button>' +
+        '<button class="btn btn-ghost btn-big" id="uCancelEdit" style="display:none">Отмена</button></div>' +
+        '<button class="btn btn-ghost btn-big" id="uTgBind">Привязать Telegram</button>' +
+        '<div class="row cm" id="uTgCode" style="display:none"></div>';
+      setContainer(html);
+      document.getElementById('uRole').onchange = function () {
+        document.getElementById('uClientRow').style.display = this.value === 'client' ? '' : 'none';
+      };
+      document.getElementById('uAdd').onclick = function () {
+        var role = document.getElementById('uRole').value;
+        var editId = document.getElementById('uForm').dataset.editId;
+        var payload = {
+          name: document.getElementById('uName').value.trim(),
+          role: role, login: document.getElementById('uLogin').value.trim()
+        };
+        if (role === 'client') payload.clientId = document.getElementById('uClient').value;
+        if (editId) {
+          payload.id = editId;
+          api('updateUser', state.token, payload)
+            .then(function () { toast('Сохранено ✓'); renderUsers(); })
+            .catch(function (e) { toast(e.message, true); });
+        } else {
+          payload.laundryId = state.laundryId;
+          payload.password = document.getElementById('uPass').value;
+          api('createUser', state.token, payload)
+            .then(function () { toast('Сохранено ✓'); renderUsers(); })
+            .catch(function (e) { toast(e.message, true); });
+        }
+      };
+      // Режим редактирования: заполнить форму текущими значениями
+      function enterEdit(u) {
+        document.getElementById('uForm').dataset.editId = u.id;
+        document.getElementById('uFormTitle').textContent = 'Изменить: ' + u.name;
+        document.getElementById('uName').value = u.name;
+        document.getElementById('uRole').value = u.role;
+        document.getElementById('uLogin').value = u.login;
+        document.getElementById('uPass').style.display = 'none';
+        document.getElementById('uClientRow').style.display = u.role === 'client' ? '' : 'none';
+        if (u.role === 'client' && u.client_id) document.getElementById('uClient').value = u.client_id;
+        document.getElementById('uAdd').textContent = 'Сохранить';
+        document.getElementById('uCancelEdit').style.display = '';
+        document.getElementById('uName').focus();
+      }
+      document.getElementById('uCancelEdit').onclick = function () { renderUsers(); };
+      Array.prototype.forEach.call(document.querySelectorAll('[data-edit]'), function (b) {
+        b.onclick = function () {
+          var u = users.filter(function (x) { return x.id === b.dataset.edit; })[0];
+          if (u) enterEdit(u);
+        };
+      });
+      Array.prototype.forEach.call(document.querySelectorAll('[data-react]'), function (b) {
+        b.onclick = function () {
+          api('reactivateUser', state.token, b.dataset.react)
+            .then(function () { toast('Включён ✓'); renderUsers(); })
+            .catch(function (e) { toast(e.message, true); });
+        };
+      });
+      document.getElementById('uTgBind').onclick = function () {
+        api('makeTelegramBindCode', state.token).then(function (res) {
+          var box = document.getElementById('uTgCode');
+          box.style.display = '';
+          box.textContent = 'Код привязки: ' + res.code + ' — отправьте его боту в Telegram (действует 10 минут).';
+        }).catch(function (e) { toast(e.message, true); });
+      };
+      Array.prototype.forEach.call(document.querySelectorAll('[data-reset]'), function (b) {
+        b.onclick = function () {
+          var p = prompt('Новый пароль сотрудника:');
+          if (!p) return;
+          api('resetUserPassword', state.token, b.dataset.reset, p)
+            .then(function () { toast('Пароль изменён ✓'); })
+            .catch(function (e) { toast(e.message, true); });
+        };
+      });
+      Array.prototype.forEach.call(document.querySelectorAll('[data-deact]'), function (b) {
+        b.onclick = function () {
+          confirmDialog('Отключить сотрудника? Вход под его логином перестанет работать.', 'Отключить', function () {
+            api('deactivateUser', state.token, b.dataset.deact)
+              .then(function () { hideDialog(); toast('Отключён'); renderUsers(); })
+              .catch(function (e) { hideDialog(); toast(e.message, true); });
+          });
+        };
+      });
+    })
+    .catch(function (e) { setContainer('<div class="empty">' + esc(e.message) + '</div>'); });
+}
+function clientNameOf(clients, id) {
+  var c = clients.filter(function (x) { return x.id === id; })[0];
+  return c ? c.name : '';
+}
+
+// ===== Прачки (owner): список, добавление, деактивация =====
+function renderLaundries() {
+  appShell('Прачки', 'laundries', '<div class="empty">Загружаем…</div>');
+  api('listLaundries', state.token).then(function (res) {
+    state.laundries = res.laundries; // обновляем переключатель в шапке
+    var html = res.laundries.map(function (l) {
+      var tvUrl = l.tvKey ? '/tv.html?key=' + esc(l.tvKey) : '';
+      return '<div class="row"><span style="flex:2">' + esc(l.name) + '</span>' +
+        '<span style="flex:2">' + (tvUrl
+          ? '<a href="' + tvUrl + '" target="_blank">Табло</a> <span class="cm">' + esc(l.tvKey) + '</span>'
+          : '<span class="cm">нет ключа</span>') + '</span>' +
+        '<span style="width:210px"><button class="btn btn-ghost" data-ren-l="' + esc(l.id) + '" data-name="' + esc(l.name) + '">Переименовать</button>' +
+          (l.id === state.laundryId ? '<span class="cm">активна</span>' :
+          '<button class="btn btn-ghost" data-deact-l="' + esc(l.id) + '">Отключить</button>') + '</span></div>';
+    }).join('');
+    html += '<h2 style="margin-top:16px">Добавить прачку</h2>' +
+      '<div class="row"><input id="lName" placeholder="Название" style="flex:2">' +
+      '<button class="btn btn-primary" id="lAdd">Добавить</button></div>';
+    setContainer(html);
+    document.getElementById('lAdd').onclick = function () {
+      var name = document.getElementById('lName').value.trim();
+      api('createLaundry', state.token, { name: name }).then(function (r) {
+        toast('Прачка «' + r.laundry.name + '» добавлена ✓');
+        renderLaundries();
+      }).catch(function (e) { toast(e.message, true); });
+    };
+    Array.prototype.forEach.call(document.querySelectorAll('[data-ren-l]'), function (b) {
+      b.onclick = function () {
+        var name = prompt('Новое название прачки:', b.dataset.name);
+        if (!name || !name.trim()) return;
+        api('updateLaundry', state.token, { id: b.dataset.renL, name: name.trim() })
+          .then(function () { toast('Сохранено ✓'); renderLaundries(); })
+          .catch(function (e) { toast(e.message, true); });
+      };
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('[data-deact-l]'), function (b) {
+      b.onclick = function () {
+        confirmDialog('Отключить прачку? Данные сохранятся, но прачка пропадёт из списков.', 'Отключить', function () {
+          api('deactivateLaundry', state.token, b.dataset.deactL)
+            .then(function () { hideDialog(); toast('Отключена'); renderLaundries(); })
+            .catch(function (e) { hideDialog(); toast(e.message, true); });
+        });
+      };
+    });
+  }).catch(function (e) { setContainer('<div class="empty">' + esc(e.message) + '</div>'); });
+}
 
 // ===== Сегодня (развоз дня): контроль готовности, не планировщик =====
 function renderDelivery(date) {
@@ -2264,7 +2484,14 @@ if (state.token) {
     }).catch(function () { renderPin(); });
   } else {
     api('getDayList', state.token, '').then(function (res) {
-      state.date = res.date; state.today = res.date; state.day = res; renderDay();
+      state.date = res.date; state.today = res.date; state.day = res;
+      // Переключателю прачек нужен список (при восстановлении сессии его нет в state)
+      if (state.role === 'owner') {
+        api('listLaundries', state.token).then(function (res) {
+          state.laundries = res.laundries || [];
+          renderDay();
+        }).catch(renderDay);
+      } else renderDay();
     }).catch(function () {
       renderPin();
     });

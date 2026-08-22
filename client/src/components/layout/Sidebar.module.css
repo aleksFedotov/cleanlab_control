@@ -1,0 +1,164 @@
+.sidebar {
+  width: 240px;
+  flex: none;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  position: sticky;
+  top: 0;
+  transition: width 0.15s ease;
+  z-index: 40;
+}
+
+.collapsed {
+  width: 64px;
+}
+
+.logoRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 16px 14px;
+}
+
+.logoIcon {
+  width: 34px;
+  height: 34px;
+  flex: none;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #2563eb, #60a5fa);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.logoName {
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+
+.logoSub {
+  font-size: 11px;
+  color: var(--text-4);
+}
+
+.nav {
+  flex: 1;
+  padding: 6px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow-y: auto;
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border-radius: var(--radius-m);
+  font-size: 13.5px;
+  color: var(--text-2);
+  white-space: nowrap;
+}
+
+.item:hover {
+  background: var(--neutral-bg);
+  color: var(--text);
+}
+
+.item.active {
+  background: var(--bluing-soft);
+  color: var(--bluing);
+  font-weight: 600;
+}
+
+.collapsed .item {
+  justify-content: center;
+  padding: 9px 0;
+}
+
+.itemLabel {
+  flex: 1;
+}
+
+.badge {
+  background: var(--bluing);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  border-radius: var(--radius-pill);
+  padding: 1px 7px;
+  font-variant-numeric: tabular-nums;
+}
+
+.divider {
+  height: 1px;
+  background: var(--border);
+  margin: 8px 4px;
+}
+
+.bottom {
+  padding: 10px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.collapseBtn,
+.logout {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border-radius: var(--radius-m);
+  font-size: 13.5px;
+  color: var(--text-4);
+  width: 100%;
+}
+
+.collapseBtn:hover,
+.logout:hover {
+  background: var(--neutral-bg);
+  color: var(--text-2);
+}
+
+.collapsed .collapseBtn,
+.collapsed .logout {
+  justify-content: center;
+  padding: 9px 0;
+}
+
+.overlay {
+  display: none;
+}
+
+/* Мобильно: сайдбар — выдвижная панель поверх контента */
+@media (max-width: 1023px) {
+  .sidebar {
+    position: fixed;
+    left: 0;
+    top: 0;
+    transform: translateX(-100%);
+    transition: transform 0.18s ease;
+    width: 240px;
+    box-shadow: var(--shadow-pop);
+  }
+  .sidebar.mobileOpen {
+    transform: translateX(0);
+  }
+  .collapsed {
+    width: 240px; /* на мобильном всегда развёрнут */
+  }
+  .overlay {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.4);
+    z-index: 39;
+  }
+}

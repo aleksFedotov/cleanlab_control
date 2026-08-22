@@ -10,15 +10,17 @@ function seedClient(ctx, over = {}) {
   return res.client.id;
 }
 
-test('login: неверный PIN отклоняется, верный даёт токен и роль; logout отзывает', () => {
+test('login: неверный пароль отклоняется, верный даёт токен и роль; logout отзывает', () => {
   const ctx = makeCtx();
-  assert.ok(!ctx.auth.login('0000').ok);
-  const owner = ctx.auth.login('1111');
+  assert.ok(!ctx.auth.login('boss', 'не-то').ok);
+  assert.ok(!ctx.auth.login('нет-такого', 'boss-pass').ok);
+  const owner = ctx.auth.login('boss', 'boss-pass');
   assert.strictEqual(owner.role, 'owner');
-  assert.strictEqual(ctx.auth.login('2222').role, 'worker');
-  assert.strictEqual(ctx.auth.login('3333').role, 'driver');
+  assert.ok(Array.isArray(owner.laundries)); // владельцу — список прачек
+  assert.strictEqual(ctx.auth.login('worker1', 'worker-pass').role, 'worker');
+  assert.strictEqual(ctx.auth.login('driver1', 'driver-pass').role, 'driver');
   // Водителя не пускают в API цеха
-  assert.ok(!ctx.api.getDayList(ctx.auth.login('3333').token, TODAY).ok);
+  assert.ok(!ctx.api.getDayList(ctx.auth.login('driver1', 'driver-pass').token, TODAY).ok);
   // Чужой токен не пускает
   assert.ok(!ctx.api.getDayList('нет-такого', TODAY).ok);
   ctx.auth.logout(owner.token);
@@ -209,6 +211,88 @@ test('deferWash из partial: визит в финальном статусе н
   assert.ok(def.ok);
   assert.strictEqual(def.wash.status, 'planned');
   assert.strictEqual(ctx.db.findById_('Deliveries', visit.id).obj.date, TOMORROW);
+});
+
+test('остаток частичной стирки: getDayList показывает постиранную часть, достирка суммирует итоги', () => {
+  const ctx = makeCtx();
+  const clientId = seedClient(ctx);
+  const owner = loginOwner();
+  const worker = loginWorker();
+  const washId = ctx.api.addToDelivery(owner, clientId, TODAY, TOMORROW).wash.id;
+  ctx.api.startWash(worker, washId);
+  const part = ctx.api.completeWash(worker, washId, [{ item_type_id: 'itm_1', qty: 4 }], 6.5, 'partial', 1);
+  assert.ok(part.ok);
+
+  // Переносим остаток на завтра
+  assert.ok(ctx.api.deferWash(owner, washId, '2026-08-14', 'не достирали').ok);
+  const day = ctx.api.getDayList(worker, '2026-08-14');
+  assert.strictEqual(day.washes.length, 1);
+  const w = day.washes[0];
+  assert.strictEqual(w.status, 'planned');
+  assert.strictEqual(w.partial_rest, true);
+  assert.strictEqual(Number(w.prev_kg), 6.5);
+  assert.strictEqual(Number(w.prev_bags), 1);
+  assert.deepStrictEqual(
+    w.prev_items.map(function (x) { return { item_type_id: x.item_type_id, qty: x.qty }; }),
+    [{ item_type_id: 'itm_1', qty: 4 }]
+  );
+  // Обычная стирка без WashItems флага не получает
+  const wash2 = ctx.api.addToDelivery(owner, seedClient(ctx, { name: 'Отель Б' }), '2026-08-14', '2026-08-15').wash.id;
+  const day2 = ctx.api.getDayList(worker, '2026-08-14');
+  assert.ok(!day2.washes.find(function (x) { return x.id === wash2; }).partial_rest);
+
+  // Достирка: итоги суммируются с первой частью
+  assert.ok(ctx.api.startWash(worker, washId).ok);
+  const done = ctx.api.completeWash(worker, washId, [{ item_type_id: 'itm_2', qty: 3 }], 2.04, null, 2);
+  assert.ok(done.ok);
+  assert.strictEqual(Number(done.wash.items_total), 7);
+  assert.strictEqual(Number(done.wash.bags), 3);
+  assert.strictEqual(Number(done.wash.dirty_weight_kg), 8.5); // 6.5 + 2.04 → round1
+  // WashItems обеих частей на месте
+  const items = ctx.db.readAll_('WashItems').filter(function (wi) { return wi.wash_id === washId; });
+  assert.strictEqual(items.length, 2);
+  // Две открытые clean-записи склада (по заходу на стирку)
+  const clean = ctx.db.readAll_('Storage').filter(function (s) {
+    return s.client_id === clientId && s.kind === 'clean' && !s.consumed_at;
+  });
+  assert.strictEqual(clean.length, 2);
+});
+
+test('holdPartialWash: решение «оставить на складе» запоминается; перенесённый остаток виден на складе', () => {
+  const ctx = makeCtx();
+  const clientId = seedClient(ctx);
+  const owner = loginOwner();
+  const worker = loginWorker();
+  const washId = ctx.api.addToDelivery(owner, clientId, TODAY, TOMORROW).wash.id;
+  ctx.api.startWash(worker, washId);
+  ctx.api.completeWash(worker, washId, [{ item_type_id: 'itm_1', qty: 4 }], 6.5, 'partial', 1);
+
+  // Частичная видна на складе, решение ещё не принято
+  let st = ctx.api.getStorage(owner);
+  assert.strictEqual(st.partialClean.length, 1);
+  assert.strictEqual(st.partialClean[0].wash_hold, 0);
+
+  // Работник не может принять решение за владельца
+  assert.ok(!ctx.api.holdPartialWash(worker, washId).ok);
+
+  // Владелец: «оставить на складе» → hold, статус остаётся partial
+  const hold = ctx.api.holdPartialWash(owner, washId);
+  assert.ok(hold.ok);
+  assert.strictEqual(hold.wash.status, 'partial');
+  assert.strictEqual(hold.wash.deferred_reason, 'hold');
+  st = ctx.api.getStorage(owner);
+  assert.strictEqual(st.partialClean[0].wash_hold, 1);
+
+  // Отдельный сценарий: после переноса остатка clean-запись НЕ пропадает со склада
+  const client2 = seedClient(ctx, { name: 'Отель Б' });
+  const wash2 = ctx.api.addToDelivery(owner, client2, TODAY, TOMORROW).wash.id;
+  ctx.api.startWash(worker, wash2);
+  ctx.api.completeWash(worker, wash2, [{ item_type_id: 'itm_1', qty: 2 }], 3, 'partial', 1);
+  assert.ok(ctx.api.deferWash(owner, wash2, '2026-08-14', 'не достирали').ok);
+  st = ctx.api.getStorage(owner);
+  const rest = st.partialClean.find(function (s) { return s.wash_id === wash2; });
+  assert.ok(rest, 'clean-запись перенесённой частичной стирки должна оставаться на складе');
+  assert.strictEqual(rest.wash_status, 'planned');
 });
 
 test('deferWash: из done/stored по-прежнему запрещён', () => {

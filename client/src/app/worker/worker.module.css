@@ -1,0 +1,186 @@
+/* Мобильный экран работника (спека §6): крупные цели нажатия ≥48px, radius 12px. */
+
+.washCard {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: var(--gap);
+}
+
+.washHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.washName {
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.washMeta {
+  font-size: 13px;
+  color: var(--text-2);
+}
+
+.washActions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+/* Большая кнопка-действие на всю ширину (спека §6: ≥48px, radius 12px) */
+.bigBtn {
+  width: 100%;
+  min-height: 48px;
+  border-radius: 12px;
+  font-size: 15px;
+  justify-content: center;
+  margin-top: 4px;
+}
+
+.profileName {
+  font-size: 17px;
+  font-weight: 800;
+}
+
+/* --- Формы в модалках --- */
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.fieldLabel {
+  font-size: 12.5px;
+  color: var(--text-3);
+}
+
+/* --- Степпер (вес / мешки / количество), крупнее для мобильного --- */
+
+.stepper {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.stepperBtn {
+  min-width: 44px;
+  height: 44px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-m);
+  background: var(--surface);
+  color: var(--text-2);
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.stepperBtn:hover {
+  border-color: var(--bluing-border);
+  color: var(--bluing);
+  background: var(--bluing-soft);
+}
+
+.stepperVal {
+  min-width: 56px;
+  text-align: center;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+  font-size: 18px;
+  font-weight: 700;
+  padding: 6px 8px;
+}
+
+/* --- Состав: строки видов белья --- */
+
+.itemRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+
+.itemRow:last-child {
+  border-bottom: none;
+}
+
+.itemName {
+  flex: 1;
+}
+
+.totalRow {
+  margin-top: 10px;
+  font-size: 15px;
+}
+
+/* --- Результат стирки: радио-карточки (legacy res-card) --- */
+
+.resCard {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-m);
+  cursor: pointer;
+  margin-bottom: 8px;
+}
+
+.resCard input {
+  width: auto;
+  margin-top: 3px;
+  accent-color: var(--bluing);
+}
+
+.resCard:hover {
+  border-color: var(--bluing-border);
+}
+
+.resCardActive {
+  border-color: var(--bluing);
+  background: var(--bluing-soft);
+}
+
+.resIco {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--radius-pill);
+}
+
+.resCard[data-tone='done'] .resIco {
+  color: var(--ok);
+  background: var(--ok-bg);
+}
+
+.resCard[data-tone='partial'] .resIco {
+  color: var(--warn);
+  background: var(--warn-bg);
+}
+
+.resText {
+  font-size: 13px;
+}
+
+.resHint {
+  font-size: 12.5px;
+  color: var(--text-3);
+}

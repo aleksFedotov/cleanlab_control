@@ -1,0 +1,67 @@
+.row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: var(--gap);
+}
+
+@media (max-width: 640px) {
+  .row {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-l);
+  box-shadow: var(--shadow-card);
+  padding: 16px 18px;
+}
+
+.label {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--text-4);
+}
+
+.valueRow {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  margin-top: 6px;
+}
+
+.value {
+  font-size: 28px;
+  font-weight: 800;
+  letter-spacing: -0.8px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  line-height: 1.15;
+}
+
+.unit {
+  font-size: 15px;
+  color: var(--text-4);
+}
+
+.sub {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--text-3);
+}
+
+.value.ok,
+.sub.ok {
+  color: var(--ok);
+}
+.value.warn,
+.sub.warn {
+  color: var(--warn);
+}
+.value.late,
+.sub.late {
+  color: var(--late);
+}

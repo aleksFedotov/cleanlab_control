@@ -1,6 +1,10 @@
 // Telegram: webhook и дайджест (spec §8.3, §9) — порт src/Telegram.gs.
 // UrlFetchApp.fetch → globalThis fetch (Node 18+), отправка асинхронная.
-// OWNER_CHAT_ID хранится в таблице Settings (в GAS писался в Script Properties).
+// Мультитенантность: OWNER_CHAT_ID хранится в Settings per-tenant (в GAS — Script Properties).
+// Привязка чата владельца: владелец генерирует одноразовый 6-значный код на экране
+// «Сотрудники» (api.makeTelegramBindCode) и отправляет его боту; бот пишет chat_id
+// в OWNER_CHAT_ID той прачки, к которой привязан код.
+// Дайджесты смен — per-tenant (по Shifts.laundry_id).
 const { SHEETS } = require('./schema');
 const db = require('./db');
 const { config } = require('./config');
@@ -25,43 +29,52 @@ function seenUpdate_(updateId) {
   return false;
 }
 
-// OWNER_CHAT_ID: сначала Settings, потом config (ENV).
-function getOwnerChatId_() {
-  return db.getSettings_().OWNER_CHAT_ID || config.OWNER_CHAT_ID || '';
+// OWNER_CHAT_ID прачки: per-tenant строка Settings перекрывает глобальную.
+function getOwnerChatId_(laundryId) {
+  return db.getSettings_(laundryId).OWNER_CHAT_ID || '';
 }
 
-function setOwnerChatId_(chatId) {
-  const found = db.findRowsBy_(SHEETS.SETTINGS, function (r) { return r.key === 'OWNER_CHAT_ID'; }, 10);
-  if (found.length) {
-    found[0].obj.value = String(chatId);
-    db.updateRow_(SHEETS.SETTINGS, found[0].rowNumber, found[0].obj);
-  } else {
-    db.appendRow_(SHEETS.SETTINGS, { key: 'OWNER_CHAT_ID', value: String(chatId) });
-  }
+function setOwnerChatId_(chatId, laundryId) {
+  db.setTenantSetting_(laundryId, 'OWNER_CHAT_ID', chatId);
   db.invalidateRefCache_();
 }
 
-// Использование MVP: /start → бот просит PIN; любое сообщение, равное
-// OWNER_PIN, фиксирует OWNER_CHAT_ID (spec §9).
+function activeLaundries_() {
+  return db.readAll_('Laundries').filter(function (l) { return l.active === 'да'; });
+}
+
+// Сценарий привязки: владелец отправляет боту 6-значный одноразовый код
+// (сгенерирован на экране «Сотрудники», TTL 10 мин, код привязан к его прачке).
+// /start без кода подсказывает, где взять код.
 async function handleUpdate_(update) {
   const msg = update.message;
   if (!msg || !msg.text) return;
   const text = String(msg.text).trim();
-  // PIN принимается и отдельным сообщением, и в старом формате «/start <PIN>»
+  // Код принимается и отдельным сообщением, и в формате «/start <код>»
   const candidate = text.indexOf('/start') === 0 ? text.slice(6).trim() : text;
-  if (candidate && candidate === config.OWNER_PIN) {
-    setOwnerChatId_(msg.chat.id);
-    await sendTelegram_(msg.chat.id, 'Прачечная PRO: дайджесты подключены ✓');
-  } else if (text.indexOf('/start') === 0) {
-    await sendTelegram_(msg.chat.id, 'Прачечная PRO: введите PIN владельца');
+  if (!/^\d{6}$/.test(candidate)) {
+    if (text.indexOf('/start') === 0) {
+      await sendTelegram_(msg.chat.id, 'Прачечная PRO: отправьте 6-значный код привязки ' +
+        '(экран «Сотрудники» → «Привязать Telegram»)');
+    }
+    return;
   }
+  const { consumeTelegramBindCode_ } = require('./api');
+  const laundryId = consumeTelegramBindCode_(candidate);
+  if (!laundryId) {
+    await sendTelegram_(msg.chat.id, 'Неверный или просроченный код');
+    return;
+  }
+  const laundry = db.readAll_('Laundries').filter(function (l) { return l.id === laundryId; })[0];
+  setOwnerChatId_(msg.chat.id, laundryId);
+  await sendTelegram_(msg.chat.id, (laundry ? laundry.name : 'Прачка') + ': дайджесты подключены ✓');
 }
 
 // --- Отправка сообщений ---
 // Возвращает Promise<number> (HTTP-код Bot API, 0 — если не настроено/ошибка сети).
-async function sendTelegram_(chatId, text) {
+async function sendTelegram_(chatId, text, laundryId) {
   const token = config.BOT_TOKEN;
-  const chat = chatId || getOwnerChatId_();
+  const chat = chatId || getOwnerChatId_(laundryId);
   if (!token || !chat) return 0;
   try {
     const res = await fetch('https://api.telegram.org/bot' + token + '/sendMessage', {
@@ -77,19 +90,19 @@ async function sendTelegram_(chatId, text) {
 }
 
 // --- Дайджест ---
-function buildDigestText_(date) {
+function buildDigestText_(date, laundryId) {
   const { getShiftByDate_ } = require('./api');
   const clients = {};
-  db.getClients_().forEach(function (c) { clients[c.id] = c; });
-  const washes = db.findRowsBy_(SHEETS.WASHES, function (w) { return w.wash_date === date; }, 1000)
+  db.getClients_(laundryId).forEach(function (c) { clients[c.id] = c; });
+  const washes = db.findRowsByTenant_(SHEETS.WASHES, function (w) { return w.wash_date === date; }, 1000, laundryId)
     .map(function (r) { return r.obj; });
-  const log = db.findRowsBy_(SHEETS.LOG, function () { return true; }, 1000).map(function (r) { return r.obj; });
+  const log = db.readTailByTenant_(SHEETS.LOG, 1000, laundryId);
   const report = buildDayReport_(date, washes, log);
   const lines = washes
     .filter(function (w) { return DONE_STATUSES.indexOf(w.status) !== -1; })
     .map(function (w) { return formatWashLine_(w, clientName_(w.client_id, clients)); });
-  const shift = getShiftByDate_(date);
-  let text = formatDigest_(db.getSettings_().LAUNDRY_NAME || 'Прачечная PRO', date, report, lines,
+  const shift = getShiftByDate_(date, laundryId);
+  let text = formatDigest_(db.getSettings_(laundryId).LAUNDRY_NAME || 'Прачечная PRO', date, report, lines,
     shift && shift.obj);
   // Fallback-дайджест: список незавершённых
   const closed = shift && shift.obj.status === 'closed';
@@ -107,14 +120,14 @@ function buildDigestText_(date) {
 // В GAS вызывалась ТОЛЬКО под удерживаемым LockService (spec §8.3); в Node
 // однопроцессная синхронная запись, await нужен только на HTTP-отправку.
 // Флаг digest_sent пишется только после HTTP 200 от Bot API.
-async function sendDigestLocked_(date) {
+async function sendDigestLocked_(date, laundryId) {
   const { ensureShift_, getShiftByDate_ } = require('./api');
-  let shift = getShiftByDate_(date);
+  let shift = getShiftByDate_(date, laundryId);
   if (shift && String(shift.obj.digest_sent) === 'да') return false;
-  if (await sendTelegram_(null, buildDigestText_(date)) !== 200) return false;
+  if (await sendTelegram_(null, buildDigestText_(date, laundryId), laundryId) !== 200) return false;
   if (!shift) {
-    ensureShift_(date);
-    shift = getShiftByDate_(date);
+    ensureShift_(date, laundryId);
+    shift = getShiftByDate_(date, laundryId);
   }
   shift.obj.digest_sent = 'да';
   db.updateRow_(SHEETS.SHIFTS, shift.rowNumber, shift.obj);
@@ -122,12 +135,15 @@ async function sendDigestLocked_(date) {
 }
 
 // Fallback (в GAS — триггер на DIGEST_TIME): шлём, только если смена не закрыта.
+// Проходим по всем активным прачкам — у каждой своя смена и свой чат владельца.
 async function fallbackDigestTrigger() {
   const { getShiftByDate_ } = require('./api');
   const today = todayStr_();
-  const shift = getShiftByDate_(today);
-  if (shift && shift.obj.status === 'closed') return;
-  await sendDigestLocked_(today);
+  for (const l of activeLaundries_()) {
+    const shift = getShiftByDate_(today, l.id);
+    if (shift && shift.obj.status === 'closed') continue;
+    await sendDigestLocked_(today, l.id);
+  }
 }
 
 // --- Webhook (spec §9) ---

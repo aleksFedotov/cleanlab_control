@@ -1,0 +1,88 @@
+.wrap {
+  overflow-x: auto;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.th {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--text-4);
+  text-align: left;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.tr {
+  min-height: 52px;
+}
+.clickable {
+  cursor: pointer;
+}
+.clickable:hover {
+  background: var(--bg);
+}
+
+.td {
+  padding: 14px 12px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13.5px;
+  color: var(--text);
+  vertical-align: middle;
+}
+
+.right {
+  text-align: right;
+}
+
+.mono {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+.chevCol {
+  width: 36px;
+  text-align: right;
+}
+
+.chev {
+  color: var(--text-4);
+  transition: transform 0.2s ease;
+  vertical-align: middle;
+}
+.chevOpen {
+  transform: rotate(180deg);
+}
+
+.detailTr:hover {
+  background: transparent;
+}
+
+.detailTd {
+  padding: 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.detail {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.25s ease;
+}
+.detailOpen {
+  grid-template-rows: 1fr;
+}
+
+.detailInner {
+  overflow: hidden;
+  min-height: 0;
+  padding: 0 12px;
+}
+.detailOpen .detailInner {
+  padding: 12px;
+}

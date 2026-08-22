@@ -1,0 +1,43 @@
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.4);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  display: flex;
+  align-items: flex-start; 
+  padding-top: 60px; 
+  justify-content: center;
+  padding: 20px;
+  z-index: 1000;
+  overflow-y: auto; 
+  -webkit-overflow-scrolling: touch;
+}
+
+.panel {
+  background: var(--surface);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-pop);
+  max-width: 480px;
+  width: 100%;
+  padding: 20px 22px;
+}
+
+.title {
+  font-size: 17px;
+  font-weight: 800;
+  color: var(--text);
+}
+
+.body {
+  margin-top: 12px;
+  font-size: 14px;
+  color: var(--text-2);
+}
+
+.footer {
+  margin-top: 18px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}

@@ -1,9 +1,10 @@
 // Визиты развоза (таблица Deliveries) — порт src/Deliveries.gs.
 // Визит = «водитель заезжает к клиенту в день D», без привязки к состоянию белья.
 // Статусы: planned → delivered | picked | both | empty, плюс cancelled.
+// Мультитенантность: все выборки и записи — в рамках session.laundryId.
 const { SHEETS } = require('./schema');
 const db = require('./db');
-const { nowStr_, todayStr_, logEvent } = require('./audit');
+const { nowStr_, todayStr_, logEvent, actorOf_ } = require('./audit');
 const { addDaysStr_, err_, ok_, clientName_ } = require('./core');
 const { requireRole_ } = require('./auth');
 const { addStorageEntry_, openStorage_, storageSummaryByClient_ } = require('./storage');
@@ -16,19 +17,19 @@ const VISIT_FINAL = ['delivered', 'picked', 'both', 'empty'];
 function isOpenVisit_(v) { return v.status === 'planned'; }
 
 // Визиты на дату (без отменённых), по порядку ord.
-function getVisitsByDate_(date) {
-  return db.findRowsBy_(SHEETS.DELIVERIES, function (v) {
+function getVisitsByDate_(date, laundryId) {
+  return db.findRowsByTenant_(SHEETS.DELIVERIES, function (v) {
     return v.date === date && v.status !== 'cancelled';
-  }, 1000).map(function (r) { return r.obj; })
+  }, 1000, laundryId).map(function (r) { return r.obj; })
     .sort(function (a, b) { return (Number(a.ord) || 0) - (Number(b.ord) || 0); });
 }
 
 // Визиты недели [monday .. monday+6], сгруппированные по дате.
-function getVisitsByWeek_(monday) {
+function getVisitsByWeek_(monday, laundryId) {
   const sun = addDaysStr_(monday, 6);
-  return db.findRowsBy_(SHEETS.DELIVERIES, function (v) {
+  return db.findRowsByTenant_(SHEETS.DELIVERIES, function (v) {
     return v.date >= monday && v.date <= sun && v.status !== 'cancelled';
-  }, 2000).map(function (r) { return r.obj; });
+  }, 2000, laundryId).map(function (r) { return r.obj; });
 }
 
 // Визит + состояние склада клиента (есть чистое / есть грязное).
@@ -43,68 +44,80 @@ function decorateVisit_(v, clients, storage) {
   return v;
 }
 
+// Строка чужой прачки для API не существует
+function findTenantVisit_(visitId, laundryId) {
+  const found = db.findById_(SHEETS.DELIVERIES, visitId);
+  if (!found || found.obj.laundry_id !== String(laundryId)) return null;
+  return found;
+}
+
 // --- API ---
 
 function getDeliveryVisits(token, date) {
-  if (!requireRole_(token, ['owner'])) return err_('Нет доступа');
+  const session = requireRole_(token, ['owner']);
+  if (!session) return err_('Нет доступа');
+  const laundryId = session.laundryId;
   date = date || todayStr_();
   const clients = {};
-  db.getClients_().forEach(function (c) { clients[c.id] = c; });
-  const storage = storageSummaryByClient_();
+  db.getClients_(laundryId).forEach(function (c) { clients[c.id] = c; });
+  const storage = storageSummaryByClient_(laundryId);
   // Ленивый require: api.js и deliveries.js взаимно зависят (notReadyForDelivery_ в api.js).
   const { notReadyForDelivery_ } = require('./api');
   return ok_({
     date: date,
-    visits: getVisitsByDate_(date).map(function (v) { return decorateVisit_(v, clients, storage); }),
-    notReady: notReadyForDelivery_(date),
-    clients: db.getClients_().filter(function (c) { return c.active === 'да'; })
+    visits: getVisitsByDate_(date, laundryId).map(function (v) { return decorateVisit_(v, clients, storage); }),
+    notReady: notReadyForDelivery_(date, laundryId),
+    clients: db.getClients_(laundryId).filter(function (c) { return c.active === 'да'; })
   });
 }
 
 function addDeliveryVisit(token, clientId, date, ord) {
-  const role = requireRole_(token, ['owner']);
-  if (!role) return err_('Нет доступа');
+  const session = requireRole_(token, ['owner']);
+  if (!session) return err_('Нет доступа');
+  const laundryId = session.laundryId;
   return withLock_(function () {
     // Не дублируем: один клиент — один открытый визит на дату
-    const dup = getVisitsByDate_(date).some(function (v) { return v.client_id === clientId; });
+    const dup = getVisitsByDate_(date, laundryId).some(function (v) { return v.client_id === clientId; });
     if (dup) return err_('Клиент уже в развозе на эту дату');
     const v = {
       id: db.nextId_(SHEETS.DELIVERIES, 'del'), date: date, client_id: clientId,
-      ord: ord || (getVisitsByDate_(date).length + 1), status: 'planned',
+      ord: ord || (getVisitsByDate_(date, laundryId).length + 1), status: 'planned',
       delivered_at: '', pickup: '', driver_comment: '',
-      created_by: role, created_at: nowStr_()
+      created_by: session.role, created_at: nowStr_()
     };
-    db.appendRow_(SHEETS.DELIVERIES, v);
-    logEvent(role, 'visit_create', v.id, { client_id: clientId, date: date });
+    db.appendRowTenant_(SHEETS.DELIVERIES, v, laundryId);
+    logEvent(actorOf_(session), 'visit_create', v.id, { client_id: clientId, date: date }, laundryId);
     return ok_({ visit: v });
   });
 }
 
 function moveDeliveryVisit(token, visitId, newDate) {
-  const role = requireRole_(token, ['owner']);
-  if (!role) return err_('Нет доступа');
+  const session = requireRole_(token, ['owner']);
+  if (!session) return err_('Нет доступа');
+  const laundryId = session.laundryId;
   return withLock_(function () {
-    const found = db.findById_(SHEETS.DELIVERIES, visitId);
+    const found = findTenantVisit_(visitId, laundryId);
     if (!found) return err_('Визит не найден');
     if (!isOpenVisit_(found.obj)) return err_('Можно переносить только запланированные визиты');
     const old = found.obj.date;
     found.obj.date = newDate;
     db.updateRow_(SHEETS.DELIVERIES, found.rowNumber, found.obj);
-    logEvent(role, 'visit_move', visitId, { date: old + ' → ' + newDate });
+    logEvent(actorOf_(session), 'visit_move', visitId, { date: old + ' → ' + newDate }, laundryId);
     return ok_({ visit: found.obj });
   });
 }
 
 function removeDeliveryVisit(token, visitId) {
-  const role = requireRole_(token, ['owner']);
-  if (!role) return err_('Нет доступа');
+  const session = requireRole_(token, ['owner']);
+  if (!session) return err_('Нет доступа');
+  const laundryId = session.laundryId;
   return withLock_(function () {
-    const found = db.findById_(SHEETS.DELIVERIES, visitId);
+    const found = findTenantVisit_(visitId, laundryId);
     if (!found) return err_('Визит не найден');
     if (!isOpenVisit_(found.obj)) return err_('Можно убирать только запланированные визиты');
     found.obj.status = 'cancelled';
     db.updateRow_(SHEETS.DELIVERIES, found.rowNumber, found.obj);
-    logEvent(role, 'visit_cancel', visitId, {});
+    logEvent(actorOf_(session), 'visit_cancel', visitId, {}, laundryId);
     return ok_({ visit: found.obj });
   });
 }
@@ -112,30 +125,31 @@ function removeDeliveryVisit(token, visitId) {
 // Подтверждение владельцем «только забрать грязное»: чистое на точку не нужно,
 // визит перестаёт считаться неготовым к развозу (notReadyForDelivery_).
 function setPickupOnly(token, visitId, flag) {
-  const role = requireRole_(token, ['owner']);
-  if (!role) return err_('Нет доступа');
+  const session = requireRole_(token, ['owner']);
+  if (!session) return err_('Нет доступа');
+  const laundryId = session.laundryId;
   return withLock_(function () {
-    const found = db.findById_(SHEETS.DELIVERIES, visitId);
+    const found = findTenantVisit_(visitId, laundryId);
     if (!found) return err_('Визит не найден');
     if (!isOpenVisit_(found.obj)) return err_('Можно менять только запланированные визиты');
     found.obj.pickup_only = flag ? 'да' : '';
     db.updateRow_(SHEETS.DELIVERIES, found.rowNumber, found.obj);
-    logEvent(role, 'visit_pickup_only', visitId, { pickup_only: found.obj.pickup_only });
+    logEvent(actorOf_(session), 'visit_pickup_only', visitId, { pickup_only: found.obj.pickup_only }, laundryId);
     return ok_({ visit: found.obj });
   });
 }
 
 // --- Водитель ---
 
-// Груз водителя по ВСЕМ визитам (любая дата): чистое взятое, но не отданное;
+// Груз водителя по ВСЕМ визитам прачки (любая дата): чистое взятое, но не отданное;
 // грязное забранное, но не сданное на склад. Мешки грязного не считаем — по точкам.
-function driverCargo_() {
+function driverCargo_(laundryId) {
   const cargo = { clean_bags: 0, clean_points: 0, dirty_points: 0 };
-  db.findRowsBy_(SHEETS.DELIVERIES, function (v) {
+  db.findRowsByTenant_(SHEETS.DELIVERIES, function (v) {
     return v.status !== 'cancelled' &&
       ((v.clean_taken_at && v.status !== 'delivered' && v.status !== 'both') ||
        (v.picked_at && !v.dirty_handed_at));
-  }, 2000).forEach(function (r) {
+  }, 2000, laundryId).forEach(function (r) {
     const v = r.obj;
     if (v.clean_taken_at && v.status !== 'delivered' && v.status !== 'both') {
       cargo.clean_points++;
@@ -148,16 +162,18 @@ function driverCargo_() {
 
 // Точки на дату: визиты + состояние склада клиента + груз водителя.
 function getDriverRoute(token, date) {
-  if (!requireRole_(token, ['driver', 'owner'])) return err_('Нет доступа');
+  const session = requireRole_(token, ['driver', 'owner']);
+  if (!session) return err_('Нет доступа');
+  const laundryId = session.laundryId;
   date = date || todayStr_();
   const clients = {};
-  db.getClients_().forEach(function (c) { clients[c.id] = c; });
-  const storage = storageSummaryByClient_();
+  db.getClients_(laundryId).forEach(function (c) { clients[c.id] = c; });
+  const storage = storageSummaryByClient_(laundryId);
   return ok_({
     date: date,
-    laundryName: db.getSettings_().LAUNDRY_NAME || 'Прачечная PRO',
-    cargo: driverCargo_(),
-    visits: getVisitsByDate_(date).map(function (v) {
+    laundryName: db.getSettings_(laundryId).LAUNDRY_NAME || 'Прачечная PRO',
+    cargo: driverCargo_(laundryId),
+    visits: getVisitsByDate_(date, laundryId).map(function (v) {
       const c = clients[v.client_id] || {};
       v.address = c.address || '';
       return decorateVisit_(v, clients, storage);
@@ -173,8 +189,8 @@ function getDriverRoute(token, date) {
 // Чистое со склада → водителю по конкретному визиту.
 // Возвращает кол-во мешков или null, если чистого на складе нет.
 // Мутирует v (clean_taken_at, clean_bags) — запись визита на диске делает вызывающий.
-function takeCleanForVisit_(v) {
-  const clean = openStorage_(v.client_id, 'clean');
+function takeCleanForVisit_(v, laundryId) {
+  const clean = openStorage_(v.client_id, 'clean', laundryId);
   if (!clean.length) return null;
   let bags = 0;
   clean.forEach(function (r) {
@@ -193,39 +209,41 @@ function takeCleanForVisit_(v) {
 
 // Массово: взять чистое по всем открытым точкам дня, где оно есть на складе.
 function driverTakeAllClean(token, date) {
-  const role = requireRole_(token, ['driver', 'owner']);
-  if (!role) return err_('Нет доступа');
+  const session = requireRole_(token, ['driver', 'owner']);
+  if (!session) return err_('Нет доступа');
+  const laundryId = session.laundryId;
   date = date || todayStr_();
   return withLock_(function () {
     let taken = 0, bags = 0;
-    db.findRowsBy_(SHEETS.DELIVERIES, function (v) {
+    db.findRowsByTenant_(SHEETS.DELIVERIES, function (v) {
       return v.date === date && v.status === 'planned' && !v.clean_taken_at;
-    }, 1000).forEach(function (r) {
-      const b = takeCleanForVisit_(r.obj);
+    }, 1000, laundryId).forEach(function (r) {
+      const b = takeCleanForVisit_(r.obj, laundryId);
       if (b === null) return; // чистого нет — точку пропускаем
       db.updateRow_(SHEETS.DELIVERIES, r.rowNumber, r.obj);
       taken++;
       bags += b;
     });
-    logEvent(role, 'take_all_clean', date, { points: taken, bags: bags });
+    logEvent(actorOf_(session), 'take_all_clean', date, { points: taken, bags: bags }, laundryId);
     return ok_({ taken: taken, bags: bags });
   });
 }
 
 function driverAction(token, visitId, action) {
-  const role = requireRole_(token, ['driver', 'owner']);
-  if (!role) return err_('Нет доступа');
+  const session = requireRole_(token, ['driver', 'owner']);
+  if (!session) return err_('Нет доступа');
+  const laundryId = session.laundryId;
   const ACTIONS = ['take_clean', 'deliver_clean', 'pickup_dirty', 'both', 'empty'];
   if (ACTIONS.indexOf(action) === -1) return err_('Неизвестное действие');
   return withLock_(function () {
-    const found = db.findById_(SHEETS.DELIVERIES, visitId);
+    const found = findTenantVisit_(visitId, laundryId);
     if (!found) return err_('Визит не найден');
     const v = found.obj;
     if (VISIT_FINAL.indexOf(v.status) !== -1) return err_('Визит уже закрыт');
 
     if (action === 'take_clean') {
       if (v.clean_taken_at) return err_('Чистое уже взято');
-      if (takeCleanForVisit_(v) === null) return err_('Чистого белья на складе нет');
+      if (takeCleanForVisit_(v, laundryId) === null) return err_('Чистого белья на складе нет');
     }
 
     if (action === 'both') {
@@ -238,9 +256,9 @@ function driverAction(token, visitId, action) {
     if (action === 'deliver_clean' || action === 'both') {
       if (!v.clean_taken_at) return err_('Сначала возьмите чистое на складе');
       // Стирки, чьё чистое уехало к клиенту, помечаются выданными
-      db.findRowsBy_(SHEETS.STORAGE, function (s) {
+      db.findRowsByTenant_(SHEETS.STORAGE, function (s) {
         return s.client_id === v.client_id && s.kind === 'clean' && s.consumed_at === 'driver';
-      }, 500).forEach(function (r) {
+      }, 500, laundryId).forEach(function (r) {
         r.obj.consumed_at = nowStr_();
         db.updateRow_(SHEETS.STORAGE, r.rowNumber, r.obj);
         if (r.obj.wash_id) {
@@ -273,26 +291,27 @@ function driverAction(token, visitId, action) {
     }
 
     db.updateRow_(SHEETS.DELIVERIES, found.rowNumber, v);
-    logEvent(role, 'visit_' + action, visitId, { client_id: v.client_id, date: v.date });
-    return ok_({ visit: v, cargo: driverCargo_() });
+    logEvent(actorOf_(session), 'visit_' + action, visitId, { client_id: v.client_id, date: v.date }, laundryId);
+    return ok_({ visit: v, cargo: driverCargo_(laundryId) });
   });
 }
 
 // «Передать грязное на склад»: всё забранное грязное уезжает на склад разом.
 function driverHandover(token) {
-  const role = requireRole_(token, ['driver', 'owner']);
-  if (!role) return err_('Нет доступа');
+  const session = requireRole_(token, ['driver', 'owner']);
+  if (!session) return err_('Нет доступа');
+  const laundryId = session.laundryId;
   return withLock_(function () {
-    const rows = db.findRowsBy_(SHEETS.DELIVERIES, function (v) {
+    const rows = db.findRowsByTenant_(SHEETS.DELIVERIES, function (v) {
       return v.status !== 'cancelled' && v.picked_at && !v.dirty_handed_at;
-    }, 1000);
+    }, 1000, laundryId);
     rows.forEach(function (r) {
-      addStorageEntry_(r.obj.client_id, 'dirty', {});
+      addStorageEntry_(r.obj.client_id, 'dirty', {}, laundryId);
       r.obj.dirty_handed_at = nowStr_();
       db.updateRow_(SHEETS.DELIVERIES, r.rowNumber, r.obj);
     });
-    if (rows.length) logEvent(role, 'visit_handover', '-', { visits: rows.length });
-    return ok_({ handed: rows.length, cargo: driverCargo_() });
+    if (rows.length) logEvent(actorOf_(session), 'visit_handover', '-', { visits: rows.length }, laundryId);
+    return ok_({ handed: rows.length, cargo: driverCargo_(laundryId) });
   });
 }
 
@@ -301,6 +320,7 @@ function driverHandover(token) {
 // До смены модели «Неделя» хранила карточки как стирки (Washes), теперь это
 // визиты развоза (Deliveries). Переносим: дата визита = issue_date стирки
 // (день выдачи), дедуп по клиент+дата, отменённые стирки пропускаем.
+// Тенант визита наследуется от стирки.
 function migrateWashesToVisits() {
   return withLock_(function () {
     const existing = {};
@@ -318,11 +338,12 @@ function migrateWashesToVisits() {
         id: db.nextId_(SHEETS.DELIVERIES, 'del'), date: date, client_id: w.client_id,
         ord: 0, status: 'planned',
         delivered_at: '', pickup: '', driver_comment: '',
-        created_by: 'migration', created_at: nowStr_()
+        created_by: 'migration', created_at: nowStr_(),
+        laundry_id: w.laundry_id || '1'
       });
       created++;
     });
-    if (created) logEvent('owner', 'migrate_visits', '-', { created: created });
+    if (created) logEvent('migration', 'migrate_visits', '-', { created: created });
     console.log('migrateWashesToVisits: создано визитов ' + created);
     return created;
   });
