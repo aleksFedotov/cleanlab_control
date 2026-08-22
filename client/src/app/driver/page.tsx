@@ -127,8 +127,8 @@ export default function DriverPage() {
   const visits = (route?.visits || []) as RouteVisit[];
   const planned = visits.filter((v) => v.status === 'planned');
   const doneVisits = visits.filter((v) => v.status !== 'planned');
-  const nextVisit = planned[0];
-  const restVisits = planned.slice(1);
+  // const nextVisit = planned[0];
+  // const restVisits = planned.slice(1);
 
   if (!session) return null;
 
@@ -222,8 +222,20 @@ export default function DriverPage() {
 
           {!route.visits.length && <Empty title="Адресов нет" hint={`На ${formatDateRu(date, false)} развоза нет`} />}
 
+
+          {planned.length > 0 && (
+          <MobileSection label={`Адреса (${planned.length})`}>
+            {planned.map((v) => (
+              <Card key={v.id} interactive className={styles.compactCard} onClick={() => setVisitTarget(v)}>
+                <div className={styles.cardName}>{v.client_name}</div>
+                <div className={styles.metaDim}>{visitMeta(v, false).join(' · ')}</div>
+              </Card>
+            ))}
+          </MobileSection>
+        )}
+
           {/* Следующий адрес */}
-          {nextVisit && (
+          {/* {nextVisit && (
             <MobileSection label="Следующий адрес">
               <Card className={styles.nextCard}>
                 <div className={styles.nextName}>{nextVisit.client_name}</div>
@@ -268,10 +280,10 @@ export default function DriverPage() {
                 )}
               </Card>
             </MobileSection>
-          )}
+          )} */}
 
           {/* Далее */}
-          {restVisits.length > 0 && (
+          {/* {restVisits.length > 0 && (
             <MobileSection label="Далее">
               {restVisits.map((v) => (
                 <Card key={v.id} interactive className={styles.compactCard} onClick={() => setVisitTarget(v)}>
@@ -280,7 +292,7 @@ export default function DriverPage() {
                 </Card>
               ))}
             </MobileSection>
-          )}
+          )} */}
         </>
       )}
 

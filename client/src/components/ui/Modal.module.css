@@ -5,10 +5,13 @@
   backdrop-filter: blur(4px);
   -webkit-backdrop-filter: blur(4px);
   display: flex;
-  align-items: center;
+  align-items: flex-start; 
+  padding-top: 60px; 
   justify-content: center;
   padding: 20px;
   z-index: 1000;
+  overflow-y: auto; 
+  -webkit-overflow-scrolling: touch;
 }
 
 .panel {
