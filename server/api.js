@@ -673,18 +673,43 @@ function updateIssueDate(token, washId, issueDate) {
 // Карточка = визит развоза (клиент в день D). Стирки дня формируются из развоза
 // на завтра (см. getDayList). Хранение и права — в deliveries.js.
 
-// Копия прошлой недели: planned-визиты со сдвигом +7 дней.
+// Неделя уже материализована? Маркер — событие week_copy в Log этой прачки.
+// После первой копии неделя принадлежит владельцу: его правки (удаление визитов)
+// не должны затираться повторным копированием.
+function weekMaterialized_(monday, laundryId) {
+  return db.findRowsByTenant_(SHEETS.LOG, function (e) {
+    return e.action === 'week_copy' && e.entity === monday;
+  }, 1, laundryId).length > 0;
+}
+
+// Копия прошлой недели: planned-визиты со сдвигом +7 дней. Слияние, а не «всё
+// или ничего»: пары клиент+дата, уже существующие на этой неделе (включая
+// отменённые — владелец мог снять визит осознанно), не трогаем.
 function copyPrevWeek_(monday, laundryId, actor) {
   const src = getVisitsByWeek_(addDaysStr_(monday, -7), laundryId);
+  // Копировать нечего — маркер не ставим: попробуем снова, когда прошлая неделя заполнится
+  if (!src.length) return;
+  const sun = addDaysStr_(monday, 6);
+  const existing = {};
+  db.findRowsByTenant_(SHEETS.DELIVERIES, function (v) {
+    return v.date >= monday && v.date <= sun;
+  }, 2000, laundryId).forEach(function (r) { existing[r.obj.client_id + '|' + r.obj.date] = true; });
+  let created = 0;
   src.forEach(function (v) {
+    const date = addDaysStr_(v.date, 7);
+    const key = v.client_id + '|' + date;
+    if (existing[key]) return;
+    existing[key] = true;
     db.appendRowTenant_(SHEETS.DELIVERIES, {
-      id: db.nextId_(SHEETS.DELIVERIES, 'del'), date: addDaysStr_(v.date, 7),
+      id: db.nextId_(SHEETS.DELIVERIES, 'del'), date: date,
       client_id: v.client_id, ord: v.ord, status: 'planned',
       delivered_at: '', pickup: '', driver_comment: '',
       created_by: 'owner', created_at: nowStr_()
     }, laundryId);
+    created++;
   });
-  if (src.length) logEvent(actor, 'week_copy', monday, { copied: src.length }, laundryId);
+  // Маркер материализации — даже при created=0 (все пары уже существовали)
+  logEvent(actor, 'week_copy', monday, { copied: created }, laundryId);
 }
 
 // Проактивная материализация дня для всех активных прачек (index.js: при старте
@@ -699,7 +724,7 @@ function materializeTodayAllLaundries_() {
   db.readAll_(SHEETS.LAUNDRIES)
     .filter(function (l) { return l.active === 'да'; })
     .forEach(function (l) {
-      if (!getVisitsByWeek_(tomorrowWeek, l.id).length) copyPrevWeek_(tomorrowWeek, l.id, 'auto');
+      if (!weekMaterialized_(tomorrowWeek, l.id)) copyPrevWeek_(tomorrowWeek, l.id, 'auto');
       ensureWashesFromDelivery_(today, l.id);
     });
 }
@@ -711,8 +736,9 @@ function getWeekPlan(token, monday) {
   const mon = mondayOf_(monday || todayStr_());
   return withLock_(function () {
     let week = getVisitsByWeek_(mon, laundryId);
-    // Идемпотентная материализация: копируем прошлую неделю, только если эта пустая.
-    if (!week.length) {
+    // Идемпотентная материализация: один раз сливаем прошлую неделю (недостающие
+    // пары клиент+дата), дальше неделя в руках владельца. Маркер — week_copy в Log.
+    if (!weekMaterialized_(mon, laundryId)) {
       copyPrevWeek_(mon, laundryId, actorOf_(session));
       week = getVisitsByWeek_(mon, laundryId);
     }

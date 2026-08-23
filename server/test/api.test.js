@@ -630,3 +630,33 @@ test('materializeTodayAllLaundries_: копия недели завтрашне�
   assert.strictEqual(ctx.db.findRowsByTenant_('Washes', w => w.wash_date === TODAY, 100, '1').length, 1);
   assert.strictEqual(ctx.db.findRowsByTenant_('Deliveries', v => v.date === '2026-08-12', 100, '2').length, 1);
 });
+
+test('getWeekPlan: частично заполненная неделя дополняется слиянием, правки владельца не затираются', () => {
+  const ctx = makeCtx();
+  const owner = loginOwner();
+  const a = seedClient(ctx);
+  const b = seedClient(ctx, { name: 'Отель Б' });
+  const c = seedClient(ctx, { name: 'Отель В' });
+  // Прошлая неделя: A и B в понедельник 2026-08-03, C во вторник 2026-08-04
+  assert.ok(ctx.api.addDeliveryVisit(owner, a, '2026-08-03').ok);
+  assert.ok(ctx.api.addDeliveryVisit(owner, b, '2026-08-03').ok);
+  assert.ok(ctx.api.addDeliveryVisit(owner, c, '2026-08-04').ok);
+  // Эта неделя частично заполнена: A уже есть на 08-10, C на 08-11 отменён владельцем.
+  // Старое правило «копировать, только если неделя пуста» здесь молча ничего не делало.
+  assert.ok(ctx.api.addDeliveryVisit(owner, a, '2026-08-10').ok);
+  const cancelledId = ctx.api.addDeliveryVisit(owner, c, '2026-08-11').visit.id;
+  assert.ok(ctx.api.removeDeliveryVisit(owner, cancelledId).ok);
+
+  const week = ctx.api.getWeekPlan(owner, '2026-08-10');
+  assert.ok(week.ok);
+  const mon = week.days[0].cards.map(x => x.client_id).sort();
+  const tue = week.days[1].cards.map(x => x.client_id);
+  // A не задублировался, B докопировался из прошлой недели
+  assert.deepStrictEqual(mon, [a, b].sort());
+  // Отменённый владельцем C не воскрес
+  assert.deepStrictEqual(tue, []);
+  // Повторный вызов ничего не меняет (маркер week_copy в Log)
+  const again = ctx.api.getWeekPlan(owner, '2026-08-10');
+  assert.strictEqual(again.days[0].cards.length, 2);
+  assert.strictEqual(again.days[1].cards.length, 0);
+});
