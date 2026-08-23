@@ -45,9 +45,12 @@ export function WashCard({ w }: { w: DayWash }) {
       )}
       {w.partial_rest && (
         <div className={`${styles.cm} ${styles.cmWarn}`}>
-          <AlertTriangle size={13} /> Частично постирано: готово{' '}
+          <AlertTriangle size={13} /> Частично постирано
+
+          {/* временно уберем */}
+          {/* : готово{' '}
           {(w.prev_items || []).reduce((s, it) => s + it.qty, 0)} поз., {num(w.prev_kg)} кг,{' '}
-          {num(w.prev_bags)} меш. — остаток грязный
+          {num(w.prev_bags)} меш. — остаток грязный */}
         </div>
       )}
       {w.status === 'planned' && (
