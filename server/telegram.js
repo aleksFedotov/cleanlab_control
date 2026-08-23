@@ -137,11 +137,13 @@ async function sendDigestLocked_(date, laundryId) {
 // Fallback (в GAS — триггер на DIGEST_TIME): шлём, только если смена не закрыта.
 // Проходим по всем активным прачкам — у каждой своя смена и свой чат владельца.
 async function fallbackDigestTrigger() {
-  const { getShiftByDate_ } = require('./api');
+  const { getShiftByDate_, ensureWashesFromDelivery_ } = require('./api');
   const today = todayStr_();
   for (const l of activeLaundries_()) {
     const shift = getShiftByDate_(today, l.id);
     if (shift && shift.obj.status === 'closed') continue;
+    // Дайджест — тоже «экран дня»: стирки из завтрашнего развоза должны существовать
+    ensureWashesFromDelivery_(today, l.id);
     await sendDigestLocked_(today, l.id);
   }
 }

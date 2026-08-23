@@ -369,6 +369,8 @@ function getShiftCloseState(token) {
   if (!session) return err_('Нет доступа');
   const laundryId = session.laundryId;
   const today = todayStr_();
+  // Любой экран дня материализует стирки из завтрашнего развоза (раньше — только getDayList)
+  ensureWashesFromDelivery_(today, laundryId);
   const washes = db.findRowsByTenant_(SHEETS.WASHES, function (w) { return w.wash_date === today; }, 1000, laundryId)
     .map(function (r) { return r.obj; });
   const clients = {};
@@ -685,6 +687,23 @@ function copyPrevWeek_(monday, laundryId, actor) {
   if (src.length) logEvent(actor, 'week_copy', monday, { copied: src.length }, laundryId);
 }
 
+// Проактивная материализация дня для всех активных прачек (index.js: при старте
+// и ежедневно в 00:05). Раньше и план недели, и стирки дня создавались лениво —
+// только при открытии экранов «План»/«Стирка», из-за чего утром день был пуст,
+// пока кто-то не откроет нужный экран. Идемпотентно.
+function materializeTodayAllLaundries_() {
+  const today = todayStr_();
+  // Неделя, содержащая завтрашний день: из её развоза формируются сегодняшние
+  // стирки. В воскресенье это следующая неделя — её копия нужна до полуночи.
+  const tomorrowWeek = mondayOf_(addDaysStr_(today, 1));
+  db.readAll_(SHEETS.LAUNDRIES)
+    .filter(function (l) { return l.active === 'да'; })
+    .forEach(function (l) {
+      if (!getVisitsByWeek_(tomorrowWeek, l.id).length) copyPrevWeek_(tomorrowWeek, l.id, 'auto');
+      ensureWashesFromDelivery_(today, l.id);
+    });
+}
+
 function getWeekPlan(token, monday) {
   const session = requireRole_(token, ['owner']);
   if (!session) return err_('Нет доступа');
@@ -780,6 +799,8 @@ function getDayReport(token, date) {
   const session = requireRole_(token, ['owner']);
   if (!session) return err_('Нет доступа');
   const laundryId = session.laundryId;
+  // Как и getDayList: отчёт по дню материализует стирки из развоза на date+1
+  ensureWashesFromDelivery_(date, laundryId);
   const clients = {};
   db.getClients_(laundryId).forEach(function (c) { clients[c.id] = c; });
   const types = {};
@@ -1211,7 +1232,7 @@ module.exports = {
   mountApi, api,
   err_, ok_, withLock_, round1_, timeStr_,
   login, logout, switchLaundry, listLaundries, createLaundry, updateLaundry, deactivateLaundry,
-  ensureShift_, getShiftByDate_, ensureWashesFromDelivery_, notReadyForDelivery_,
+  ensureShift_, getShiftByDate_, ensureWashesFromDelivery_, notReadyForDelivery_, materializeTodayAllLaundries_,
   getDayList, startWash, completeWash, editWashData, deferWash, holdPartialWash, addUnplannedWash,
   getShiftCloseState, closeShift,
   getDeliveryPlan, addToDelivery, cancelWash, deleteWash, confirmStorageCheck, markIssued, updateIssueDate,

@@ -10,6 +10,26 @@ const { mountTelegram } = require('./telegram');
 db.open();
 require('./auth').cleanupExpiredSessions_();
 
+// Проактивная материализация дня: стирки из завтрашнего развоза и копия недели
+// для всех прачек — при старте и ежедневно в 00:05 (раньше создавались лениво,
+// по открытию экранов «План»/«Стирка», и утро начиналось с пустого дня).
+const { materializeTodayAllLaundries_ } = require('./api');
+materializeTodayAllLaundries_();
+(function scheduleDailyMaterialize() {
+  const now = new Date();
+  const next = new Date(now);
+  next.setHours(0, 5, 0, 0);
+  if (next <= now) next.setDate(next.getDate() + 1);
+  setTimeout(function tick() {
+    try {
+      materializeTodayAllLaundries_();
+    } catch (e) {
+      console.error('daily materialize failed:', e);
+    }
+    setTimeout(tick, 24 * 3600 * 1000);
+  }, next - now).unref();
+})();
+
 const app = express();
 app.use(express.json());
 

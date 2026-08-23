@@ -579,3 +579,54 @@ test('getTvData: по ключу, только агрегаты дня', () => {
   assert.strictEqual(tv.counters.planned, 1);
   assert.strictEqual(tv.updatedAt, '21:30');
 });
+
+test('экраны дня материализуют стирки из завтрашнего развоза (раньше — только getDayList)', () => {
+  const ctx = makeCtx();
+  const clientId = seedClient(ctx);
+  const owner = loginOwner();
+  // План развоза на завтра есть, экран «Стирка» никто не открывал
+  assert.ok(ctx.api.addDeliveryVisit(owner, clientId, TOMORROW).ok);
+  // Отчёт за день сам создаёт плановую стирку
+  const rep = ctx.api.getDayReport(owner, TODAY);
+  assert.ok(rep.ok);
+  assert.strictEqual(rep.washes.length, 1);
+  assert.strictEqual(rep.washes[0].status, 'planned');
+
+  // То же — через состояние закрытия смены (второй клиент)
+  const clientId2 = seedClient(ctx, { name: 'Отель Б' });
+  assert.ok(ctx.api.addDeliveryVisit(owner, clientId2, TOMORROW).ok);
+  const close = ctx.api.getShiftCloseState(loginOwner());
+  assert.ok(close.ok);
+  assert.strictEqual(close.blockers.length, 2); // обе стирки дня теперь существуют и открыты
+});
+
+test('materializeTodayAllLaundries_: копия недели завтрашнего дня + стирки для всех активных прачек', () => {
+  const ctx = makeCtx();
+  const { seedLaundry2 } = require('./helpers/serverMocks');
+  seedLaundry2();
+  const owner = loginOwner();
+  const c1 = seedClient(ctx);
+  // Прачка 1: визит на завтра → стирка сегодня. Копия недели здесь НЕ сработает:
+  // неделя завтрашнего дня (2026-08-10..16) уже не пуста из-за этого визита.
+  assert.ok(ctx.api.addDeliveryVisit(owner, c1, TOMORROW).ok);
+  // Прачка 2: только визит на прошлой неделе (2026-08-03..09) → копия на неделю завтра
+  const owner2 = ctx.api.switchLaundry(owner, '2');
+  assert.ok(owner2.ok);
+  const c2 = ctx.api.saveClient(owner, { name: 'Отель В', type: 'отель' }).client.id;
+  assert.ok(ctx.api.addDeliveryVisit(owner, c2, '2026-08-05').ok);
+
+  ctx.api.materializeTodayAllLaundries_();
+
+  // Стирка сегодня создана в прачке 1; в прачке 2 завтра развоза нет — стирок нет
+  const w1 = ctx.db.findRowsByTenant_('Washes', w => w.wash_date === TODAY, 100, '1');
+  const w2 = ctx.db.findRowsByTenant_('Washes', w => w.wash_date === TODAY, 100, '2');
+  assert.strictEqual(w1.length, 1);
+  assert.strictEqual(w2.length, 0);
+  // Неделя завтрашнего дня (2026-08-10..16) скопирована с прошлой для прачки 2
+  const copied = ctx.db.findRowsByTenant_('Deliveries', v => v.date === '2026-08-12', 100, '2');
+  assert.ok(copied.some(r => r.obj.client_id === c2));
+  // Идемпотентно: повторный запуск ничего не дублирует
+  ctx.api.materializeTodayAllLaundries_();
+  assert.strictEqual(ctx.db.findRowsByTenant_('Washes', w => w.wash_date === TODAY, 100, '1').length, 1);
+  assert.strictEqual(ctx.db.findRowsByTenant_('Deliveries', v => v.date === '2026-08-12', 100, '2').length, 1);
+});
