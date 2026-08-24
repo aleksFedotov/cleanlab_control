@@ -14,7 +14,7 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Прачка — панель управления",
+  title: "CleanLab Pro — панель управления",
   description: "Внутренний дашборд прачечной",
 };
 

@@ -171,7 +171,7 @@ function getDriverRoute(token, date) {
   const storage = storageSummaryByClient_(laundryId);
   return ok_({
     date: date,
-    laundryName: db.getSettings_(laundryId).LAUNDRY_NAME || 'Прачечная PRO',
+    laundryName: db.getSettings_(laundryId).LAUNDRY_NAME || 'CleanLab Pro',
     cargo: driverCargo_(laundryId),
     visits: getVisitsByDate_(date, laundryId).map(function (v) {
       const c = clients[v.client_id] || {};

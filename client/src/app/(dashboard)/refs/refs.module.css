@@ -56,11 +56,6 @@
   color: var(--text);
 }
 
-.twoCol {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 10px;
-}
 
 .section {
   border-top: 1px solid var(--border);

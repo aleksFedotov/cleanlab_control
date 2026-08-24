@@ -3,12 +3,12 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>Прачечная PRO</title>
+  <title>CleanLab Pro</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@600;700&display=swap" rel="stylesheet">
   <style>
-    /* ===== Дизайн-система «Прачечная PRO SaaS» =====
+    /* ===== Дизайн-система «CleanLab Pro SaaS» =====
        Светлый enterprise-дашборд: нейтральный фон #f6f7f9, белые поверхности,
        синий акцент #2563eb, статусы — тонированные плашки (amber/blue/green/red/slate),
        чипы — маленькие моноширинные бейджи без наклона, радиусы 8/12, тень 0 1px 2px. */
@@ -372,7 +372,7 @@ function confirmDialog(text, okLabel, onOk) {
 // (владелец переключает прачки уже после входа, в шапке).
 function renderPin() {
   document.getElementById('app').innerHTML =
-    '<div class="pin-wrap"><h1>Прачечная PRO</h1>' +
+    '<div class="pin-wrap"><h1>CleanLab Pro</h1>' +
     '<input id="loginInput" placeholder="Логин" autocomplete="username" autofocus>' +
     '<input type="password" id="passInput" placeholder="Пароль" autocomplete="current-password">' +
     '<button class="btn btn-primary btn-big" id="pinBtn">Войти</button>' +
@@ -447,7 +447,7 @@ function loadDay(date) {
   }).catch(function () {
     // Не глотаем ошибку: экран с повтором вместо молчаливого зависания
     document.getElementById('app').innerHTML =
-      '<div class="pin-wrap"><h1>Прачечная PRO</h1>' +
+      '<div class="pin-wrap"><h1>CleanLab Pro</h1>' +
       '<div class="empty">Не удалось загрузить данные. Проверьте связь.</div>' +
       '<button class="btn btn-primary btn-big" id="retryLoad">Повторить</button></div>';
     document.getElementById('retryLoad').onclick = function () { loadDay(); };
@@ -465,7 +465,7 @@ function shiftDate(days) {
 function renderDay() {
   var day = state.day;
   var shiftClosed = day.shift && day.shift.status === 'closed';
-  var html = '<div class="app-header"><h1>' + esc(day.laundryName || 'Прачечная PRO') + '</h1>' +
+  var html = '<div class="app-header"><h1>' + esc(day.laundryName || 'CleanLab Pro') + '</h1>' +
     '<div class="spacer"></div>' + headerUser() +
     (shiftClosed
       ? '<span class="chip chip-done">Смена закрыта в ' + esc(day.shift.closed_at) + '</span>'
@@ -1093,7 +1093,7 @@ function loadDriver(date) {
     renderDriver();
   }).catch(function () {
     document.getElementById('app').innerHTML =
-      '<div class="pin-wrap"><h1>Прачечная PRO</h1>' +
+      '<div class="pin-wrap"><h1>CleanLab Pro</h1>' +
       '<div class="empty">Не удалось загрузить маршрут. Проверьте связь.</div>' +
       '<button class="btn btn-primary btn-big" id="retryLoad">Повторить</button></div>';
     document.getElementById('retryLoad').onclick = function () { loadDriver(); };
@@ -1112,7 +1112,7 @@ function renderDriver() {
     var p = !v.picked_at;
     if (d && p) bothCnt++; else if (d) needDeliver++; else if (p) needPickup++;
   });
-  var html = '<div class="app-header"><h1>' + esc(route.laundryName || 'Прачечная PRO') + '</h1>' +
+  var html = '<div class="app-header"><h1>' + esc(route.laundryName || 'CleanLab Pro') + '</h1>' +
     '<div class="spacer"></div>' +
     '<button class="btn btn-ghost" id="logoutBtn">Выход</button></div>' +
     '<div class="container">' +

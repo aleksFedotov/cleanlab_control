@@ -81,10 +81,10 @@ test('buildDayReport_: кг по DONE_STATUSES, issued по issued_at, пере�
 });
 
 test('formatDigest_: пустой день и закрытая/открытая смена', () => {
-  const empty = core.formatDigest_('Прачечная PRO', '2026-08-12', { washesDone: 0 }, [], null);
+  const empty = core.formatDigest_('CleanLab Pro', '2026-08-12', { washesDone: 0 }, [], null);
   assert.ok(empty.includes('стирок не было'));
   assert.ok(empty.includes('⚠ Смена ещё не закрыта'));
-  const closed = core.formatDigest_('Прачечная PRO', '2026-08-12',
+  const closed = core.formatDigest_('CleanLab Pro', '2026-08-12',
     { washesDone: 2, totalKg: 20, deferred: 1, cancelled: 0, stored: 1, issued: 1 },
     ['• Клиент — 20 кг, 10 шт'], { status: 'closed', closed_at: '21:30' });
   assert.ok(closed.includes('Постирано: 20 кг (2 стирок)'));

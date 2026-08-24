@@ -66,7 +66,7 @@ export function Sidebar() {
           </div>
           {!collapsed && (
             <div>
-              <div className={styles.logoName}>Прачка</div>
+              <div className={styles.logoName}>CleanLab Pro</div>
               <div className={styles.logoSub}>панель владельца</div>
             </div>
           )}

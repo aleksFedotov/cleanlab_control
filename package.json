@@ -2,7 +2,7 @@
   "name": "cleanlab-control",
   "version": "0.1.0",
   "private": true,
-  "description": "CleanLab Control (Прачечная PRO) — учёт стирок в прачечной. VPS: Express + SQLite (server/).",
+  "description": "CleanLab Pro — учёт стирок в прачечной. VPS: Express + SQLite (server/).",
   "scripts": {
     "test": "npm --prefix server test"
   },

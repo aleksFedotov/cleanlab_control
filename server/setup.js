@@ -17,7 +17,7 @@ function setup() {
 function seedSettings_() {
   const defaults = {
     SCHEMA_VERSION: String(SCHEMA_VERSION),
-    LAUNDRY_NAME: 'Прачечная PRO',
+    LAUNDRY_NAME: 'CleanLab Pro',
     DIGEST_TIME: '21:30'
   };
   const existing = {};

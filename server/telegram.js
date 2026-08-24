@@ -54,7 +54,7 @@ async function handleUpdate_(update) {
   const candidate = text.indexOf('/start') === 0 ? text.slice(6).trim() : text;
   if (!/^\d{6}$/.test(candidate)) {
     if (text.indexOf('/start') === 0) {
-      await sendTelegram_(msg.chat.id, 'Прачечная PRO: отправьте 6-значный код привязки ' +
+      await sendTelegram_(msg.chat.id, 'CleanLab Pro: отправьте 6-значный код привязки ' +
         '(экран «Сотрудники» → «Привязать Telegram»)');
     }
     return;
@@ -102,7 +102,7 @@ function buildDigestText_(date, laundryId) {
     .filter(function (w) { return DONE_STATUSES.indexOf(w.status) !== -1; })
     .map(function (w) { return formatWashLine_(w, clientName_(w.client_id, clients)); });
   const shift = getShiftByDate_(date, laundryId);
-  let text = formatDigest_(db.getSettings_(laundryId).LAUNDRY_NAME || 'Прачечная PRO', date, report, lines,
+  let text = formatDigest_(db.getSettings_(laundryId).LAUNDRY_NAME || 'CleanLab Pro', date, report, lines,
     shift && shift.obj);
   // Fallback-дайджест: список незавершённых
   const closed = shift && shift.obj.status === 'closed';

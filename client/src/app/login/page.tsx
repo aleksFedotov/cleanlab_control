@@ -41,7 +41,7 @@ export default function LoginPage() {
         <div className={styles.logo}>
           <Droplets size={20} color="#fff" />
         </div>
-        <h1 className={styles.title}>Вход в Прачку</h1>
+        <h1 className={styles.title}>Вход в CleanLab Pro</h1>
         <form
           onSubmit={(e) => {
             e.preventDefault();

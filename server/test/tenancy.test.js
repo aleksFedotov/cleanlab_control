@@ -31,7 +31,7 @@ test('изоляция: worker прачки 1 не видит и не меняе
   assert.deepStrictEqual(day1.washes.map(w => w.id), [l1.washId]);
   const day2 = ctx.api.getDayList(worker2, TODAY);
   assert.deepStrictEqual(day2.washes.map(w => w.id), [l2.washId]);
-  assert.strictEqual(day1.laundryName, 'Прачечная PRO');
+  assert.strictEqual(day1.laundryName, 'CleanLab Pro');
   assert.strictEqual(day2.laundryName, 'Прачка 2');
 
   // Чужую стирку нельзя начать/завершить/перенести — она «не найдена»

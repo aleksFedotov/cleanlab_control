@@ -5,7 +5,7 @@ const config = {
   PORT: Number(process.env.PORT || 3100),
   BOT_TOKEN: process.env.BOT_TOKEN || '',
   // Первая прачка: имя (сидится в migrateToV2_ при пустой Laundries)
-  LAUNDRY_NAME: process.env.LAUNDRY_NAME || 'Прачечная PRO',
+  LAUNDRY_NAME: process.env.LAUNDRY_NAME || 'CleanLab Pro',
   // Владелец: логин+пароль, upsert в Users при старте (migrateToV3_)
   OWNER_LOGIN: process.env.OWNER_LOGIN || '',
   OWNER_PASSWORD: process.env.OWNER_PASSWORD || '',
