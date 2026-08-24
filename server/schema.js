@@ -23,7 +23,7 @@ const SHEETS = {
 // WashItems и ItemTypes без laundry_id: тенант через wash_id / справочник глобальный.
 const HEADERS = {
   Settings: ['key', 'value', 'laundry_id'],
-  Clients: ['id', 'name', 'contact', 'address', 'type', 'storage', 'active', 'comment', 'item_types', 'accounting', 'laundry_id'],
+  Clients: ['id', 'name', 'contact', 'address', 'type', 'active', 'comment', 'item_types', 'accounting', 'inn', 'kpp', 'legal_address', 'laundry_id'],
   ItemTypes: ['id', 'name', 'sort', 'active'],
   Washes: ['id', 'client_id', 'wash_date', 'issue_date', 'status',
     'dirty_weight_kg', 'items_total', 'comment', 'created_by', 'created_at',

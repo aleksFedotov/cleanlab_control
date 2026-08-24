@@ -2387,11 +2387,7 @@ function renderClientDetail(clientId) {
     '<div class="row"><select id="cfType">' +
       ['отель', 'ресторан', 'спа', 'прочее'].map(function (t) {
         return '<option' + (c.type === t ? ' selected' : '') + '>' + t + '</option>';
-      }).join('') + '</select>' +
-    '<select id="cfStorage">' +
-      '<option value="нет"' + (c.storage !== 'да' ? ' selected' : '') + '>без склада</option>' +
-      '<option value="да"' + (c.storage === 'да' ? ' selected' : '') + '>складской</option>' +
-    '</select></div>' +
+      }).join('') + '</select></div>' +
     '<div class="row"><input type="text" id="cfAddress" placeholder="Адрес" value="' + esc(c.address || '') + '"></div>' +
     '<div class="row"><input type="text" id="cfContact" placeholder="Контакт" value="' + esc(c.contact || '') + '"></div>' +
     '<div class="row"><input type="text" id="cfComment" placeholder="Комментарий" value="' + esc(c.comment || '') + '"></div></div>' +
@@ -2426,7 +2422,6 @@ function renderClientDetail(clientId) {
     var payload = {
       name: name,
       type: document.getElementById('cfType').value,
-      storage: document.getElementById('cfStorage').value,
       address: document.getElementById('cfAddress').value,
       contact: document.getElementById('cfContact').value,
       comment: document.getElementById('cfComment').value,

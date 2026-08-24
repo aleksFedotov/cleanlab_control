@@ -66,11 +66,14 @@ export interface Client {
   contact: string;
   address: string;
   type: string;
-  storage: string; // 'да' | 'нет'
   active: string; // 'да' | 'нет'
   comment: string;
   item_types: string; // JSON-массив id строкой или ''
   accounting: string; // 'weight' | 'count' | 'both' | ''
+  // Реквизиты (опционально): ИНН, КПП, юридический адрес
+  inn: string;
+  kpp: string;
+  legal_address: string;
   laundry_id: string;
 }
 

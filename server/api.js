@@ -906,9 +906,10 @@ function saveClient(token, client) {
       saved = {
         id: db.nextId_(SHEETS.CLIENTS, 'cli'), name: client.name || '',
         contact: client.contact || '', address: client.address || '',
-        type: client.type || 'прочее', storage: client.storage || 'нет',
+        type: client.type || 'прочее',
         active: 'да', comment: client.comment || '',
-        item_types: client.item_types || '', accounting: client.accounting || ''
+        item_types: client.item_types || '', accounting: client.accounting || '',
+        inn: client.inn || '', kpp: client.kpp || '', legal_address: client.legal_address || ''
       };
       db.appendRowTenant_(SHEETS.CLIENTS, saved, laundryId);
     }

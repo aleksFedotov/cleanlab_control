@@ -1,8 +1,9 @@
 'use client';
 
 // Форма клиента (создание/редактирование) — перенос renderClientDetail
-// (legacy index.html:2375-2451) в Modal. Поля 1:1: name, type, storage,
-// address, contact, comment, item_types (массив id), accounting.
+// (legacy index.html:2375-2451) в Modal. Поля 1:1: name, type,
+// address, contact, comment, item_types (массив id), accounting +
+// опциональные реквизиты: inn, kpp, legal_address.
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -25,12 +26,18 @@ const ACCOUNTING = [
 const schema = z.object({
   name: z.string().trim().min(1, 'Укажите название'),
   type: z.string(),
-  storage: z.string(),
   address: z.string(),
   contact: z.string(),
   comment: z.string(),
   item_types: z.array(z.string()),
   accounting: z.enum(['both', 'weight', 'count']),
+  // Реквизиты — опционально; если заполнены, проверяем формат
+  inn: z
+    .string()
+    .trim()
+    .refine((v) => v === '' || /^\d{10}$|^\d{12}$/.test(v), 'ИНН — 10 или 12 цифр'),
+  kpp: z.string().trim().refine((v) => v === '' || /^\d{9}$/.test(v), 'КПП — 9 цифр'),
+  legal_address: z.string(),
 });
 type FormValues = z.infer<typeof schema>;
 
@@ -66,12 +73,14 @@ export function ClientForm({ client, itemTypes, onClose, onArchive }: ClientForm
     defaultValues: {
       name: client?.name || '',
       type: client?.type || 'отель',
-      storage: client?.storage === 'да' ? 'да' : 'нет',
       address: client?.address || '',
       contact: client?.contact || '',
       comment: client?.comment || '',
       item_types: client ? parseItemTypes(client.item_types) : [],
       accounting: acc,
+      inn: client?.inn || '',
+      kpp: client?.kpp || '',
+      legal_address: client?.legal_address || '',
     },
   });
 
@@ -107,7 +116,7 @@ export function ClientForm({ client, itemTypes, onClose, onArchive }: ClientForm
           <input type="text" placeholder="Название *" autoFocus {...register('name')} />
           {errors.name && <div className={styles.err}>{errors.name.message}</div>}
         </div>
-        <div className={styles.twoCol}>
+        <div >
           <select aria-label="Тип клиента" {...register('type')}>
             {CLIENT_TYPES.map((t) => (
               <option key={t} value={t}>
@@ -115,14 +124,33 @@ export function ClientForm({ client, itemTypes, onClose, onArchive }: ClientForm
               </option>
             ))}
           </select>
-          {/* <select aria-label="Склад" {...register('storage')}>
-            <option value="нет">без склада</option>
-            <option value="да">складской</option>
-          </select> */}
         </div>
         <input type="text" placeholder="Адрес" {...register('address')} />
         <input type="text" placeholder="Контакт" {...register('contact')} />
         <input type="text" placeholder="Комментарий" {...register('comment')} />
+
+        <div className={styles.section}>
+          <div className={styles.sectionTitle}>Реквизиты (необязательно)</div>
+          <div>
+            <input
+              type="text"
+              inputMode="numeric"
+              placeholder="ИНН"
+              {...register('inn')}
+            />
+            {errors.inn && <div className={styles.err}>{errors.inn.message}</div>}
+          </div>
+          <div>
+            <input
+              type="text"
+              inputMode="numeric"
+              placeholder="КПП"
+              {...register('kpp')}
+            />
+            {errors.kpp && <div className={styles.err}>{errors.kpp.message}</div>}
+          </div>
+          <input type="text" placeholder="Юридический адрес" {...register('legal_address')} />
+        </div>
 
         <div className={styles.section}>
           <div className={styles.sectionTitle}>Виды белья</div>

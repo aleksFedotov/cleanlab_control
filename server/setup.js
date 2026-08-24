@@ -69,8 +69,8 @@ function seedDemoData(laundryId) {
     const row = {
       id: cid, name: 'Демо-клиент ' + i, contact: '+7 900 000-00-' + (10 + i),
       address: 'ул. Демонстрационная, ' + i, type: CLIENT_TYPES[i % CLIENT_TYPES.length],
-      storage: i % 3 === 0 ? 'да' : 'нет',
-      active: 'да', comment: '', item_types: '', accounting: '', laundry_id: laundryId
+      active: 'да', comment: '', item_types: '', accounting: '',
+      inn: '', kpp: '', legal_address: '', laundry_id: laundryId
     };
     if (i === 1) row.item_types = JSON.stringify(['itm_1', 'itm_2', 'itm_4', 'itm_5']);
     if (i === 2) row.accounting = 'weight';
