@@ -4,8 +4,9 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
   LayoutDashboard, Truck, Waves, Calendar, Package, BarChart3, BookOpen, Users, Building2,
-  LogOut, Droplets, PanelLeftClose, PanelLeftOpen,
+  LogOut, PanelLeftClose, PanelLeftOpen,
 } from 'lucide-react';
+import Image from 'next/image';
 import { useUiStore } from '@/stores/ui';
 import { useDeliveryVisits } from '@/hooks/use-api';
 import { useLogout } from '@/hooks/use-session';
@@ -63,7 +64,7 @@ export function Sidebar() {
       <aside className={`${styles.sidebar} ${collapsed ? styles.collapsed : ''} ${mobileOpen ? styles.mobileOpen : ''}`}>
         <div className={styles.logoRow}>
           <div className={styles.logoIcon}>
-            <Droplets size={18} color="#fff" />
+            <Image src="/icons/icon-192.png" alt="CleanLab Pro" width={34} height={34} />
           </div>
           {!collapsed && (
             <div>

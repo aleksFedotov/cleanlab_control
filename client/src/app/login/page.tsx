@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Droplets } from 'lucide-react';
+import Image from 'next/image';
 import { api } from '@/lib/api';
 import { saveSession } from '@/lib/session';
 import type { LoginRes } from '@/types/api';
@@ -39,7 +39,7 @@ export default function LoginPage() {
     <div className={styles.wrap}>
       <div className={`${styles.card} ${shake ? styles.shake : ''}`}>
         <div className={styles.logo}>
-          <Droplets size={20} color="#fff" />
+          <Image src="/icons/icon-192.png" alt="CleanLab Pro" width={52} height={52} />
         </div>
         <h1 className={styles.title}>Вход в CleanLab Pro</h1>
         <form
