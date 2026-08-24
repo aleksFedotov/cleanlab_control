@@ -26,6 +26,8 @@ export const STATUSES: Record<string, StatusInfo> = {
   new: { label: 'Очередь', tone: 'neutral' },
   wash: { label: 'В стирке', tone: 'wash' },
   ready: { label: 'Готово', tone: 'ok' },
+  ready_ship: { label: 'К погрузке', tone: 'ok' },
+  en_route: { label: 'В пути к клиенту', tone: 'wash' },
   late: { label: 'Просрочено', tone: 'late' },
   delivered: { label: 'Выдано', tone: 'ok' },
   picked: { label: 'Забрано', tone: 'neutral' },

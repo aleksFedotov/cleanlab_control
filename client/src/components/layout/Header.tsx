@@ -15,6 +15,7 @@ import styles from './Header.module.css';
 
 const TITLES: Record<string, string> = {
   '/today': 'Сегодня',
+  '/delivery': 'Развоз',
   '/wash': 'Стирка',
   '/plan': 'План',
   '/storage': 'Склад',
@@ -25,8 +26,9 @@ const TITLES: Record<string, string> = {
 };
 
 // Раздел → ключ даты в сторе; DateNav показываем только на страницах с датой
+// (у главной «Сегодня» даты нет — она всегда про текущий день)
 const DATE_SECTIONS: Record<string, 'day' | 'week'> = {
-  '/today': 'day',
+  '/delivery': 'day',
   '/wash': 'day',
   '/plan': 'week',
   '/report': 'day',

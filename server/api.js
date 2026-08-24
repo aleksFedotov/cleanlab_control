@@ -17,7 +17,7 @@ const {
 } = core;
 const { addStorageEntry_, openStorage_, consumeStorage_, storageSummaryByClient_ } = require('./storage');
 const deliveries = require('./deliveries');
-const { getVisitsByDate_, getVisitsByWeek_, decorateVisit_, isOpenVisit_ } = deliveries;
+const { getVisitsByDate_, getVisitsByWeek_, decorateVisit_, isOpenVisit_, ensureVisit_ } = deliveries;
 
 // Замена LockService.getScriptLock(): синхронные операции атомарны в одном процессе.
 function withLock_(fn) { return fn(); }
@@ -695,6 +695,8 @@ function updateIssueDate(token, washId, issueDate) {
     found.obj.issue_date = issueDate;
     db.updateRow_(SHEETS.WASHES, found.rowNumber, found.obj);
     logEvent(actorOf_(session), 'wash_edit', washId, { issue_date: old + ' → ' + issueDate }, laundryId);
+    // Чистое с новой датой выдачи появляется в плане/развозе на этот день
+    ensureVisit_(found.obj.client_id, issueDate, laundryId, actorOf_(session));
     return ok_({ wash: found.obj });
   });
 }

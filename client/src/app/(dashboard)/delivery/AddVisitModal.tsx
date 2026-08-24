@@ -11,7 +11,7 @@ import { useUiStore } from '@/stores/ui';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { useApiMutation } from '@/hooks/use-api';
-import styles from './today.module.css';
+import styles from './delivery.module.css';
 
 export interface AddVisitModalProps {
   open: boolean;

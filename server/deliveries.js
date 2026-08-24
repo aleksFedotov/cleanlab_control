@@ -91,6 +91,23 @@ function addDeliveryVisit(token, clientId, date, ord) {
   });
 }
 
+// Автовизит: создать planned-визит клиента на дату, если его ещё нет (без дублей,
+// без ошибки). Вызывается из updateIssueDate — чистое с новой датой выдачи должно
+// появиться в плане/развозе на этот день.
+function ensureVisit_(clientId, date, laundryId, actor) {
+  const visits = getVisitsByDate_(date, laundryId);
+  if (visits.some(function (v) { return v.client_id === clientId; })) return null;
+  const v = {
+    id: db.nextId_(SHEETS.DELIVERIES, 'del'), date: date, client_id: clientId,
+    ord: visits.length + 1, status: 'planned',
+    delivered_at: '', pickup: '', driver_comment: '',
+    created_by: actor || 'auto', created_at: nowStr_()
+  };
+  db.appendRowTenant_(SHEETS.DELIVERIES, v, laundryId);
+  logEvent(actor || 'auto', 'visit_create', v.id, { client_id: clientId, date: date, auto: true }, laundryId);
+  return v;
+}
+
 function moveDeliveryVisit(token, visitId, newDate) {
   const session = requireRole_(token, ['owner']);
   if (!session) return err_('Нет доступа');
@@ -317,6 +334,24 @@ function driverHandover(token) {
 
 // --- Одноразовая миграция (в GAS запускалась вручную из редактора) ---
 
+// Чистое на складе (done/stored) с датой выдачи сегодня или позже должно быть
+// в плане/развозе — раньше смена issue_date визит не создавала. Дедуп — через
+// ensureVisit_ (один клиент — один визит на дату). Запуск: node -e "require('./deliveries').migrateIssueDatesToVisits()"
+function migrateIssueDatesToVisits() {
+  return withLock_(function () {
+    const today = todayStr_();
+    let created = 0;
+    db.readTail_(SHEETS.WASHES, 5000).forEach(function (w) {
+      if (w.status !== 'done' && w.status !== 'stored') return;
+      if (!w.client_id || !w.issue_date || w.issue_date < today) return;
+      if (ensureVisit_(w.client_id, w.issue_date, w.laundry_id || '1', 'migration')) created++;
+    });
+    if (created) logEvent('migration', 'migrate_issue_dates', '-', { created: created });
+    console.log('migrateIssueDatesToVisits: создано визитов ' + created);
+    return created;
+  });
+}
+
 // До смены модели «Неделя» хранила карточки как стирки (Washes), теперь это
 // визиты развоза (Deliveries). Переносим: дата визита = issue_date стирки
 // (день выдачи), дедуп по клиент+дата, отменённые стирки пропускаем.
@@ -350,8 +385,8 @@ function migrateWashesToVisits() {
 }
 
 module.exports = {
-  VISIT_FINAL, isOpenVisit_, getVisitsByDate_, getVisitsByWeek_, decorateVisit_,
+  VISIT_FINAL, isOpenVisit_, getVisitsByDate_, getVisitsByWeek_, decorateVisit_, ensureVisit_,
   getDeliveryVisits, addDeliveryVisit, moveDeliveryVisit, removeDeliveryVisit, setPickupOnly,
   driverCargo_, getDriverRoute, takeCleanForVisit_, driverTakeAllClean,
-  driverAction, driverHandover, migrateWashesToVisits
+  driverAction, driverHandover, migrateWashesToVisits, migrateIssueDatesToVisits
 };

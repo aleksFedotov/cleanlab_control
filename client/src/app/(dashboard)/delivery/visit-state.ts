@@ -3,7 +3,7 @@
 // (server/public/index.html:1578-1595), плюс «просрочен» из дизайн-спеки §5
 // (planned-визит на прошедшую дату).
 import type { DecoratedVisit } from '@/types/api';
-import { todayStr } from '@/lib/dates';
+import { todayStr, timeOf } from '@/lib/dates';
 
 export type VisitCategory = 'ready' | 'wash' | 'queue' | 'late';
 
@@ -42,9 +42,12 @@ export function visitState(v: DecoratedVisit, reason: string | undefined, date: 
     // no_clean: чистого нет и стирки нет — ждёт в очереди
     return { badgeKey: 'new', noteText: null, category: 'queue', overdue: false };
   }
+  if (v.clean_taken_at) {
+    // Чистое забрано со склада, но ещё не доставлено — водитель в пути
+    return { badgeKey: 'en_route', noteText: null, category: 'ready', overdue: false };
+  }
   if (v.has_clean) {
-    // включая «чистое у водителя» (clean_taken_at) — деталь уходит в строку меты
-    return { badgeKey: 'ready', noteText: null, category: 'ready', overdue: false };
+    return { badgeKey: 'ready_ship', noteText: null, category: 'ready', overdue: false };
   }
   return { badgeKey: 'new', noteText: null, category: 'queue', overdue: false };
 }
@@ -56,8 +59,8 @@ export function visitDetails(v: DecoratedVisit, address: string | undefined, rea
   if (v.status === 'planned' && !v.clean_taken_at && v.has_clean) {
     meta.push(`чистое: ${v.clean_kg} кг / ${v.clean_items} шт`);
   }
-  if (v.status === 'planned' && v.clean_taken_at) meta.push('чистое у водителя');
   if (v.has_dirty && v.status !== 'picked' && v.status !== 'both') meta.push('забрать грязное');
+  if (v.picked_at) meta.push(`грязное забрано в ${timeOf(v.picked_at)}`);
   if (reason) meta.push(NOT_READY_REASONS[reason] || reason);
   return meta;
 }

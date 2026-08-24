@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
-  Clock, Waves, Calendar, Package, BarChart3, BookOpen, Users, Building2,
+  LayoutDashboard, Truck, Waves, Calendar, Package, BarChart3, BookOpen, Users, Building2,
   LogOut, Droplets, PanelLeftClose, PanelLeftOpen,
 } from 'lucide-react';
 import { useUiStore } from '@/stores/ui';
@@ -13,7 +13,8 @@ import { todayStr } from '@/lib/dates';
 import styles from './Sidebar.module.css';
 
 const NAV = [
-  { href: '/today', label: 'Сегодня', icon: Clock },
+  { href: '/today', label: 'Сегодня', icon: LayoutDashboard },
+  { href: '/delivery', label: 'Развоз', icon: Truck },
   { href: '/wash', label: 'Стирка', icon: Waves },
   { href: '/plan', label: 'План', icon: Calendar },
   { href: '/storage', label: 'Склад', icon: Package },
@@ -33,7 +34,7 @@ export function Sidebar() {
   const setMobileOpen = useUiStore((s) => s.setSidebarOpenMobile);
   const logout = useLogout();
 
-  // Бейдж-счётчик визитов на сегодня у пункта «Сегодня»
+  // Бейдж-счётчик визитов на сегодня у пункта «Развоз»
   const visits = useDeliveryVisits(todayStr());
   const todayCount = (visits.data?.visits || []).filter((v) => v.status !== 'cancelled').length;
 
@@ -49,7 +50,7 @@ export function Sidebar() {
       >
         <Icon size={17} />
         {!collapsed && <span className={styles.itemLabel}>{label}</span>}
-        {!collapsed && href === '/today' && todayCount > 0 && (
+        {!collapsed && href === '/delivery' && todayCount > 0 && (
           <span className={styles.badge}>{todayCount}</span>
         )}
       </Link>

@@ -1,125 +1,75 @@
 'use client';
 
-// Сегодня (развоз дня): контроль готовности, не планировщик.
-// Порт legacy renderDelivery (server/public/index.html:1534-1712) + openDeliveryAdd.
-// Дата — из хедера (DateNav layout'а) через useSectionDate('today').
-import { useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, Plus, Truck, X } from 'lucide-react';
-import type { DecoratedVisit } from '@/types/api';
-import { useDeliveryVisits, useApiMutation } from '@/hooks/use-api';
-import { useSectionDate } from '@/hooks/use-section-date';
+// Главная «Сегодня» — дашборд владельца: критически важное на текущий день.
+// Всегда сегодня, без DateNav. Операционный развоз переехал в /delivery.
+import { useEffect, useMemo } from 'react';
+import { useRouter } from 'next/navigation';
+import { AlertTriangle } from 'lucide-react';
+import { useDayList, useDeliveryVisits, useStorage } from '@/hooks/use-api';
 import { useUiStore } from '@/stores/ui';
-import { formatDateRu, isToday, timeOf } from '@/lib/dates';
-import { bags } from '@/lib/format';
+import { todayStr } from '@/lib/dates';
+import { num } from '@/lib/format';
 import { StatRow } from '@/components/ui/StatRow';
 import { StatCard } from '@/components/ui/StatCard';
-import { StatusBadge } from '@/components/ui/StatusBadge';
-import { FilterPills } from '@/components/ui/FilterPills';
 import { Card } from '@/components/ui/Card';
-import { Button } from '@/components/ui/Button';
-import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { StatusBadge } from '@/components/ui/StatusBadge';
 import { Empty } from '@/components/ui/Empty';
+import { Button } from '@/components/ui/Button';
 import { Skeleton } from '@/components/ui/Skeleton';
-import { AddVisitModal } from './AddVisitModal';
-import { NOT_READY_REASONS, visitDetails, visitState } from './visit-state';
+import { NOT_READY_REASONS, visitState } from '../delivery/visit-state';
+import { buildEntries } from '../storage/storage-entry';
 import styles from './today.module.css';
 
-export default function TodayPage() {
-  const [date] = useSectionDate('today');
-  const query = useDeliveryVisits(date);
+export default function TodayDashboard() {
+  const router = useRouter();
   const toast = useUiStore((s) => s.toast);
+  const today = todayStr();
 
-  const [filter, setFilter] = useState('all');
-  const [addOpen, setAddOpen] = useState(false);
-  const [removeTarget, setRemoveTarget] = useState<{ id: string; name: string } | null>(null);
-  const [poTarget, setPoTarget] = useState<string | null>(null); // visitId для setPickupOnly(true)
-  const [unpoId, setUnpoId] = useState<string | null>(null); // busy на «отменить» pickup_only
+  const day = useDayList(today);
+  const delivery = useDeliveryVisits(today);
+  const storage = useStorage();
 
-  // Ошибка API: тост (§7); «Повторить» на месте контента — ниже, когда данных нет
   useEffect(() => {
-    if (query.isError) toast(query.error.message || 'Не удалось загрузить развоз', 'err');
-  }, [query.isError, query.error, toast]);
+    if (day.isError) toast(day.error.message || 'Ошибка загрузки стирок', 'err');
+  }, [day.isError, day.error, toast]);
+  useEffect(() => {
+    if (delivery.isError) toast(delivery.error.message || 'Ошибка загрузки развоза', 'err');
+  }, [delivery.isError, delivery.error, toast]);
+  useEffect(() => {
+    if (storage.isError) toast(storage.error.message || 'Ошибка загрузки склада', 'err');
+  }, [storage.isError, storage.error, toast]);
 
-  const removeMut = useApiMutation('removeDeliveryVisit', { invalidate: 'operational' });
-  const pickupOnlyMut = useApiMutation('setPickupOnly', { invalidate: 'operational' });
+  // Стирки дня
+  const washes = day.data?.washes || [];
+  const inProgress = washes.filter((w) => w.status === 'in_progress');
+  const queue = washes.filter((w) => w.status === 'planned' || w.status === 'no_linen');
+  const doneList = washes.filter(
+    (w) =>
+      w.status === 'done' || w.status === 'stored' || w.status === 'partial' || w.status === 'ready_clean'
+  );
+  const doneKg = Math.round(doneList.reduce((s, w) => s + num(w.dirty_weight_kg), 0) * 10) / 10;
+  const shift = day.data?.shift || null;
 
-  const res = query.data;
-
-  // Адрес и причина неготовности по client_id — как в legacy (addrByClient / notReadyByClient)
-  const addrByClient = useMemo(() => {
-    const m = new Map<string, string>();
-    (res?.clients || []).forEach((c) => m.set(c.id, c.address));
-    return m;
-  }, [res]);
+  // Развоз сегодня
+  const visits = delivery.data?.visits || [];
+  const doneDel = visits.filter((v) => v.status === 'delivered' || v.status === 'both').length;
+  const donePick = visits.filter((v) => v.status === 'picked' || v.status === 'both').length;
+  const notReady = delivery.data?.notReady || [];
   const reasonByClient = useMemo(() => {
     const m = new Map<string, string>();
-    (res?.notReady || []).forEach((n) => m.set(n.client_id, n.reason));
+    (delivery.data?.notReady || []).forEach((n) => m.set(n.client_id, n.reason));
     return m;
-  }, [res]);
+  }, [delivery.data]);
 
-  // Сводка дня — счётчики 1:1 из legacy
-  const stats = useMemo(() => {
-    const visits = res?.visits || [];
-    let doneDel = 0;
-    let donePick = 0;
-    let readyCnt = 0;
-    let workKg = 0;
-    let workBags = 0;
-    visits.forEach((v) => {
-      if (v.status === 'delivered' || v.status === 'both') doneDel++;
-      if (v.status === 'picked' || v.status === 'both') donePick++;
-      if (v.status === 'planned' && v.has_clean) {
-        workKg += v.clean_kg;
-        workBags += v.clean_stock_bags;
-        if (!v.clean_taken_at && !reasonByClient.get(v.client_id)) readyCnt++;
-      }
-    });
-    return { doneDel, donePick, readyCnt, workKg, workBags };
-  }, [res, reasonByClient]);
+  // Склад: позиции, требующие внимания (просрочка выдачи, частичные без решения)
+  const attnStorage = useMemo(
+    () => (storage.data ? buildEntries(storage.data, today).filter((e) => e.attn) : []),
+    [storage.data, today]
+  );
 
-  // Счётчики для FilterPills и отфильтрованный список
-  const { counts, filtered } = useMemo(() => {
-    const c = { ready: 0, wash: 0, queue: 0, late: 0 };
-    const list: DecoratedVisit[] = [];
-    (res?.visits || []).forEach((v) => {
-      const st = visitState(v, reasonByClient.get(v.client_id), date);
-      if (st.category) c[st.category]++;
-      if (filter === 'all' || st.category === filter) list.push(v);
-    });
-    return { counts: c, filtered: list };
-  }, [res, reasonByClient, date, filter]);
+  const hasAlerts = notReady.length > 0 || attnStorage.length > 0;
 
-  function confirmPickupOnly() {
-    if (!poTarget) return;
-    pickupOnlyMut.mutate([poTarget, true], {
-      onSuccess: () => {
-        setPoTarget(null);
-        toast('Точка подтверждена: только забрать грязное ✓');
-      },
-    });
-  }
-
-  function unsetPickupOnly(v: DecoratedVisit) {
-    setUnpoId(v.id);
-    pickupOnlyMut.mutate([v.id, false], {
-      onSuccess: () => toast('Пометка снята'),
-      onSettled: () => setUnpoId(null),
-    });
-  }
-
-  function confirmRemove() {
-    if (!removeTarget) return;
-    removeMut.mutate(removeTarget.id, {
-      onSuccess: () => {
-        setRemoveTarget(null);
-        toast('Убрано');
-      },
-    });
-  }
-
-  // --- Состояния (спека §7) ---
-
-  if (query.isLoading) {
+  if (day.isLoading || delivery.isLoading || storage.isLoading) {
     return (
       <div className={styles.stack}>
         <div className={styles.skelStats}>
@@ -127,24 +77,27 @@ export default function TodayPage() {
             <Skeleton key={i} height={76} radius={14} />
           ))}
         </div>
-        <Skeleton height={34} width={340} radius={999} />
-        <div className={styles.grid}>
-          {[0, 1, 2, 3, 4, 5].map((i) => (
-            <Skeleton key={i} height={66} radius={14} />
-          ))}
-        </div>
+        <Skeleton height={120} radius={14} />
+        <Skeleton height={200} radius={14} />
       </div>
     );
   }
 
-  if (query.isError && !res) {
+  if (day.isError && delivery.isError && storage.isError) {
     return (
       <Empty
         icon={<AlertTriangle size={28} />}
-        title="Не удалось загрузить развоз"
-        hint={query.error.message}
+        title="Не удалось загрузить дашборд"
+        hint="Проверьте связь."
         action={
-          <Button variant="primary" onClick={() => query.refetch()} busy={query.isRefetching}>
+          <Button
+            variant="primary"
+            onClick={() => {
+              day.refetch();
+              delivery.refetch();
+              storage.refetch();
+            }}
+          >
             Повторить
           </Button>
         }
@@ -152,158 +105,104 @@ export default function TodayPage() {
     );
   }
 
-  if (!res) return null;
-
-  const visits = res.visits;
-  const notReady = res.notReady || [];
-
   return (
     <div className={styles.stack}>
       <StatRow>
         <StatCard
-          label={isToday(date) ? 'Визитов сегодня' : `Визитов · ${formatDateRu(date, false)}`}
-          value={visits.length}
-          sub={`${stats.doneDel} выдано · ${stats.donePick} забрано`}
+          label="Смена"
+          value={shift?.status === 'closed' ? 'закрыта' : 'открыта'}
+          tone={shift?.status === 'closed' ? 'ok' : 'default'}
+          sub={shift?.status === 'closed' && shift.closed_at ? `в ${shift.closed_at}` : undefined}
         />
-        <StatCard label="Готовы к выдаче" value={stats.readyCnt} tone="ok" />
-        <StatCard label="Не готовы" value={notReady.length} tone="warn" />
+        <StatCard label="В работе" value={inProgress.length} />
+        <StatCard label="В очереди" value={queue.length} tone={queue.length > 0 ? 'warn' : 'default'} />
+        <StatCard label="Готово" value={doneList.length} unit={doneKg > 0 ? `· ${doneKg} кг` : undefined} tone="ok" />
         <StatCard
-          label="Вес в работе"
-          value={stats.workKg}
-          unit="кг"
-          sub={bags(stats.workBags)}
+          label="Визиты сегодня"
+          value={visits.length}
+          sub={`${doneDel} выдано · ${donePick} забрано`}
         />
       </StatRow>
 
-      <FilterPills
-        active={filter}
-        onChange={setFilter}
-        options={[
-          { key: 'all', label: 'Все', count: visits.length },
-          { key: 'ready', label: 'Готовы', count: counts.ready },
-          { key: 'wash', label: 'В стирке', count: counts.wash },
-          { key: 'queue', label: 'Очередь', count: counts.queue },
-          { key: 'late', label: 'Просрочены', count: counts.late },
-        ]}
-      />
-
-      {notReady.length > 0 && (
-        <div className={styles.blockers}>
-          <div className={styles.blockersTitle}>
-            <AlertTriangle size={16} /> Не готовы к развозу:
+      {hasAlerts && (
+        <div className={styles.alerts}>
+          <div className={styles.alertsTitle}>
+            <AlertTriangle size={16} /> Требуют внимания
           </div>
           {notReady.map((n) => (
-            <div key={n.visit_id} className={styles.bRow}>
-              <span className={styles.bName}>
-                {n.client_name} <span className={styles.bWhy}>— {NOT_READY_REASONS[n.reason] || n.reason}</span>
+            <div key={n.visit_id} className={styles.aRow}>
+              <span className={styles.aName}>
+                {n.client_name}{' '}
+                <span className={styles.aWhy}>— {NOT_READY_REASONS[n.reason] || n.reason}</span>
               </span>
-              <Button variant="ghost" size="sm" onClick={() => setPoTarget(n.visit_id)}>
-                Только забрать грязное
+              <Button variant="ghost" size="sm" onClick={() => router.push('/delivery')}>
+                Развоз
+              </Button>
+            </div>
+          ))}
+          {attnStorage.map((e) => (
+            <div key={`${e.kind}-${e.id}`} className={styles.aRow}>
+              <span className={styles.aName}>
+                {e.client_name} <span className={styles.aWhy}>— {e.statusText}</span>
+              </span>
+              <Button variant="ghost" size="sm" onClick={() => router.push('/storage')}>
+                Склад
               </Button>
             </div>
           ))}
         </div>
       )}
 
-      {visits.length === 0 ? (
-        <Empty
-          icon={<Truck size={28} />}
-          title="Развоз пуст"
-          hint="Добавьте клиентов ниже или на вкладке «План»"
-        />
-      ) : filtered.length === 0 ? (
-        <Empty title="В этой категории пусто" />
-      ) : (
-        <div className={styles.grid}>
-          {filtered.map((v) => {
-            const reason = reasonByClient.get(v.client_id);
-            const st = visitState(v, reason, date);
-            const details = visitDetails(v, addrByClient.get(v.client_id), reason);
-            return (
-              <Card
-                key={v.id}
-                className={`${styles.visit} ${st.overdue ? styles.visitLate : ''}`}
-              >
-                <div className={`mono ${styles.timeChip}`}>
-                  <span>{timeOf(v.delivered_at) || '—'}</span>
-                  <span>{timeOf(v.picked_at) || '—'}</span>
-                </div>
-                <div className={styles.visitMain}>
-                  <div className={styles.visitName}>{v.client_name}</div>
-                  {details.length > 0 && (
-                    <div className={styles.visitDetails}>{details.join(' · ')}</div>
-                  )}
-                </div>
-                <div className={styles.visitSide}>
+      <div className={styles.cols}>
+        <Card className={styles.listCard}>
+          <div className={styles.listTitle}>Стирки дня</div>
+          {inProgress.length === 0 && queue.length === 0 && doneList.length === 0 ? (
+            <div className={styles.emptyLine}>Стирок нет</div>
+          ) : (
+            <>
+              {inProgress.map((w) => (
+                <button key={w.id} className={styles.row} onClick={() => router.push('/wash')}>
+                  <span className={styles.rowName}>{w.client_name}</span>
+                  <StatusBadge status={w.status} size="sm" />
+                </button>
+              ))}
+              {queue.map((w) => (
+                <button key={w.id} className={styles.row} onClick={() => router.push('/wash')}>
+                  <span className={styles.rowName}>{w.client_name}</span>
+                  <StatusBadge status={w.status} size="sm" />
+                </button>
+              ))}
+              {doneList.map((w) => (
+                <button key={w.id} className={styles.row} onClick={() => router.push('/wash')}>
+                  <span className={styles.rowName}>{w.client_name}</span>
+                  <StatusBadge status={w.status} size="sm" />
+                </button>
+              ))}
+            </>
+          )}
+        </Card>
+
+        <Card className={styles.listCard}>
+          <div className={styles.listTitle}>Развоз сегодня</div>
+          {visits.length === 0 ? (
+            <div className={styles.emptyLine}>Визитов нет</div>
+          ) : (
+            visits.map((v) => {
+              const st = visitState(v, reasonByClient.get(v.client_id), today);
+              return (
+                <button key={v.id} className={styles.row} onClick={() => router.push('/delivery')}>
+                  <span className={styles.rowName}>{v.client_name}</span>
                   {st.badgeKey ? (
                     <StatusBadge status={st.badgeKey} size="sm" />
                   ) : (
                     <span className={styles.noteChip}>{st.noteText}</span>
                   )}
-                  {v.status === 'planned' && v.pickup_only === 'да' && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      busy={unpoId === v.id}
-                      title="Снять пометку «только забрать грязное»"
-                      onClick={() => unsetPickupOnly(v)}
-                    >
-                      отменить
-                    </Button>
-                  )}
-                  {v.status === 'planned' && (
-                    <button
-                      className={styles.rmBtn}
-                      title="Убрать из развоза"
-                      onClick={() => setRemoveTarget({ id: v.id, name: v.client_name })}
-                    >
-                      <X size={14} />
-                    </button>
-                  )}
-                </div>
-              </Card>
-            );
-          })}
-        </div>
-      )}
-
-      <Button
-        variant="primary"
-        className={styles.addBtn}
-        icon={<Plus size={16} />}
-        onClick={() => setAddOpen(true)}
-      >
-        {isToday(date)
-          ? 'Добавить в сегодняшний развоз'
-          : `Добавить в развоз на ${formatDateRu(date)}`}
-      </Button>
-
-      <AddVisitModal
-        open={addOpen}
-        onClose={() => setAddOpen(false)}
-        date={date}
-        clients={res.clients}
-        visits={visits}
-      />
-
-      <ConfirmDialog
-        open={poTarget !== null}
-        onClose={() => setPoTarget(null)}
-        onConfirm={confirmPickupOnly}
-        text="Водитель только заберёт грязное, чистое на эту точку не нужно. Подтвердить?"
-        okLabel="Подтвердить"
-        busy={pickupOnlyMut.isPending}
-      />
-
-      <ConfirmDialog
-        open={removeTarget !== null}
-        onClose={() => setRemoveTarget(null)}
-        onConfirm={confirmRemove}
-        text={removeTarget ? `Убрать «${removeTarget.name}» из развоза?` : ''}
-        okLabel="Убрать"
-        danger
-        busy={removeMut.isPending}
-      />
+                </button>
+              );
+            })
+          )}
+        </Card>
+      </div>
     </div>
   );
 }

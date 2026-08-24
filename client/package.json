@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test:e2e": "next build && playwright test"
+    "test:e2e": "node e2e/build.js && playwright test"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.9.1",
