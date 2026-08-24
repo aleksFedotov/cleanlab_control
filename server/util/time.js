@@ -12,7 +12,9 @@ const dtf = new Intl.DateTimeFormat('en-CA', {
 function parts(date) {
   const out = {};
   for (const p of dtf.formatToParts(date)) {
-    if (p.type !== 'literal') out[p.type] = p.value === '24' ? '00' : p.value;
+    // '24' → '00' только для часа (Intl при hour12:false может отдать '24').
+    // Раньше замена применялась ко всем частям — 24-го числа дата ломалась в '…-08-00'.
+    if (p.type !== 'literal') out[p.type] = p.type === 'hour' && p.value === '24' ? '00' : p.value;
   }
   return out;
 }

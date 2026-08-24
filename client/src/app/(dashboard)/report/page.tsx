@@ -81,7 +81,8 @@ const columns: DataTableColumn[] = [
     key: 'status',
     title: 'Статус',
     render: (w: ReportWash) => (
-      <StatusBadge status={reportGroup(w) === 'deferred' ? 'deferred' : w.status} size="sm" />
+      // <StatusBadge status={reportGroup(w) === 'deferred' ? 'deferred' : w.status} size="sm" />
+      <StatusBadge status={w.status} size="sm" />
     ),
   },
   {

@@ -115,10 +115,10 @@ export function ClientForm({ client, itemTypes, onClose, onArchive }: ClientForm
               </option>
             ))}
           </select>
-          <select aria-label="Склад" {...register('storage')}>
+          {/* <select aria-label="Склад" {...register('storage')}>
             <option value="нет">без склада</option>
             <option value="да">складской</option>
-          </select>
+          </select> */}
         </div>
         <input type="text" placeholder="Адрес" {...register('address')} />
         <input type="text" placeholder="Контакт" {...register('contact')} />

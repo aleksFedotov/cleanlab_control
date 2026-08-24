@@ -51,7 +51,7 @@ export function StartWashModal({ w, onClose }: StartWashModalProps) {
     >
       <div className={styles.form}>
         <label className={styles.field}>
-          <span className={styles.fieldLabel}>Вес грязного белья, кг (необязательно)</span>
+          <span className={styles.fieldLabel}>Вес грязного белья, кг</span>
           <input
             type="number"
             inputMode="decimal"

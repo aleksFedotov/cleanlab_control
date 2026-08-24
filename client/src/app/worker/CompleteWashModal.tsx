@@ -96,12 +96,17 @@ export function CompleteWashModal({ w, itemTypes, onClose }: CompleteWashModalPr
   });
 
   function save() {
+    console.log(counts)
     if (acc !== 'count' && weight <= 0) {
-      toast('Укажите вес чистого белья', 'err');
+      toast('Укажите вес грязного белья', 'err');
       return;
     }
     if (bags <= 0) {
       toast('Укажите количество мешков', 'err');
+      return;
+    }
+    if(acc !== 'weight' && Object.keys(counts).length === 0 ) {
+      toast('Укажите количество вещей', 'err');
       return;
     }
     mutation.mutate([w.id, countsToItems(counts), weight, mode, bags]);

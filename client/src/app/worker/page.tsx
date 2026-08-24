@@ -4,14 +4,15 @@
 // для роли worker, server/public/index.html:465-957). Всегда «сегодня» —
 // у работника нет DateNav. Вкладки — локальное состояние, не маршруты.
 import { useState } from 'react';
-import { ClipboardList, Package, User, Waves } from 'lucide-react';
+import { CalendarClock, ClipboardList, Package, Plus, Trash2, User, Waves, AlertTriangle} from 'lucide-react';
 import { useRequireRole, useLogout } from '@/hooks/use-session';
-import { useDayList } from '@/hooks/use-api';
+import { useApiMutation, useDayList } from '@/hooks/use-api';
 import { MobileLayout, MobileSection } from '@/components/layout/MobileLayout';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { Empty } from '@/components/ui/Empty';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { Skeleton, SkeletonCards } from '@/components/ui/Skeleton';
 import { todayStr, timeOf } from '@/lib/dates';
 import { num, kg, bags as bagsFmt, items as itemsFmt } from '@/lib/format';
@@ -20,6 +21,10 @@ import type { DayWash } from '@/types/api';
 import { CompleteWashModal } from './CompleteWashModal';
 import { StartWashModal } from './StartWashModal';
 import { StorageCheckModal } from './StorageCheckModal';
+import { EditDoneWashModal } from './EditDoneWashModal';
+import { AddWashModal } from '../(dashboard)/wash/AddWashModal';
+import { DeferWashModal } from '../(dashboard)/wash/[id]/DeferWashModal';
+import { ShiftCloseDialog } from '../(dashboard)/wash/ShiftCloseDialog';
 import styles from './worker.module.css';
 
 type Tab = 'tasks' | 'storage' | 'profile';
@@ -31,7 +36,17 @@ function greeting(name: string): string {
 }
 
 // Стирка «в работе»: детали + большая кнопка завершения (спека §6)
-function ActiveWashCard({ w, onComplete }: { w: DayWash; onComplete: () => void }) {
+function ActiveWashCard({
+  w,
+  onComplete,
+  onDefer,
+  onDelete,
+}: {
+  w: DayWash;
+  onComplete: () => void;
+  onDefer: () => void;
+  onDelete: () => void;
+}) {
   const meta: string[] = [];
   if (num(w.items_total) > 0) meta.push(itemsFmt(num(w.items_total)));
   if (w.dirty_weight_kg !== '' && w.dirty_weight_kg != null) meta.push(kg(w.dirty_weight_kg));
@@ -42,12 +57,26 @@ function ActiveWashCard({ w, onComplete }: { w: DayWash; onComplete: () => void 
         <span className={styles.washName}>{w.client_name}</span>
         <StatusBadge status={w.status} />
       </div>
+      {w.partial_rest && (
+        <div className={`${styles.washMeta} ${styles.cmWarn}`}>
+          <AlertTriangle size={13} /> Частично постирано: готово {(w.prev_items || []).reduce((s, it) => s + it.qty, 0)} поз.,{' '}
+          {w.prev_kg} кг, {w.prev_bags} мешк. — остаток грязный
+        </div>
+      )}
       {meta.length > 0 && <div className={styles.washMeta}>{meta.join(' · ')}</div>}
       {started && <div className={styles.washMeta}>Начата в {started}</div>}
       {w.comment && <div className={styles.washMeta}>{w.comment}</div>}
       <Button className={styles.bigBtn} onClick={onComplete}>
         Завершить стирку
       </Button>
+      <div className={styles.washActions}>
+        <Button variant="ghost" size="sm" icon={<CalendarClock size={14} />} onClick={onDefer}>
+          Перенести
+        </Button>
+        <Button variant="ghost" size="sm" icon={<Trash2 size={14} />} onClick={onDelete}>
+          Удалить
+        </Button>
+      </div>
     </Card>
   );
 }
@@ -59,11 +88,15 @@ function QueuedWashCard({
   checkedDirty,
   onStart,
   onCheck,
+  onDefer,
+  onDelete,
 }: {
   w: DayWash;
   checkedDirty: boolean;
   onStart: () => void;
   onCheck: () => void;
+  onDefer: () => void;
+  onDelete: () => void;
 }) {
   const dirtyOk = w.has_dirty || checkedDirty;
   return (
@@ -84,8 +117,8 @@ function QueuedWashCard({
         </div>
       )}
       {w.partial_rest && (
-        <div className={styles.washMeta}>
-          Частично постирано: готово {(w.prev_items || []).reduce((s, it) => s + it.qty, 0)} поз.,{' '}
+        <div className={`${styles.washMeta} ${styles.cmWarn}`}>
+          <AlertTriangle size={13} /> Частично постирано: готово {(w.prev_items || []).reduce((s, it) => s + it.qty, 0)} поз.,{' '}
           {w.prev_kg} кг, {w.prev_bags} мешк. — остаток грязный
         </div>
       )}
@@ -97,6 +130,14 @@ function QueuedWashCard({
         )}
         <Button variant="ghost" className={styles.bigBtn} onClick={onCheck}>
           Проверить на складе
+        </Button>
+      </div>
+      <div className={styles.washActions}>
+        <Button variant="ghost" size="sm" icon={<CalendarClock size={14} />} onClick={onDefer}>
+          Перенести
+        </Button>
+        <Button variant="ghost" size="sm" icon={<Trash2 size={14} />} onClick={onDelete}>
+          Удалить
         </Button>
       </div>
     </Card>
@@ -118,23 +159,40 @@ export default function WorkerPage() {
   const [startId, setStartId] = useState<string | null>(null);
   const [checkId, setCheckId] = useState<string | null>(null);
   const [checkedMap, setCheckedMap] = useState<Record<string, boolean>>({});
+  // Добавление/перенос/удаление/правка завершённой — работнику (владелец получает Telegram)
+  const [addOpen, setAddOpen] = useState(false);
+  const [deferId, setDeferId] = useState<string | null>(null);
+  const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [editId, setEditId] = useState<string | null>(null);
+  // Закрытие смены — диалог общий с дашбордом (ShiftCloseDialog)
+  const [closeOpen, setCloseOpen] = useState(false);
+
+  const deleteMut = useApiMutation('deleteWash', {
+    invalidate: 'operational',
+    onSuccess: () => setDeleteId(null),
+  });
 
   if (!session) return null;
 
   const washes = day.data?.washes || [];
   const inProgress = washes.filter((w) => w.status === 'in_progress');
   const queue = washes.filter((w) => w.status === 'planned' || w.status === 'no_linen');
-  const doneCount = washes.filter(
+  const doneList = washes.filter(
     (w) =>
       w.status === 'done' ||
       w.status === 'stored' ||
       w.status === 'partial' ||
       w.status === 'ready_clean'
-  ).length;
+  );
+  const doneCount = doneList.length;
+  const shiftClosed = !!day.data?.shift && day.data.shift.status === 'closed';
 
   const completeWash = completeId ? washes.find((w) => w.id === completeId) : undefined;
   const startWash = startId ? washes.find((w) => w.id === startId) : undefined;
   const checkWash = checkId ? washes.find((w) => w.id === checkId) : undefined;
+  const deferWash = deferId ? washes.find((w) => w.id === deferId) : undefined;
+  const deleteWash = deleteId ? washes.find((w) => w.id === deleteId) : undefined;
+  const editWash = editId ? washes.find((w) => w.id === editId) : undefined;
 
   const nav = [
     { key: 'tasks', label: 'Задачи', icon: <ClipboardList size={19} /> },
@@ -175,12 +233,26 @@ export default function WorkerPage() {
           )}
           {day.data && (
             <>
+              <Button
+                variant="ghost"
+                className={styles.bigBtn}
+                icon={<Plus size={16} />}
+                onClick={() => setAddOpen(true)}
+              >
+                Добавить стирку
+              </Button>
               <MobileSection label="Сейчас в работе">
                 {inProgress.length === 0 ? (
                   <Empty title="Сейчас ничего не стирается" hint="Возьмите стирку из очереди ниже." />
                 ) : (
                   inProgress.map((w) => (
-                    <ActiveWashCard key={w.id} w={w} onComplete={() => setCompleteId(w.id)} />
+                    <ActiveWashCard
+                      key={w.id}
+                      w={w}
+                      onComplete={() => setCompleteId(w.id)}
+                      onDefer={() => setDeferId(w.id)}
+                      onDelete={() => setDeleteId(w.id)}
+                    />
                   ))
                 )}
               </MobileSection>
@@ -195,10 +267,47 @@ export default function WorkerPage() {
                       checkedDirty={!!checkedMap[w.id]}
                       onStart={() => setStartId(w.id)}
                       onCheck={() => setCheckId(w.id)}
+                      onDefer={() => setDeferId(w.id)}
+                      onDelete={() => setDeleteId(w.id)}
                     />
                   ))
                 )}
               </MobileSection>
+              <MobileSection label="Готово">
+                {doneList.length === 0 ? (
+                  <Empty title="Пока ничего не готово" hint="Завершённые стирки появятся здесь." />
+                ) : (
+                  doneList.map((w) => {
+                    const meta: string[] = [];
+                    if (num(w.items_total) > 0) meta.push(itemsFmt(num(w.items_total)));
+                    if (num(w.dirty_weight_kg) > 0) meta.push(kg(w.dirty_weight_kg));
+                    if (num(w.bags) > 0) meta.push(bagsFmt(num(w.bags)));
+                    return (
+                      <Card key={w.id} className={styles.washCard}>
+                        <div className={styles.washHead}>
+                          <span className={styles.washName}>{w.client_name}</span>
+                          <StatusBadge status={w.status} />
+                        </div>
+                        {meta.length > 0 && <div className={styles.washMeta}>{meta.join(' · ')}</div>}
+                        <Button variant="ghost" className={styles.bigBtn} onClick={() => setEditId(w.id)}>
+                          Исправить данные
+                        </Button>
+                      </Card>
+                    );
+                  })
+                )}
+              </MobileSection>
+              {shiftClosed ? (
+                <div className={styles.washMeta}>Смена закрыта в {day.data.shift!.closed_at}</div>
+              ) : (
+                <Button
+                  variant="danger"
+                  className={styles.bigBtn}
+                  onClick={() => setCloseOpen(true)}
+                >
+                  Закрыть смену
+                </Button>
+              )}
             </>
           )}
         </>
@@ -291,6 +400,32 @@ export default function WorkerPage() {
           onClose={() => setCheckId(null)}
         />
       )}
+      {addOpen && day.data && (
+        <AddWashModal clients={day.data.clients || []} onClose={() => setAddOpen(false)} />
+      )}
+      {deferWash && (
+        <DeferWashModal w={deferWash} onDone={() => {}} onClose={() => setDeferId(null)} />
+      )}
+      {deleteWash && (
+        <ConfirmDialog
+          open
+          danger
+          busy={deleteMut.isPending}
+          text={`Удалить стирку «${deleteWash.client_name}»? Действие необратимо, владелец получит уведомление.`}
+          okLabel="Удалить"
+          onClose={() => setDeleteId(null)}
+          onConfirm={() => deleteMut.mutate(deleteWash.id)}
+        />
+      )}
+      {editWash && day.data && (
+        <EditDoneWashModal
+          w={editWash}
+          itemTypes={day.data.itemTypes || []}
+          onClose={() => setEditId(null)}
+        />
+      )}
+      {/* У работника нет страницы стирки — onOpenWash не передаём, кнопки «Открыть» нет */}
+      <ShiftCloseDialog open={closeOpen} onClose={() => setCloseOpen(false)} />
     </MobileLayout>
   );
 }

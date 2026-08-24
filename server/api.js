@@ -51,6 +51,18 @@ function getShiftByDate_(date, laundryId) {
 
 // --- Общие чтения ---
 
+// Уведомление владельцу в Telegram о действиях работника со стирками
+// (добавление/перенос/удаление). Действия самого владельца не шлём.
+function notifyOwnerOnWorkerAction_(session, text, laundryId) {
+  if (session.role !== 'worker') return;
+  require('./telegram').sendTelegram_(null, text, laundryId).catch(function () {});
+}
+
+function clientNameById_(clientId, laundryId) {
+  const c = db.getClients_(laundryId).filter(function (x) { return x.id === clientId; })[0];
+  return c ? c.name : clientId;
+}
+
 // Автоформирование стирок дня из завтрашнего развоза: клиент в развозе на
 // date+1 → плановая стирка сегодня (выдача завтра). Идемпотентно.
 function ensureWashesFromDelivery_(date, laundryId) {
@@ -92,12 +104,12 @@ function getDayList(token, date) {
     }, 1000, laundryId).map(function (r) { return r.obj; });
     const shift = getShiftByDate_(date, laundryId);
     const storage = storageSummaryByClient_(laundryId);
-    // Признак «остаток частичной стирки»: стирка planned/in_progress, у которой
-    // уже есть WashItems (пишутся только при завершении). Грузим один раз для всех
-    // id стирок дня и группируем, чтобы не делать запрос на каждую стирку.
+    // WashItems грузим один раз для всех стирок дня: planned/in_progress — это
+    // признак «остаток частичной стирки» (partial_rest), у завершённых — состав
+    // постиранного (items), чтобы работник мог исправить ошибочное завершение.
     const dayIds = {};
     washes.forEach(function (w) {
-      if (w.status === 'planned' || w.status === 'in_progress') dayIds[w.id] = true;
+      if (w.status !== 'cancelled') dayIds[w.id] = true;
     });
     const prevItems = {};
     db.findRowsBy_(SHEETS.WASH_ITEMS, function (wi) { return !!dayIds[wi.wash_id]; }, 1000)
@@ -106,6 +118,13 @@ function getDayList(token, date) {
       });
     const types = {};
     db.getItemTypes_().forEach(function (t) { types[t.id] = t.name; });
+    const mapItem = function (wi) {
+      return {
+        item_type_id: wi.item_type_id,
+        qty: Number(wi.qty) || 0,
+        item_name: types[wi.item_type_id] || wi.item_type_id
+      };
+    };
     return ok_({
       date: date,
       laundryName: db.getSettings_(laundryId).LAUNDRY_NAME || 'Прачечная PRO',
@@ -122,16 +141,15 @@ function getDayList(token, date) {
         // Остаток частичной стирки: показываем, что часть уже постирана
         const prev = prevItems[w.id];
         if (prev && prev.length) {
-          w.partial_rest = true;
-          w.prev_items = prev.map(function (wi) {
-            return {
-              item_type_id: wi.item_type_id,
-              qty: Number(wi.qty) || 0,
-              item_name: types[wi.item_type_id] || wi.item_type_id
-            };
-          });
-          w.prev_kg = w.dirty_weight_kg;
-          w.prev_bags = w.bags;
+          if (w.status === 'planned' || w.status === 'in_progress') {
+            w.partial_rest = true;
+            w.prev_items = prev.map(mapItem);
+            w.prev_kg = w.dirty_weight_kg;
+            w.prev_bags = w.bags;
+          } else {
+            // Состав постиранного у завершённых — для правки с экрана работника
+            w.items = prev.map(mapItem);
+          }
         }
         return w;
       }),
@@ -230,6 +248,9 @@ function editWashData(token, washId, weightKg, items, bags) {
     const found = findTenantRow_(SHEETS.WASHES, washId, laundryId);
     if (!found) return err_('Стирка не найдена');
     const w = found.obj;
+    // Смена дня гарантированно существует: иначе правка упиралась бы в «смена
+    // закрыта», если стирка завершена, а смена по какой-то причине не открыта
+    ensureShift_(w.wash_date, laundryId);
     const shift = getShiftByDate_(w.wash_date, laundryId);
     if (!canEditWashData_(session.role, w, shift && shift.obj)) {
       return err_('Правка недоступна: смена закрыта');
@@ -312,6 +333,9 @@ function deferWash(token, washId, newDate, reason) {
       }
     }
     logEvent(actor, 'wash_defer', washId, details, laundryId);
+    notifyOwnerOnWorkerAction_(session,
+      '↪ ' + actor + ': стирка перенесена — ' + clientNameById_(w.client_id, laundryId) +
+      ': ' + details.from + ' → ' + details.to + (details.reason ? ', ' + details.reason : ''), laundryId);
     Object.keys(patch).forEach(function (k) { w[k] = patch[k]; });
     db.updateRow_(SHEETS.WASHES, found.rowNumber, w);
     return ok_({ wash: w });
@@ -360,6 +384,9 @@ function addUnplannedWash(token, clientId, comment) {
     db.appendRowTenant_(SHEETS.WASHES, w, laundryId);
     ensureShift_(today, laundryId);
     logEvent(actorOf_(session), 'wash_create', w.id, { client_id: clientId, unplanned: true }, laundryId);
+    notifyOwnerOnWorkerAction_(session,
+      '➕ ' + actorOf_(session) + ': новая внеплановая стирка — ' + clientNameById_(clientId, laundryId) +
+      (w.comment ? ' (' + w.comment + ')' : ''), laundryId);
     return ok_({ wash: w });
   });
 }
@@ -557,7 +584,7 @@ function cancelWash(token, washId) {
 // строки этой стирки (в т.ч. израсходованные — бельё «убирается» из учёта).
 // Выданную клиенту (issued) удалять нельзя — это уже факт выдачи.
 function deleteWash(token, washId) {
-  const session = requireRole_(token, ['owner']);
+  const session = requireRole_(token, ['owner', 'worker']);
   if (!session) return err_('Нет доступа');
   const laundryId = session.laundryId;
   return withLock_(function () {
@@ -578,6 +605,9 @@ function deleteWash(token, washId) {
       client_id: w.client_id, wash_date: w.wash_date, status: w.status,
       kg: w.dirty_weight_kg, items_total: w.items_total
     }, laundryId);
+    notifyOwnerOnWorkerAction_(session,
+      '🗑 ' + actorOf_(session) + ': удалена стирка — ' + clientNameById_(w.client_id, laundryId) +
+      ' (' + w.wash_date + ')', laundryId);
     db.deleteRow_(SHEETS.WASHES, found.rowNumber);
     return ok_({ id: washId });
   });

@@ -3,6 +3,7 @@
 // Страница «Стирка» — доска дня (перенос legacy renderDay/renderWashList,
 // server/public/index.html:465-574). Дата — из хедера layout'а (useSectionDate).
 import { useEffect, useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { LayoutGrid, Plus, Rows3, Waves } from 'lucide-react';
 import { useDayList } from '@/hooks/use-api';
 import { useSectionDate } from '@/hooks/use-section-date';
@@ -31,6 +32,7 @@ const COLS: Array<{ key: string; title: string; match: (w: DayWash) => boolean }
 const ARROWS = ['→ к стирке', '→ в работе', '→ готово'];
 
 export default function WashPage() {
+  const router = useRouter();
   const [date] = useSectionDate('wash');
   const { data, isPending, isError, error, refetch } = useDayList(date);
   const toast = useUiStore((s) => s.toast);
@@ -173,7 +175,11 @@ export default function WashPage() {
       )}
 
       {addOpen && <AddWashModal clients={data.clients || []} onClose={() => setAddOpen(false)} />}
-      <ShiftCloseDialog open={closeOpen} onClose={() => setCloseOpen(false)} />
+      <ShiftCloseDialog
+        open={closeOpen}
+        onClose={() => setCloseOpen(false)}
+        onOpenWash={(id) => router.push('/wash/' + id)}
+      />
     </div>
   );
 }

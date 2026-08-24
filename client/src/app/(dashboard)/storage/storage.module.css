@@ -81,6 +81,55 @@
   font-weight: 600;
 }
 
+/* Группа клиента: шапка-аккордеон и раскрывающийся список стирок */
+.groupHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  padding: 0;
+  background: none;
+  border: 0;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.groupMeta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  color: var(--text-3);
+  flex-shrink: 0;
+}
+
+.entryRows {
+  display: flex;
+  flex-direction: column;
+  margin-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.entryRow {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 0;
+  background: none;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.entryRow:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
 /* Модалка */
 .actions {
   display: flex;

@@ -3,7 +3,6 @@
 // Диалог закрытия смены (legacy openShiftClose, server/public/index.html:1033-1082).
 // Данные — useShiftCloseState (всегда «сегодня» на сервере), мутация closeShift.
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
@@ -21,10 +20,12 @@ const REASONS: Record<string, string> = {
 export interface ShiftCloseDialogProps {
   open: boolean;
   onClose: () => void;
+  // Переход к стирке из списка блокеров. У работника нет страницы стирки —
+  // без пропа кнопка «Открыть» не показывается.
+  onOpenWash?: (washId: string) => void;
 }
 
-export function ShiftCloseDialog({ open, onClose }: ShiftCloseDialogProps) {
-  const router = useRouter();
+export function ShiftCloseDialog({ open, onClose, onOpenWash }: ShiftCloseDialogProps) {
   const toast = useUiStore((s) => s.toast);
   const { data, isPending, isError, error, refetch } = useShiftCloseState(open);
   const [forceConfirm, setForceConfirm] = useState(false);
@@ -96,16 +97,18 @@ export function ShiftCloseDialog({ open, onClose }: ShiftCloseDialogProps) {
                   <span>
                     {w.client_name} · {w.status === 'in_progress' ? 'в работе' : 'не начата'}
                   </span>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => {
-                      onClose();
-                      router.push('/wash/' + w.id);
-                    }}
-                  >
-                    Открыть
-                  </Button>
+                  {onOpenWash && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        onClose();
+                        onOpenWash(w.id);
+                      }}
+                    >
+                      Открыть
+                    </Button>
+                  )}
                 </div>
               ))}
             </div>

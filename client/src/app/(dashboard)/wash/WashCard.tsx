@@ -33,6 +33,7 @@ export function WashCard({ w }: { w: DayWash }) {
         <div className={styles.nm}>{w.client_name}</div>
         <StatusBadge status={w.status} size="sm" />
       </div>
+
       {w.status === 'no_linen' && (
         <div className={`${styles.cm} ${styles.cmLate}`}>
           <PackageX size={13} /> Белья нет · проверено {timeOf(w.done_at)}
@@ -43,6 +44,8 @@ export function WashCard({ w }: { w: DayWash }) {
           <CheckCircle2 size={13} /> Чистое бельё · проверено {timeOf(w.done_at)}
         </div>
       )}
+     
+
       {w.partial_rest && (
         <div className={`${styles.cm} ${styles.cmWarn}`}>
           <AlertTriangle size={13} /> Частично постирано

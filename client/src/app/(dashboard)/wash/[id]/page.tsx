@@ -239,6 +239,7 @@ export default function WashCardPage() {
 
   // --- Сохранение результата (legacy saveResult) ---
   function saveResult() {
+ 
     const kgVal =
       weightsMap[id] != null ? weightsMap[id] : w!.partial_rest ? 0 : num(w!.dirty_weight_kg) || 0;
     const bagsCount = bagsMap[id] || 0;
@@ -248,6 +249,10 @@ export default function WashCardPage() {
     }
     if (bagsCount <= 0) {
       toast('Укажите количество мешков', 'err');
+      return;
+    }
+    if(acc !== 'weight' && Object.keys(countsMap).length === 0 ) {
+      toast('Укажите количество вещей', 'err');
       return;
     }
     completeMut.mutate([w!.id, countsToItems(counts), kgVal, mode, bagsCount]);

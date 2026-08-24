@@ -50,14 +50,16 @@ test('deleteWash: удаляет стирку совсем; выданную и 
   const worker = loginWorker();
   const washId = ctx.api.addToDelivery(owner, clientId, TODAY, TOMORROW).wash.id;
 
-  // worker не может удалять
-  assert.ok(!ctx.api.deleteWash(worker, washId).ok);
+  // водитель не может удалять, работник — может (уведомление владельцу — отдельный тест)
+  assert.ok(!ctx.api.deleteWash(loginDriver(), washId).ok);
+  assert.ok(ctx.api.deleteWash(worker, washId).ok);
   // owner удаляет: из отчёта стирка исчезает совсем (в отличие от отмены)
-  assert.ok(ctx.api.deleteWash(owner, washId).ok);
+  const washId2 = ctx.api.addToDelivery(owner, clientId, TODAY, TOMORROW).wash.id;
+  assert.ok(ctx.api.deleteWash(owner, washId2).ok);
   const rep = ctx.api.getDayReport(owner, TODAY);
   assert.strictEqual(rep.washes.length, 0);
   // повторное удаление — «не найдена»
-  assert.ok(!ctx.api.deleteWash(owner, washId).ok);
+  assert.ok(!ctx.api.deleteWash(owner, washId2).ok);
 
   // завершённую удалить можно: заодно уходят позиции и clean-запись склада
   const w2 = ctx.api.addToDelivery(owner, clientId, TODAY, TOMORROW).wash.id;
@@ -659,4 +661,60 @@ test('getWeekPlan: частично заполненная неделя допо
   const again = ctx.api.getWeekPlan(owner, '2026-08-10');
   assert.strictEqual(again.days[0].cards.length, 2);
   assert.strictEqual(again.days[1].cards.length, 0);
+});
+
+test('работник: удаление стирки разрешено (кроме выданной), владельцу уходит Telegram', async () => {
+  const ctx = makeCtx();
+  const clientId = seedClient(ctx);
+  const owner = loginOwner();
+  const worker = loginWorker();
+  ctx.db.setTenantSetting_('1', 'OWNER_CHAT_ID', '100500');
+  const washId = ctx.api.addToDelivery(owner, clientId, TODAY, TOMORROW).wash.id;
+  const flush = () => new Promise(r => setTimeout(r, 0));
+
+  // работник удаляет — ок, владельцу уведомление
+  assert.ok(ctx.api.deleteWash(worker, washId).ok);
+  assert.strictEqual(ctx.api.getDayList(worker, TODAY).washes.length, 0);
+  await flush(); // sendTelegram_ уходит асинхронно
+  const note = ctx.fetches.find(f => (f.payload.text || '').indexOf('удалена стирка') !== -1);
+  assert.ok(note, 'уведомление владельцу об удалении');
+  assert.strictEqual(note.payload.chat_id, '100500');
+  assert.ok(note.payload.text.indexOf('Отель А') !== -1);
+
+  // выданную не удалить никому
+  const w2 = ctx.api.addToDelivery(owner, clientId, TODAY, TOMORROW).wash.id;
+  ctx.api.startWash(worker, w2, 10);
+  ctx.api.completeWash(worker, w2, [{ item_type_id: 'itm_1', qty: 2 }], 10, null, 1);
+  ctx.db.findRowsByTenant_('Washes', w => w.id === w2, 1, '1')
+    .forEach(r => { r.obj.status = 'issued'; ctx.db.updateRow_('Washes', r.rowNumber, r.obj); });
+  assert.ok(!ctx.api.deleteWash(worker, w2).ok);
+});
+
+test('уведомления владельцу: добавление и перенос стирки работником; свои действия владельца не шлём', async () => {
+  const ctx = makeCtx();
+  const clientId = seedClient(ctx);
+  const owner = loginOwner();
+  const worker = loginWorker();
+  ctx.db.setTenantSetting_('1', 'OWNER_CHAT_ID', '100500');
+  const flush = () => new Promise(r => setTimeout(r, 0));
+
+  // внеплановая стирка работником → уведомление
+  assert.ok(ctx.api.addUnplannedWash(worker, clientId, 'срочно').ok);
+  await flush();
+  const add = ctx.fetches.find(f => (f.payload.text || '').indexOf('новая внеплановая стирка') !== -1);
+  assert.ok(add && add.payload.text.indexOf('срочно') !== -1, 'уведомление о добавлении');
+
+  // перенос работником → уведомление с датами
+  const day = ctx.api.getDayList(worker, TODAY);
+  const washId = day.washes[0].id;
+  assert.ok(ctx.api.deferWash(worker, washId, '2026-08-14', 'нет места').ok);
+  await flush();
+  const mv = ctx.fetches.find(f => (f.payload.text || '').indexOf('стирка перенесена') !== -1);
+  assert.ok(mv && mv.payload.text.indexOf('2026-08-14') !== -1, 'уведомление о переносе');
+
+  // действия владельца — без уведомлений
+  const before = ctx.fetches.length;
+  assert.ok(ctx.api.addUnplannedWash(owner, seedClient(ctx, { name: 'Отель Б' }), '').ok);
+  await flush();
+  assert.strictEqual(ctx.fetches.length, before, 'владельцу о своих действиях не шлём');
 });

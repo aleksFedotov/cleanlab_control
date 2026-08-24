@@ -152,6 +152,24 @@ function seedDemoData(laundryId) {
     });
   }
 
+  // Воскресенье: завтра (понедельник) — уже следующая неделя, её визиты циклом
+  // не сидятся. Досиживаем 2 визита, иначе сценарии «не готовы к развозу» падают.
+  if (!visitsByDate[tomorrow]) {
+    visitsByDate[tomorrow] = [];
+    [clients[0], clients[1]].forEach(function (c, j) {
+      if (!c) return;
+      visitsByDate[tomorrow].push(c.id);
+      if (have[c.id + '|' + tomorrow]) return;
+      db.appendRow_(SHEETS.DELIVERIES, {
+        id: db.nextId_(SHEETS.DELIVERIES, 'del'), date: tomorrow, client_id: c.id,
+        ord: j + 1, status: 'planned',
+        delivered_at: '', pickup: '',
+        driver_comment: '', created_by: 'seed', created_at: nowStr_(), laundry_id: laundryId
+      });
+      created++;
+    });
+  }
+
   // Сценарии для сегодняшних визитов: все ключевые состояния цеха
   const t = visitsByDate[today];
   mkStorage(t[0], 'dirty'); mkWash(t[0], 'planned');            // грязное ждёт стирки

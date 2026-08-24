@@ -43,6 +43,8 @@ export interface DayWash extends Wash {
   prev_items?: { item_type_id: string; qty: number; item_name?: string }[];
   prev_kg?: number | '';
   prev_bags?: number | '';
+  // Состав постиранного у завершённых (done/stored/partial/ready_clean) — для правки
+  items?: { item_type_id: string; qty: number; item_name?: string }[];
 }
 
 export interface Shift {

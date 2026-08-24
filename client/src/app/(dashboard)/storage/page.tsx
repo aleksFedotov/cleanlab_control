@@ -4,7 +4,7 @@
 // Сводка (StatRow) + поиск по клиенту + FilterPills (Все/К стирке/Готово/Требует решения)
 // + список карточек белья; тап по карточке — модалка с действиями (storage-card-modal).
 import { useEffect, useMemo, useState } from 'react';
-import { Package, Search } from 'lucide-react';
+import { ChevronDown, ChevronUp, Package, Search } from 'lucide-react';
 import { useStorage } from '@/hooks/use-api';
 import { useUiStore } from '@/stores/ui';
 import { StatRow } from '@/components/ui/StatRow';
@@ -16,6 +16,7 @@ import { Empty } from '@/components/ui/Empty';
 import { Button } from '@/components/ui/Button';
 import { Skeleton, SkeletonCards } from '@/components/ui/Skeleton';
 import { todayStr } from '@/lib/dates';
+import { items as itemsFmt } from '@/lib/format';
 import type { StorageEntry } from './storage-entry';
 import { buildEntries, metaOf } from './storage-entry';
 import { StorageCardModal } from './storage-card-modal';
@@ -35,6 +36,8 @@ export default function StoragePage() {
   const [filter, setFilter] = useState('all');
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState<StorageEntry | null>(null);
+  // Раскрытые группы клиентов (accordion): client_id → true
+  const [openMap, setOpenMap] = useState<Record<string, boolean>>({});
 
   const today = todayStr();
 
@@ -87,6 +90,25 @@ export default function StoragePage() {
       return okKind && okQ;
     });
   }, [entries, filter, query]);
+
+  // Группировка по клиенту: одна карточка на клиента, внутри — его стирки.
+  // Порядок групп = порядок первого вхождения клиента в отсортированном списке.
+  const groups = useMemo(() => {
+    const map = new Map<
+      string,
+      { client_id: string; client_name: string; attn: boolean; entries: StorageEntry[] }
+    >();
+    filtered.forEach((e) => {
+      let g = map.get(e.client_id);
+      if (!g) {
+        g = { client_id: e.client_id, client_name: e.client_name, attn: false, entries: [] };
+        map.set(e.client_id, g);
+      }
+      g.entries.push(e);
+      if (e.attn) g.attn = true;
+    });
+    return [...map.values()];
+  }, [filtered]);
 
   if (isLoading) {
     return (
@@ -161,31 +183,61 @@ export default function StoragePage() {
         />
       ) : (
         <div className={styles.list}>
-          {filtered.map((e) => (
-            <Card
-              key={`${e.kind}-${e.id}`}
-              interactive
-              className={`${styles.card} ${e.attn ? styles.cardAttn : ''}`}
-              onClick={() => setSelected(e)}
-            >
-              <div className={styles.cardTop}>
-                <span className={styles.name}>{e.client_name}</span>
-                <StatusBadge status={e.statusKey} size="sm" />
-              </div>
-              <div className={styles.meta}>{metaOf(e)}</div>
-              <div
-                className={`${styles.status} ${
-                  e.overdueDays > 0
-                    ? styles.statusLate
-                    : e.kind === 'partial'
-                      ? styles.statusWarn
-                      : ''
-                }`}
+          {groups.map((g) => {
+            const open = !!openMap[g.client_id];
+            const firstAttn = g.entries.find((e) => e.attn);
+            return (
+              <Card
+                key={g.client_id}
+                className={`${styles.card} ${g.attn ? styles.cardAttn : ''}`}
               >
-                {e.statusText}
-              </div>
-            </Card>
-          ))}
+                <button
+                  type="button"
+                  className={styles.groupHead}
+                  onClick={() => setOpenMap((m) => ({ ...m, [g.client_id]: !m[g.client_id] }))}
+                >
+                  <span className={styles.name}>{g.client_name}</span>
+                  <span className={styles.groupMeta}>
+                    {itemsFmt(g.entries.length)}
+                    {open ? <ChevronUp size={16} aria-hidden /> : <ChevronDown size={16} aria-hidden />}
+                  </span>
+                </button>
+                {firstAttn && (
+                  <div className={`${styles.status} ${styles.statusLate}`}>
+                    {firstAttn.statusText}
+                  </div>
+                )}
+                {open && (
+                  <div className={styles.entryRows}>
+                    {g.entries.map((e) => (
+                      <button
+                        type="button"
+                        key={`${e.kind}-${e.id}`}
+                        className={styles.entryRow}
+                        onClick={() => setSelected(e)}
+                      >
+                        <div className={styles.cardTop}>
+                          <span className={styles.meta}>{metaOf(e)}</span>
+                          <StatusBadge status={e.statusKey} size="sm" />
+                        </div>
+                        <div
+                          className={`${styles.status} ${
+                            e.overdueDays > 0
+                              ? styles.statusLate
+                              : e.kind === 'partial'
+                                ? styles.statusWarn
+                                : ''
+                          }`}
+                        >
+                          {e.statusText}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </Card>
+            );
+          })}
         </div>
       )}
 
