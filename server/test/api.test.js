@@ -718,3 +718,49 @@ test('уведомления владельцу: добавление и пер�
   await flush();
   assert.strictEqual(ctx.fetches.length, before, 'владельцу о своих действиях не шлём');
 });
+
+test('getSummaryReport: итоги по клиентам за период + разбивка по видам вещей', () => {
+  const ctx = makeCtx();
+  const owner = loginOwner();
+  const worker = loginWorker();
+  const clientA = seedClient(ctx, { name: 'Отель А' });
+  const clientB = seedClient(ctx, { name: 'Баня Б' });
+
+  // Только владелец
+  assert.ok(!ctx.api.getSummaryReport(worker, '2026-08-01', '2026-08-31').ok);
+  // Валидация периода
+  assert.ok(!ctx.api.getSummaryReport(owner, 'не дата', '2026-08-31').ok);
+  assert.ok(!ctx.api.getSummaryReport(owner, '2026-08-31', '2026-08-01').ok);
+
+  const done = (clientId, items, kg, bags) => {
+    const res = ctx.api.addUnplannedWash(owner, clientId, '');
+    assert.ok(res.ok);
+    const id = res.wash.id;
+    assert.ok(ctx.api.startWash(worker, id, kg).ok);
+    assert.ok(ctx.api.completeWash(worker, id, items, kg, null, bags).ok);
+  };
+  done(clientA, [{ item_type_id: 'itm_1', qty: 2 }, { item_type_id: 'itm_2', qty: 3 }], 10, 2);
+  done(clientA, [{ item_type_id: 'itm_1', qty: 1 }], 5, 1);
+  done(clientB, [{ item_type_id: 'itm_2', qty: 4 }], 7.25, 3);
+  // Незавершённая стирка в отчёт не входит
+  ctx.api.addUnplannedWash(owner, clientA, '');
+
+  const rep = ctx.api.getSummaryReport(owner, '2026-08-01', '2026-08-31');
+  assert.ok(rep.ok);
+  assert.strictEqual(rep.clients.length, 2);
+  const a = rep.clients.find(c => c.client_id === clientA);
+  const b = rep.clients.find(c => c.client_id === clientB);
+  assert.strictEqual(a.washes, 2);
+  assert.strictEqual(a.bags, 3);
+  assert.strictEqual(a.weight_kg, 15);
+  assert.strictEqual(a.items_total, 6);
+  assert.deepStrictEqual(a.items.map(i => [i.item_type_id, i.qty]),
+    [['itm_1', 3], ['itm_2', 3]]); // сортировка по qty desc
+  assert.strictEqual(b.washes, 1);
+  assert.strictEqual(b.weight_kg, 7.3); // round1_
+  assert.deepStrictEqual(b.items.map(i => [i.item_type_id, i.qty]), [['itm_2', 4]]);
+
+  // Период без стирок — пусто; границы включительно
+  assert.strictEqual(ctx.api.getSummaryReport(owner, '2026-07-01', '2026-07-31').clients.length, 0);
+  assert.strictEqual(ctx.api.getSummaryReport(owner, TODAY, TODAY).clients.length, 2);
+});

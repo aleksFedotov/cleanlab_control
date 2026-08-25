@@ -881,6 +881,55 @@ function getDayReport(token, date) {
   return ok_({ report: report, washes: sortDayList_(dayWashes), shift: shift ? shift.obj : null });
 }
 
+// Сводный отчёт за произвольный период: итоги по клиентам (мешки/вес/вещи/стирки)
+// + разбивка по видам вещей. Учитываются только завершённые стирки (DONE_STATUSES).
+function getSummaryReport(token, from, to) {
+  const session = requireRole_(token, ['owner']);
+  if (!session) return err_('Нет доступа');
+  const laundryId = session.laundryId;
+  const re = /^\d{4}-\d{2}-\d{2}$/;
+  if (!re.test(from || '') || !re.test(to || '') || from > to) {
+    return err_('Некорректный период');
+  }
+  const DONE = core.DONE_STATUSES;
+  // Полный скан журнала: период может быть годовым, хвостового лимита недостаточно
+  const washes = db.findRowsByTenant_(SHEETS.WASHES, function (w) {
+    return w.wash_date >= from && w.wash_date <= to && DONE.indexOf(w.status) !== -1;
+  }, 100000, laundryId).map(function (r) { return r.obj; });
+  const clients = {};
+  db.getClients_(laundryId).forEach(function (c) { clients[c.id] = c; });
+  const types = {};
+  db.getItemTypes_().forEach(function (t) { types[t.id] = t.name; });
+  const byClient = {};
+  const washToClient = {};
+  washes.forEach(function (w) {
+    washToClient[w.id] = w.client_id;
+    const s = byClient[w.client_id] || (byClient[w.client_id] = {
+      client_id: w.client_id, client_name: clientName_(w.client_id, clients),
+      washes: 0, bags: 0, weight_kg: 0, items_total: 0, itemsByType: {}
+    });
+    s.washes++;
+    s.bags += Number(w.bags) || 0;
+    s.weight_kg = round1_(s.weight_kg + (Number(w.dirty_weight_kg) || 0));
+    s.items_total += Number(w.items_total) || 0;
+  });
+  db.findRowsBy_(SHEETS.WASH_ITEMS, function (wi) { return !!washToClient[wi.wash_id]; }, 100000)
+    .forEach(function (r) {
+      const wi = r.obj;
+      const s = byClient[washToClient[wi.wash_id]];
+      s.itemsByType[wi.item_type_id] = (s.itemsByType[wi.item_type_id] || 0) + (Number(wi.qty) || 0);
+    });
+  const result = Object.keys(byClient).map(function (cid) {
+    const s = byClient[cid];
+    s.items = Object.keys(s.itemsByType).map(function (tid) {
+      return { item_type_id: tid, item_name: types[tid] || tid, qty: s.itemsByType[tid] };
+    }).sort(function (a, b) { return b.qty - a.qty; });
+    delete s.itemsByType;
+    return s;
+  }).sort(function (a, b) { return a.client_name < b.client_name ? -1 : 1; });
+  return ok_({ from: from, to: to, clients: result });
+}
+
 // --- Справочники (owner). Записи сбрасывают кэш (spec §10) ---
 
 function saveClient(token, client) {
@@ -1256,7 +1305,7 @@ const api = {
   getShiftCloseState, closeShift,
   getDeliveryPlan, addToDelivery, cancelWash, deleteWash, confirmStorageCheck, markIssued, updateIssueDate,
   getWeekPlan, addWeekCard, moveWeekCard, removeWeekCard,
-  getStorage, getDayReport,
+  getStorage, getDayReport, getSummaryReport,
   saveClient, deleteClient, saveItemType, rememberClientItemType, getRefs,
   listUsers, createUser, updateUser, resetUserPassword, deactivateUser, reactivateUser, makeTelegramBindCode,
   getTvData,
@@ -1296,7 +1345,7 @@ module.exports = {
   getShiftCloseState, closeShift,
   getDeliveryPlan, addToDelivery, cancelWash, deleteWash, confirmStorageCheck, markIssued, updateIssueDate,
   getWeekPlan, addWeekCard, moveWeekCard, removeWeekCard,
-  getStorage, getDayReport,
+  getStorage, getDayReport, getSummaryReport,
   saveClient, deleteClient, saveItemType, rememberClientItemType, getRefs,
   listUsers, createUser, updateUser, resetUserPassword, deactivateUser, reactivateUser, makeTelegramBindCode,
   consumeTelegramBindCode_, getTvData,

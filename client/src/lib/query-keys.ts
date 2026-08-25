@@ -5,6 +5,7 @@ export const qk = {
   weekPlan: (weekStart: string) => ['weekPlan', weekStart] as const,
   storage: () => ['storage'] as const,
   dayReport: (date: string) => ['dayReport', date] as const,
+  summaryReport: (from: string, to: string) => ['summaryReport', from, to] as const,
   refs: () => ['refs'] as const,
   users: () => ['users'] as const,
   laundries: () => ['laundries'] as const,
@@ -13,4 +14,4 @@ export const qk = {
 };
 
 // Что инвалидировать после операционных мутаций (стирка/развоз/склад взаимосвязаны).
-export const OPERATIONAL_PREFIXES = ['dayList', 'deliveryVisits', 'weekPlan', 'storage', 'dayReport', 'driverRoute', 'shiftCloseState'];
+export const OPERATIONAL_PREFIXES = ['dayList', 'deliveryVisits', 'weekPlan', 'storage', 'dayReport', 'summaryReport', 'driverRoute', 'shiftCloseState'];

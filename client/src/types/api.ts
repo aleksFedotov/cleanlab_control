@@ -222,6 +222,29 @@ export interface DayReportRes {
   shift: Shift | null;
 }
 
+export interface SummaryReportItem {
+  item_type_id: string;
+  item_name: string;
+  qty: number;
+}
+
+export interface SummaryReportClient {
+  client_id: string;
+  client_name: string;
+  washes: number;
+  bags: number;
+  weight_kg: number;
+  items_total: number;
+  items: SummaryReportItem[];
+}
+
+export interface SummaryReportRes {
+  ok: true;
+  from: string;
+  to: string;
+  clients: SummaryReportClient[];
+}
+
 export interface RefsRes {
   ok: true;
   clients: Client[];

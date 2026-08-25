@@ -8,7 +8,7 @@ import { getSession } from '@/lib/session';
 import { qk, OPERATIONAL_PREFIXES } from '@/lib/query-keys';
 import { useUiStore } from '@/stores/ui';
 import type {
-  DayListRes, DeliveryVisitsRes, WeekPlanRes, StorageRes, DayReportRes,
+  DayListRes, DeliveryVisitsRes, WeekPlanRes, StorageRes, DayReportRes, SummaryReportRes,
   RefsRes, UsersRes, LaundriesRes, DriverRouteRes, ShiftCloseStateRes,
 } from '@/types/api';
 
@@ -55,6 +55,14 @@ export function useDayReport(date: string) {
     queryKey: qk.dayReport(date),
     queryFn: () => api<DayReportRes>('getDayReport', token(), date),
     enabled: !!token(),
+  });
+}
+
+export function useSummaryReport(from: string, to: string) {
+  return useQuery({
+    queryKey: qk.summaryReport(from, to),
+    queryFn: () => api<SummaryReportRes>('getSummaryReport', token(), from, to),
+    enabled: !!token() && !!from && !!to,
   });
 }
 
