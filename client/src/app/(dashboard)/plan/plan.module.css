@@ -90,6 +90,24 @@
   background: var(--surface);
 }
 
+/* Копирование плана другого дня — приглушённый вариант кнопки добавления */
+.copy {
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-m);
+  color: var(--text-4);
+  padding: 7px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-size: 12.5px;
+}
+
+.copy:hover {
+  color: var(--bluing);
+  border-color: var(--bluing-border);
+}
+
 /* --- Диалоги --- */
 
 .dialogHint {

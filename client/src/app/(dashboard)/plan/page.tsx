@@ -4,7 +4,7 @@
 // Навигация по неделям — DateNav в хедере layout'а (weekMode); здесь только читаем date из стора.
 // Сервер сам нормализует любой день недели до понедельника (res.monday).
 import { useEffect, useState } from 'react';
-import { CalendarOff, Plus } from 'lucide-react';
+import { CalendarOff, Copy, Plus } from 'lucide-react';
 import { useWeekPlan } from '@/hooks/use-api';
 import { useSectionDate } from '@/hooks/use-section-date';
 import { useUiStore } from '@/stores/ui';
@@ -16,6 +16,7 @@ import { Skeleton } from '@/components/ui/Skeleton';
 import type { DecoratedVisit } from '@/types/api';
 import { WeekAddDialog } from './week-add-dialog';
 import { WeekCardDialog } from './week-card-dialog';
+import { WeekCopyDialog } from './week-copy-dialog';
 import styles from './plan.module.css';
 
 export default function PlanPage() {
@@ -23,6 +24,7 @@ export default function PlanPage() {
   const q = useWeekPlan(date);
   const toast = useUiStore((s) => s.toast);
   const [addDate, setAddDate] = useState<string | null>(null);
+  const [copyDate, setCopyDate] = useState<string | null>(null);
   const [card, setCard] = useState<DecoratedVisit | null>(null);
 
   // Ошибка API — тост (спека §7); блок «Повторить» — ниже, если данных нет вообще
@@ -99,6 +101,9 @@ export default function PlanPage() {
             >
               <Plus size={15} aria-hidden /> Добавить
             </button>
+            <button type="button" className={styles.copy} onClick={() => setCopyDate(d.date)}>
+              <Copy size={15} aria-hidden /> Копировать
+            </button>
           </section>
         ))}
       </div>
@@ -108,6 +113,11 @@ export default function PlanPage() {
         clients={clients}
         cards={res.days.find((d) => d.date === addDate)?.cards || []}
         onClose={() => setAddDate(null)}
+      />
+      <WeekCopyDialog
+        date={copyDate}
+        cards={res.days.find((d) => d.date === copyDate)?.cards || []}
+        onClose={() => setCopyDate(null)}
       />
       <WeekCardDialog card={card} onClose={() => setCard(null)} />
     </>
