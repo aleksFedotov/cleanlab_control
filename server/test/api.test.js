@@ -764,3 +764,40 @@ test('getSummaryReport: итоги по клиентам за период + р�
   assert.strictEqual(ctx.api.getSummaryReport(owner, '2026-07-01', '2026-07-31').clients.length, 0);
   assert.strictEqual(ctx.api.getSummaryReport(owner, TODAY, TODAY).clients.length, 2);
 });
+
+test('deleteUser: удаляет совсем; нельзя себя, последнего владельца и не-владельцу', () => {
+  const ctx = makeCtx();
+  const owner = loginOwner();
+  const worker = loginWorker();
+
+  // worker не может удалять
+  const w = ctx.api.createUser(owner, { name: 'Временный', role: 'worker', login: 'temp1', password: 'p', laundryId: 'lnd_1' });
+  assert.ok(w.ok);
+  assert.ok(!ctx.api.deleteUser(worker, w.user.id).ok);
+
+  // owner удаляет worker'а — строка исчезает из listUsers совсем
+  assert.ok(ctx.api.deleteUser(owner, w.user.id).ok);
+  assert.ok(!ctx.api.listUsers(owner).users.some(u => u.id === w.user.id));
+  // повторно — «не найден»
+  assert.ok(!ctx.api.deleteUser(owner, w.user.id).ok);
+
+  // себя удалить нельзя (boss — единственный владелец в фикстуре)
+  const boss = ctx.api.listUsers(owner).users.find(u => u.login === 'boss');
+  const selfDel = ctx.api.deleteUser(owner, boss.id);
+  assert.ok(!selfDel.ok);
+  assert.ok(/самого себя/.test(selfDel.error));
+
+  // второго владельца удалить можно
+  const o2 = ctx.api.createUser(owner, { name: 'Второй', role: 'owner', login: 'boss2', password: 'p' });
+  assert.ok(o2.ok);
+  assert.ok(ctx.api.deleteUser(owner, o2.user.id).ok);
+
+  // последнего активного владельца удалить нельзя: создаём третьего,
+  // его токеном удаляем boss (уже не последний), а самого себя — нельзя
+  const o3 = ctx.api.createUser(owner, { name: 'Третий', role: 'owner', login: 'boss3', password: 'p3' });
+  const t3 = ctx.auth.login('boss3', 'p3').token;
+  assert.ok(ctx.api.deleteUser(t3, boss.id).ok);
+  const delSelf = ctx.api.deleteUser(t3, o3.user.id);
+  assert.ok(!delSelf.ok);
+  assert.ok(/самого себя/.test(delSelf.error));
+});

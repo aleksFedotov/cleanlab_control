@@ -1238,6 +1238,27 @@ function reactivateUser(token, id) {
   return ok_({ user: found.obj });
 }
 
+// Необратимое удаление пользователя (в отличие от deactivateUser — строка
+// убирается из Users совсем). Нельзя удалить себя и последнего активного
+// владельца. Сессии удалённого чистить не нужно: getSession_ отклоняет их,
+// когда пользователь не найден (auth.js).
+function deleteUser(token, id) {
+  const session = requireRole_(token, ['owner']);
+  if (!session) return err_('Нет доступа');
+  if (String(id) === String(session.userId)) return err_('Нельзя удалить самого себя');
+  const found = db.findById_('Users', id);
+  if (!found) return err_('Пользователь не найден');
+  if (found.obj.role === 'owner' && found.obj.active === 'да') {
+    const otherOwners = db.readAll_('Users').filter(function (u) {
+      return u.role === 'owner' && u.active === 'да' && String(u.id) !== String(id);
+    });
+    if (!otherOwners.length) return err_('Нельзя удалить последнего владельца');
+  }
+  db.deleteRow_('Users', found.rowNumber);
+  logEvent(actorOf_(session), 'user_delete', id, { name: found.obj.name, role: found.obj.role }, session.laundryId);
+  return ok_({ id: id });
+}
+
 // Одноразовые коды привязки Telegram-чата (в памяти процесса, TTL 10 мин).
 // Код генерирует владелец с экрана «Сотрудники»; бот принимает код и пишет
 // chat_id в per-tenant Settings OWNER_CHAT_ID прачки, к которой привязан код.
@@ -1307,7 +1328,7 @@ const api = {
   getWeekPlan, addWeekCard, moveWeekCard, removeWeekCard,
   getStorage, getDayReport, getSummaryReport,
   saveClient, deleteClient, saveItemType, rememberClientItemType, getRefs,
-  listUsers, createUser, updateUser, resetUserPassword, deactivateUser, reactivateUser, makeTelegramBindCode,
+  listUsers, createUser, updateUser, resetUserPassword, deactivateUser, reactivateUser, deleteUser, makeTelegramBindCode,
   getTvData,
   // Развозы и водитель (логика в deliveries.js)
   getDeliveryVisits: deliveries.getDeliveryVisits,
@@ -1347,7 +1368,7 @@ module.exports = {
   getWeekPlan, addWeekCard, moveWeekCard, removeWeekCard,
   getStorage, getDayReport, getSummaryReport,
   saveClient, deleteClient, saveItemType, rememberClientItemType, getRefs,
-  listUsers, createUser, updateUser, resetUserPassword, deactivateUser, reactivateUser, makeTelegramBindCode,
+  listUsers, createUser, updateUser, resetUserPassword, deactivateUser, reactivateUser, deleteUser, makeTelegramBindCode,
   consumeTelegramBindCode_, getTvData,
   getDeliveryVisits: deliveries.getDeliveryVisits,
   addDeliveryVisit: deliveries.addDeliveryVisit,

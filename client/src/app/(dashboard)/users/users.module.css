@@ -88,6 +88,12 @@
   color: var(--text-3);
 }
 
+/* Текст диалога удаления сотрудника */
+.deleteText {
+  margin: 0;
+  font-size: 14px;
+}
+
 /* Скелетон списка */
 .skel {
   display: flex;

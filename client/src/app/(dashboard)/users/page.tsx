@@ -10,6 +10,7 @@ import {
   Pencil,
   Plus,
   Send,
+  Trash2,
   UserCheck,
   Users as UsersIcon,
   UserX,
@@ -27,6 +28,7 @@ import { Empty } from '@/components/ui/Empty';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { UserFormModal } from './user-form-modal';
 import { ResetPasswordModal } from './reset-password-modal';
+import { DeleteUserDialog } from './delete-user-dialog';
 import styles from './users.module.css';
 
 export default function UsersPage() {
@@ -38,6 +40,7 @@ export default function UsersPage() {
   const [editing, setEditing] = useState<UserRow | null>(null);
   const [resetTarget, setResetTarget] = useState<UserRow | null>(null);
   const [deactTarget, setDeactTarget] = useState<UserRow | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<UserRow | null>(null);
   const [tgCode, setTgCode] = useState<string | null>(null);
 
   const users = usersQuery.data?.users || [];
@@ -110,6 +113,18 @@ export default function UsersPage() {
       align: 'right',
       render: (u: UserRow) => {
         const inactive = u.active !== 'да';
+        // Удаление доступно для любой роли (себя удалить не даст сервер);
+        // для владельца в диалоге — доп. подтверждение фразой
+        const deleteBtn = (
+          <Button
+            variant="subtle"
+            size="sm"
+            icon={<Trash2 size={15} />}
+            title="Удалить"
+            aria-label={`Удалить ${u.name}`}
+            onClick={() => setDeleteTarget(u)}
+          />
+        );
         return (
           <div className={`${styles.actions} ${inactive ? styles.inactive : ''}`}>
             <Button
@@ -121,36 +136,42 @@ export default function UsersPage() {
               onClick={() => openEdit(u)}
             />
             {inactive ? (
-              <Button
-                variant="subtle"
-                size="sm"
-                icon={<UserCheck size={15} />}
-                title="Включить"
-                aria-label={`Включить ${u.name}`}
-                busy={reactivateMut.isPending && reactivateMut.variables === u.id}
-                onClick={() => reactivateMut.mutate(u.id)}
-              />
+              <>
+                <Button
+                  variant="subtle"
+                  size="sm"
+                  icon={<UserCheck size={15} />}
+                  title="Включить"
+                  aria-label={`Включить ${u.name}`}
+                  busy={reactivateMut.isPending && reactivateMut.variables === u.id}
+                  onClick={() => reactivateMut.mutate(u.id)}
+                />
+                {deleteBtn}
+              </>
             ) : (
-              u.role !== 'owner' && (
-                <>
-                  <Button
-                    variant="subtle"
-                    size="sm"
-                    icon={<KeyRound size={15} />}
-                    title="Сбросить пароль"
-                    aria-label={`Сбросить пароль: ${u.name}`}
-                    onClick={() => setResetTarget(u)}
-                  />
-                  <Button
-                    variant="subtle"
-                    size="sm"
-                    icon={<UserX size={15} />}
-                    title="Отключить"
-                    aria-label={`Отключить ${u.name}`}
-                    onClick={() => setDeactTarget(u)}
-                  />
-                </>
-              )
+              <>
+                {u.role !== 'owner' && (
+                  <>
+                    <Button
+                      variant="subtle"
+                      size="sm"
+                      icon={<KeyRound size={15} />}
+                      title="Сбросить пароль"
+                      aria-label={`Сбросить пароль: ${u.name}`}
+                      onClick={() => setResetTarget(u)}
+                    />
+                    <Button
+                      variant="subtle"
+                      size="sm"
+                      icon={<UserX size={15} />}
+                      title="Отключить"
+                      aria-label={`Отключить ${u.name}`}
+                      onClick={() => setDeactTarget(u)}
+                    />
+                  </>
+                )}
+                {deleteBtn}
+              </>
             )}
           </div>
         );
@@ -226,6 +247,7 @@ export default function UsersPage() {
         onClose={() => setFormOpen(false)}
       />
       <ResetPasswordModal user={resetTarget} onClose={() => setResetTarget(null)} />
+      <DeleteUserDialog user={deleteTarget} onClose={() => setDeleteTarget(null)} />
       <ConfirmDialog
         open={!!deactTarget}
         onClose={() => setDeactTarget(null)}
