@@ -67,10 +67,14 @@
     .card.ghost { background: transparent; border-left-color: transparent; outline: 1px dashed #232833; opacity: .6; }
     .card.ghost .client { font-weight: 400; color: #9aa4b2; }
     .card.ghost .arrow { font-size: 2.2vh; color: #9aa4b2; margin-top: .8vh; }
+
+    /* #stage — обёртка для зума (?zoom=0.8, клавиши +/-/0) и поворота (?rotate=1 / -1) */
+    #stage { transform-origin: top left; }
   </style>
 </head>
 <body>
   <div class="offline" id="offline">Нет связи — показаны данные на <span id="offlineTime"></span></div>
+  <div id="stage">
   <header>
     <h1 id="laundryName">CleanLab Pro</h1>
     <div class="date" id="date"></div>
@@ -83,6 +87,7 @@
   </header>
   <div class="counters" id="counters"></div>
   <div class="grid" id="grid"></div>
+  </div>
 
 <script>
 // Адаптер google.script.run → fetch('/api/<method>') с тем же интерфейсом
@@ -119,6 +124,41 @@ var google = {
   }
 };
 var KEY = new URLSearchParams(location.search).get('key') || '';
+
+// Масштаб и поворот табло (размеры в vh/vw, поэтому зум браузера не работает —
+// масштабируем сами через transform). Параметры запоминаются в localStorage:
+//   ?zoom=0.8   — масштаб (клавиши: '+' увеличить, '-' уменьшить, '0' сброс)
+//   ?rotate=1   — повернуть на 90° по часовой (ТВ стоит вертикально), ?rotate=-1 — против
+var params = new URLSearchParams(location.search);
+var zoom = parseFloat(params.get('zoom')) || parseFloat(localStorage.getItem('cl_tv_zoom')) || 1;
+var rotate = params.get('rotate') != null ? parseInt(params.get('rotate'), 10) || 0
+  : parseInt(localStorage.getItem('cl_tv_rotate'), 10) || 0;
+
+function applyTransform() {
+  var stage = document.getElementById('stage');
+  if (rotate) {
+    // Вьюпорт остаётся «ландшафтным» (ОС не повёрнута): ширина сцены = высоте экрана и наоборот
+    stage.style.width = (100 / zoom) + 'vh';
+    stage.style.height = (100 / zoom) + 'vw';
+    stage.style.transform = (rotate > 0 ? 'translateX(100vw) rotate(90deg) ' : 'translateY(100vh) rotate(-90deg) ') +
+      'scale(' + zoom + ')';
+  } else {
+    stage.style.width = (100 / zoom) + 'vw';
+    stage.style.height = '';
+    stage.style.transform = 'scale(' + zoom + ')';
+  }
+  localStorage.setItem('cl_tv_zoom', String(zoom));
+  localStorage.setItem('cl_tv_rotate', String(rotate));
+}
+applyTransform();
+
+document.addEventListener('keydown', function (e) {
+  if (e.key === '+' || e.key === '=') zoom = Math.min(3, Math.round((zoom + 0.05) * 100) / 100);
+  else if (e.key === '-') zoom = Math.max(0.3, Math.round((zoom - 0.05) * 100) / 100);
+  else if (e.key === '0') zoom = 1;
+  else return;
+  applyTransform();
+});
 var STATUS_LABELS = { planned: 'К стирке', in_progress: 'В работе', done: 'Готово', stored: 'На складе',
   no_linen: 'Нет белья', ready_clean: 'Чистое на складе', partial: 'Частично' };
 // Порядок на табло (spec §7.4): «В работе» → «К стирке» → «Готово»/«На складе»
