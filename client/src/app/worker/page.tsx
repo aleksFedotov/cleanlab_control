@@ -4,9 +4,9 @@
 // для роли worker, server/public/index.html:465-957). Всегда «сегодня» —
 // у работника нет DateNav. Вкладки — локальное состояние, не маршруты.
 import { useState } from 'react';
-import { CalendarClock, ClipboardList, Package, Plus, Trash2, User, Waves, AlertTriangle} from 'lucide-react';
+import { CalendarClock, ClipboardList, Clock, Plus, Trash2, User, Waves, AlertTriangle} from 'lucide-react';
 import { useRequireRole, useLogout } from '@/hooks/use-session';
-import { useApiMutation, useDayList } from '@/hooks/use-api';
+import { useApiMutation, useDayList, useWorkHours } from '@/hooks/use-api';
 import { MobileLayout, MobileSection } from '@/components/layout/MobileLayout';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -14,10 +14,11 @@ import { StatusBadge } from '@/components/ui/StatusBadge';
 import { Empty } from '@/components/ui/Empty';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { Skeleton, SkeletonCards } from '@/components/ui/Skeleton';
-import { todayStr, timeOf } from '@/lib/dates';
+import { todayStr, timeOf, shiftDateStr, formatDateRu } from '@/lib/dates';
 import { num, kg, bags as bagsFmt, items as itemsFmt } from '@/lib/format';
 import { roleLabel } from '@/lib/dicts';
-import type { DayWash } from '@/types/api';
+import type { DayWash, WorkHoursEntry } from '@/types/api';
+import { WorkHoursModal } from '@/components/WorkHoursModal';
 import { CompleteWashModal } from './CompleteWashModal';
 import { StartWashModal } from './StartWashModal';
 import { StorageCheckModal } from './StorageCheckModal';
@@ -27,7 +28,7 @@ import { DeferWashModal } from '../(dashboard)/wash/[id]/DeferWashModal';
 import { ShiftCloseDialog } from '../(dashboard)/wash/ShiftCloseDialog';
 import styles from './worker.module.css';
 
-type Tab = 'tasks' | 'storage' | 'profile';
+type Tab = 'tasks' | 'hours' | 'profile';
 
 function greeting(name: string): string {
   const h = new Date().getHours();
@@ -150,9 +151,10 @@ export default function WorkerPage() {
   const [tab, setTab] = useState<Tab>('tasks');
 
   const day = useDayList(todayStr());
-  // NB: getStorage на сервере — owner-only (server/api.js:671), работнику он вернёт
-  // «Нет доступа» и выкинет из сессии. Склад работника строим из флагов
-  // has_dirty/has_clean, которые getDayList раздаёт работнику легально.
+  // Отметки часов: месяц назад — месяц вперёд (можно ставить за будущие дни).
+  // Сервер отдаёт работнику только его записи (server/workhours.js getWorkHours).
+  const hoursQ = useWorkHours(shiftDateStr(todayStr(), -30), shiftDateStr(todayStr(), 30));
+  const [hoursEdit, setHoursEdit] = useState<{ date: string; entry?: WorkHoursEntry } | null>(null);
 
   // Модалки и локальные подтверждения грязного (аналог state.checkedDirty)
   const [completeId, setCompleteId] = useState<string | null>(null);
@@ -194,9 +196,13 @@ export default function WorkerPage() {
   const deleteWash = deleteId ? washes.find((w) => w.id === deleteId) : undefined;
   const editWash = editId ? washes.find((w) => w.id === editId) : undefined;
 
+  // Отметки часов, новые сверху; отметка за сегодня — отдельно для карточки
+  const hoursEntries = (hoursQ.data?.entries || []).slice().sort((a, b) => (a.date < b.date ? 1 : -1));
+  const todayEntry = hoursEntries.find((e) => e.date === todayStr());
+
   const nav = [
     { key: 'tasks', label: 'Задачи', icon: <ClipboardList size={19} /> },
-    { key: 'storage', label: 'Склад', icon: <Package size={19} /> },
+    { key: 'hours', label: 'Часы', icon: <Clock size={19} /> },
     { key: 'profile', label: 'Профиль', icon: <User size={19} /> },
   ];
 
@@ -313,54 +319,61 @@ export default function WorkerPage() {
         </>
       )}
 
-      {tab === 'storage' && (
+      {tab === 'hours' && (
         <>
-          {day.isPending && <SkeletonCards count={4} />}
-          {day.isError && !day.data && (
+          {hoursQ.isPending && <SkeletonCards count={3} />}
+          {hoursQ.isError && !hoursQ.data && (
             <Empty
-              icon={<Package size={40} />}
-              title="Не удалось загрузить склад"
-              hint={day.error?.message || 'Проверьте связь.'}
-              action={<Button onClick={() => day.refetch()}>Повторить</Button>}
+              icon={<Clock size={40} />}
+              title="Не удалось загрузить часы"
+              hint={hoursQ.error?.message || 'Проверьте связь.'}
+              action={<Button onClick={() => hoursQ.refetch()}>Повторить</Button>}
             />
           )}
-          {day.data && (
+          {hoursQ.data && (
             <>
-              <MobileSection label="Грязное на складе">
-                {washes.filter((w) => w.has_dirty).length === 0 ? (
-                  <Empty title="Грязного белья нет" />
-                ) : (
-                  washes
-                    .filter((w) => w.has_dirty)
-                    .map((w) => (
-                      <Card key={w.id} className={styles.washCard}>
-                        <div className={styles.washHead}>
-                          <span className={styles.washName}>{w.client_name}</span>
-                          <StatusBadge status="planned" size="sm" />
-                        </div>
-                        <div className={styles.washMeta}>
-                          {[w.dirty_weight_kg !== '' ? kg(w.dirty_weight_kg) : '', num(w.bags) > 0 ? bagsFmt(num(w.bags)) : '']
-                            .filter(Boolean)
-                            .join(' · ')}
-                        </div>
-                      </Card>
-                    ))
-                )}
+              <MobileSection label="Сегодня">
+                <Card className={styles.washCard}>
+                  {todayEntry ? (
+                    <div className={styles.washHead}>
+                      <span className={styles.washName}>{todayEntry.hours} ч.</span>
+                    </div>
+                  ) : (
+                    <div className={styles.washMeta}>Часы за сегодня не отмечены</div>
+                  )}
+                  <Button
+                    className={styles.bigBtn}
+                    onClick={() => setHoursEdit({ date: todayStr(), entry: todayEntry })}
+                  >
+                    {todayEntry ? 'Изменить' : 'Отметить часы'}
+                  </Button>
+                </Card>
               </MobileSection>
-              <MobileSection label="Чистое на складе">
-                {washes.filter((w) => w.has_clean).length === 0 ? (
-                  <Empty title="Чистого белья нет" />
+              <Button
+                variant="ghost"
+                className={styles.bigBtn}
+                icon={<Plus size={16} />}
+                onClick={() => setHoursEdit({ date: todayStr() })}
+              >
+                Отметить за другой день
+              </Button>
+              <MobileSection label="Последние отметки">
+                {hoursEntries.length === 0 ? (
+                  <Empty title="Отметок пока нет" hint="Отметьте часы за сегодня или другой день." />
                 ) : (
-                  washes
-                    .filter((w) => w.has_clean)
-                    .map((w) => (
-                      <Card key={w.id} className={styles.washCard}>
-                        <div className={styles.washHead}>
-                          <span className={styles.washName}>{w.client_name}</span>
-                          <StatusBadge status="ready_clean" size="sm" />
-                        </div>
-                      </Card>
-                    ))
+                  hoursEntries.map((e) => (
+                    <Card
+                      key={e.id}
+                      interactive
+                      className={styles.washCard}
+                      onClick={() => setHoursEdit({ date: e.date, entry: e })}
+                    >
+                      <div className={styles.washHead}>
+                        <span className={styles.washName}>{formatDateRu(e.date)}</span>
+                        <span className={styles.washMeta}>{e.hours} ч.</span>
+                      </div>
+                    </Card>
+                  ))
                 )}
               </MobileSection>
             </>
@@ -426,6 +439,14 @@ export default function WorkerPage() {
       )}
       {/* У работника нет страницы стирки — onOpenWash не передаём, кнопки «Открыть» нет */}
       <ShiftCloseDialog open={closeOpen} onClose={() => setCloseOpen(false)} />
+      {hoursEdit && (
+        <WorkHoursModal
+          userName={session.name}
+          date={hoursEdit.date}
+          entry={hoursEdit.entry}
+          onClose={() => setHoursEdit(null)}
+        />
+      )}
     </MobileLayout>
   );
 }

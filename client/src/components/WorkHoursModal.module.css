@@ -1,0 +1,26 @@
+/* Модал отметки часов — те же паттерны полей, что в worker.module.css (.form/.field). */
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.fieldLabel {
+  font-size: 12.5px;
+  color: var(--text-3);
+}
+
+.field input {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-m);
+  font-size: 16px;
+  background: var(--surface);
+  color: var(--text);
+}

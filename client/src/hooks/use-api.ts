@@ -10,6 +10,7 @@ import { useUiStore } from '@/stores/ui';
 import type {
   DayListRes, DeliveryVisitsRes, WeekPlanRes, StorageRes, DayReportRes, SummaryReportRes,
   RefsRes, UsersRes, LaundriesRes, DriverRouteRes, ShiftCloseStateRes,
+  WorkHoursRes, DeliveryPointStatsRes,
 } from '@/types/api';
 
 function token(): string {
@@ -104,6 +105,22 @@ export function useShiftCloseState(enabled = true) {
     queryKey: qk.shiftCloseState('today'),
     queryFn: () => api<ShiftCloseStateRes>('getShiftCloseState', token()),
     enabled: enabled && !!token(),
+  });
+}
+
+export function useWorkHours(from: string, to: string) {
+  return useQuery({
+    queryKey: qk.workHours(from, to),
+    queryFn: () => api<WorkHoursRes>('getWorkHours', token(), from, to),
+    enabled: !!token() && !!from && !!to,
+  });
+}
+
+export function useDeliveryPointStats(from: string, to: string) {
+  return useQuery({
+    queryKey: qk.deliveryPointStats(from, to),
+    queryFn: () => api<DeliveryPointStatsRes>('getDeliveryPointStats', token(), from, to),
+    enabled: !!token() && !!from && !!to,
   });
 }
 

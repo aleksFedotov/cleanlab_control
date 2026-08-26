@@ -1,0 +1,116 @@
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap);
+}
+
+.sectionTitle {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+  margin: 8px 0 0;
+}
+
+/* --- Выбор периода (как в summary.module.css) --- */
+
+.periodRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.periodLabel {
+  font-size: 14px;
+  font-weight: 600;
+  min-width: 130px;
+  text-align: center;
+}
+
+.navBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-s);
+  background: var(--surface);
+  color: var(--text-2);
+}
+
+.navBtn:hover {
+  border-color: var(--bluing-border);
+  color: var(--bluing);
+  background: var(--bluing-soft);
+}
+
+/* --- Табель за месяц: работники × дни --- */
+
+.matrixWrap {
+  overflow-x: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-l);
+  box-shadow: var(--shadow-card);
+}
+
+.matrix {
+  border-collapse: collapse;
+  font-size: 12.5px;
+  min-width: 100%;
+}
+
+.matrix th,
+.matrix td {
+  border-bottom: 1px solid var(--border);
+  padding: 7px 6px;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.matrix tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.matrixName {
+  text-align: left;
+  padding-left: 12px;
+  font-weight: 600;
+  color: var(--text);
+  position: sticky;
+  left: 0;
+  background: var(--surface);
+}
+
+.matrixDay {
+  font-weight: 500;
+  color: var(--text-3);
+  min-width: 28px;
+}
+
+.matrixCell {
+  cursor: pointer;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-2);
+}
+
+.matrixCell:hover {
+  background: var(--bluing-soft);
+}
+
+.matrixFilled {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.matrixTotal {
+  font-weight: 700;
+  color: var(--text);
+  cursor: default;
+}
+
+.matrixTotal:hover {
+  background: none;
+}

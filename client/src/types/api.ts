@@ -277,3 +277,35 @@ export interface ShiftCloseStateRes {
   report: DayReport;
   shift: Shift | null;
 }
+
+// --- Табель: часы работников и статистика развозов (server/workhours.js) ---
+
+export interface WorkHoursEntry {
+  id: string;
+  user_id: string;
+  date: string; // yyyy-MM-dd
+  hours: string; // число строкой, напр. '7.5' (TEXT в БД)
+  updated_by: string;
+  updated_at: string;
+}
+
+export interface WorkHoursRes {
+  ok: true;
+  entries: WorkHoursEntry[];
+  workers?: Array<{ id: string; name: string }>; // только владельцу
+}
+
+export interface DeliveryPointStatsDay {
+  date: string;
+  total: number;
+  only_delivery: number;
+  only_pickup: number;
+  both: number;
+}
+
+export interface DeliveryPointStatsRes {
+  ok: true;
+  from: string;
+  to: string;
+  days: DeliveryPointStatsDay[];
+}

@@ -15,7 +15,8 @@ const SHEETS = {
   LOG: 'Log',
   LAUNDRIES: 'Laundries',
   USERS: 'Users',
-  SESSIONS: 'Sessions'
+  SESSIONS: 'Sessions',
+  WORK_HOURS: 'WorkHours'
 };
 
 // Мультитенантность: laundry_id — во всех операционных таблицах.
@@ -45,7 +46,10 @@ const HEADERS = {
   // Персистентные сессии (замена in-memory Map): token → пользователь.
   // laundry_id — активная прачка сессии (для owner меняется через switchLaundry).
   // expires_at — unix-мс строкой; скользящее продление при каждом запросе.
-  Sessions: ['token', 'user_id', 'laundry_id', 'expires_at']
+  Sessions: ['token', 'user_id', 'laundry_id', 'expires_at'],
+  // Учёт рабочих часов работников. Одна строка = работник × день (upsert по user_id+date).
+  // hours — число строкой ('7.5'). hours=0/пусто → строка удаляется, нулями не засоряем.
+  WorkHours: ['id', 'user_id', 'date', 'hours', 'updated_by', 'updated_at', 'laundry_id']
 };
 
 // Стартовое наполнение ItemTypes (spec §3.4).

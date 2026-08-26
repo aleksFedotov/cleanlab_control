@@ -11,7 +11,9 @@ export const qk = {
   laundries: () => ['laundries'] as const,
   driverRoute: (date: string) => ['driverRoute', date] as const,
   shiftCloseState: (date: string) => ['shiftCloseState', date] as const,
+  workHours: (from: string, to: string) => ['workHours', from, to] as const,
+  deliveryPointStats: (from: string, to: string) => ['deliveryPointStats', from, to] as const,
 };
 
 // Что инвалидировать после операционных мутаций (стирка/развоз/склад взаимосвязаны).
-export const OPERATIONAL_PREFIXES = ['dayList', 'deliveryVisits', 'weekPlan', 'storage', 'dayReport', 'summaryReport', 'driverRoute', 'shiftCloseState'];
+export const OPERATIONAL_PREFIXES = ['dayList', 'deliveryVisits', 'weekPlan', 'storage', 'dayReport', 'summaryReport', 'driverRoute', 'shiftCloseState', 'workHours', 'deliveryPointStats'];

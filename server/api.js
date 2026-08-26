@@ -17,6 +17,7 @@ const {
 } = core;
 const { addStorageEntry_, openStorage_, consumeStorage_, storageSummaryByClient_ } = require('./storage');
 const deliveries = require('./deliveries');
+const workhours = require('./workhours');
 const { getVisitsByDate_, getVisitsByWeek_, decorateVisit_, isOpenVisit_, ensureVisit_ } = deliveries;
 
 // Замена LockService.getScriptLock(): синхронные операции атомарны в одном процессе.
@@ -1339,7 +1340,11 @@ const api = {
   getDriverRoute: deliveries.getDriverRoute,
   driverTakeAllClean: deliveries.driverTakeAllClean,
   driverAction: deliveries.driverAction,
-  driverHandover: deliveries.driverHandover
+  driverHandover: deliveries.driverHandover,
+  // Табель: часы работников и статистика развозов (логика в workhours.js)
+  setWorkHours: workhours.setWorkHours,
+  getWorkHours: workhours.getWorkHours,
+  getDeliveryPointStats: workhours.getDeliveryPointStats
 };
 
 function mountApi(app) {
@@ -1378,5 +1383,8 @@ module.exports = {
   getDriverRoute: deliveries.getDriverRoute,
   driverTakeAllClean: deliveries.driverTakeAllClean,
   driverAction: deliveries.driverAction,
-  driverHandover: deliveries.driverHandover
+  driverHandover: deliveries.driverHandover,
+  setWorkHours: workhours.setWorkHours,
+  getWorkHours: workhours.getWorkHours,
+  getDeliveryPointStats: workhours.getDeliveryPointStats
 };
