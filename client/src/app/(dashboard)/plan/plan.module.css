@@ -50,6 +50,22 @@
   border-color: var(--bluing-border);
 }
 
+/* Перетаскивание развозов между днями (только planned-карточки draggable) */
+.card[draggable='true'] {
+  cursor: grab;
+}
+
+.dragging {
+  opacity: 0.5;
+}
+
+/* Колонка, куда можно бросить карточку (только вперёд по датам) */
+.dropTarget {
+  outline: 2px dashed var(--bluing-border);
+  outline-offset: -2px;
+  background: var(--bluing-soft);
+}
+
 .cardName {
   font-size: 13.5px;
   font-weight: 700;

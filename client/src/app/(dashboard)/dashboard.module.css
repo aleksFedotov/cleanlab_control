@@ -18,6 +18,11 @@
   margin: 0 auto;
 }
 
+/* Широкие страницы (доска «План»): без ограничения max-width, по краям — только паддинги */
+.contentWide {
+  max-width: none;
+}
+
 @media (max-width: 1023px) {
   .content {
     padding: 16px;
