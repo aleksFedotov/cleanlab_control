@@ -7,7 +7,7 @@
 }
 
 .header {
-  padding: 18px 16px 6px;
+  padding: calc(18px + env(safe-area-inset-top)) 16px 6px;
 }
 
 .context {
@@ -55,7 +55,8 @@
 
 .content {
   flex: 1;
-  padding: 14px 16px 90px; /* место под нижнюю навигацию */
+  /* место под нижнюю навигацию + safe-area */
+  padding: 14px 16px calc(90px + env(safe-area-inset-bottom));
 }
 
 .section {
@@ -80,6 +81,8 @@
   border-top: 1px solid var(--border);
   display: flex;
   z-index: 30;
+  /* standalone-режим: не упираться в системный жест-бар */
+  padding-bottom: env(safe-area-inset-bottom);
 }
 
 .navItem {
