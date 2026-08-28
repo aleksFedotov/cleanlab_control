@@ -8,65 +8,74 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@600;700&display=swap" rel="stylesheet">
   <style>
-    /* ===== ТВ-табло: тёмная палитра дизайн-системы «CleanLab Pro SaaS» =====
-       BG #0b0e14, поверхности #12151c, бордеры #232833, Inter + JetBrains Mono. */
+    /* ===== ТВ-табло: палитра дизайн-системы «CleanLab Pro SaaS» =====
+       Цвета — через переменные; тёмная тема по умолчанию, светлая — html[data-theme="light"]
+       (?theme=light, клавиша 't'). Inter + JetBrains Mono. */
+    :root {
+      --bg: #0b0e14; --surface: #12151c; --border: #232833; --text: #e5e9f0; --muted: #9aa4b2;
+      --chip-amber: #f0a94f; --chip-blue: #7ba4f8; --chip-green: #4ade80; --chip-gray: #a8b6c7;
+    }
+    html[data-theme="light"] {
+      --bg: #f1f5f9; --surface: #ffffff; --border: #e2e8f0; --text: #1e293b; --muted: #64748b;
+      --chip-amber: #b45309; --chip-blue: #1d4ed8; --chip-green: #15803d; --chip-gray: #475569;
+    }
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: 'Inter', system-ui, sans-serif; background: #0b0e14; color: #e5e9f0; overflow-x: hidden; -webkit-font-smoothing: antialiased; }
-    header { display: flex; align-items: baseline; gap: 3vw; padding: 1.5vh 2vw; border-bottom: 1px solid #232833; }
+    body { font-family: 'Inter', system-ui, sans-serif; background: var(--bg); color: var(--text); overflow-x: hidden; -webkit-font-smoothing: antialiased; }
+    header { display: flex; align-items: baseline; gap: 3vw; padding: 1.5vh 2vw; border-bottom: 1px solid var(--border); }
     header h1 { font-size: 4.5vh; font-weight: 800; letter-spacing: -.02em; }
-    header .date { font-size: 3.5vh; color: #9aa4b2; font-family: 'JetBrains Mono', monospace; font-weight: 600; }
+    header .date { font-size: 3.5vh; color: var(--muted); font-family: 'JetBrains Mono', monospace; font-weight: 600; }
     header .clock { margin-left: auto; font-size: 5vh; font-weight: 700; font-family: 'JetBrains Mono', monospace; }
-    header .fresh { font-size: 2.5vh; color: #9aa4b2; }
+    header .fresh { font-size: 2.5vh; color: var(--muted); }
 
     .counters { display: flex; gap: 1.2vw; padding: 1.5vh 2vw; flex-wrap: wrap; }
-    .counter { background: #12151c; border: 1px solid #232833; border-radius: 1.5vh; padding: 1.5vh 2vw; text-align: center; flex: 1; min-width: 12vw; }
+    .counter { background: var(--surface); border: 1px solid var(--border); border-radius: 1.5vh; padding: 1.5vh 2vw; text-align: center; flex: 1; min-width: 12vw; }
     .counter .num { font-size: 6vh; font-weight: 700; font-family: 'JetBrains Mono', monospace; }
-    .counter .lbl { font-size: 2.4vh; color: #9aa4b2; text-transform: uppercase; letter-spacing: .05em; }
+    .counter .lbl { font-size: 2.4vh; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
 
     .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(30vw, 1fr)); gap: 1.5vw; padding: 0 2vw 2vh; }
-    .card { background: #12151c; border: 1px solid #232833; border-radius: 1.5vh; padding: 2vh 2vw; border-left: 1.2vh solid #64748b; }
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: 1.5vh; padding: 2vh 2vw; border-left: 1.2vh solid #64748b; }
     .card .client { font-size: 4vh; font-weight: 800; letter-spacing: -.01em; }
-    .card .meta { font-size: 2.8vh; color: #9aa4b2; margin-top: .8vh; font-family: 'JetBrains Mono', monospace; font-weight: 600; }
-    .card .comment { font-size: 2.2vh; color: #9aa4b2; margin-top: .6vh; }
+    .card .meta { font-size: 2.8vh; color: var(--muted); margin-top: .8vh; font-family: 'JetBrains Mono', monospace; font-weight: 600; }
+    .card .comment { font-size: 2.2vh; color: var(--muted); margin-top: .6vh; }
     .chip { display: inline-block; padding: .4vh 1.2vw; border-radius: .8vh; font-size: 2.2vh; font-weight: 700; margin-top: 1vh; font-family: 'JetBrains Mono', monospace; text-transform: uppercase; letter-spacing: .06em; }
     /* Цвета статусов совпадают с веб-приложением (light → dark адаптация тех же hue):
        planned/partial — янтарь, in_progress/stored — синий, done/ready_clean — зелёный,
-       no_linen — серый приглушённый. */
-    .st-planned { border-left-color: #d97706; } .st-planned .chip { background: rgba(217,119,6,.22); color: #f0a94f; }
-    .st-in_progress { border-left-color: #2563eb; } .st-in_progress .chip { background: rgba(37,99,235,.25); color: #7ba4f8; }
-    .st-done { border-left-color: #16a34a; } .st-done .chip { background: rgba(22,163,74,.22); color: #4ade80; }
-    .st-stored { border-left-color: #2563eb; } .st-stored .chip { background: rgba(37,99,235,.25); color: #7ba4f8; }
-    .st-no_linen { border-left-color: #64748b; opacity: .75; } .st-no_linen .chip { background: rgba(100,116,139,.25); color: #a8b6c7; }
-    .st-ready_clean { border-left-color: #16a34a; } .st-ready_clean .chip { background: rgba(22,163,74,.22); color: #4ade80; }
-    .st-partial { border-left-color: #d97706; } .st-partial .chip { background: rgba(217,119,6,.22); color: #f0a94f; }
-    .chip-deferred { background: rgba(217,119,6,.22); color: #f0a94f; }
+       no_linen — серый приглушённый. Текст чипа — через --chip-* (светлее в тёмной теме). */
+    .st-planned { border-left-color: #d97706; } .st-planned .chip { background: rgba(217,119,6,.22); color: var(--chip-amber); }
+    .st-in_progress { border-left-color: #2563eb; } .st-in_progress .chip { background: rgba(37,99,235,.25); color: var(--chip-blue); }
+    .st-done { border-left-color: #16a34a; } .st-done .chip { background: rgba(22,163,74,.22); color: var(--chip-green); }
+    .st-stored { border-left-color: #2563eb; } .st-stored .chip { background: rgba(37,99,235,.25); color: var(--chip-blue); }
+    .st-no_linen { border-left-color: #64748b; opacity: .75; } .st-no_linen .chip { background: rgba(100,116,139,.25); color: var(--chip-gray); }
+    .st-ready_clean { border-left-color: #16a34a; } .st-ready_clean .chip { background: rgba(22,163,74,.22); color: var(--chip-green); }
+    .st-partial { border-left-color: #d97706; } .st-partial .chip { background: rgba(217,119,6,.22); color: var(--chip-amber); }
+    .chip-deferred { background: rgba(217,119,6,.22); color: var(--chip-amber); }
 
     .offline { display: none; position: fixed; top: 0; left: 0; right: 0; background: #dc2626; color: #fff;
       text-align: center; font-size: 3vh; font-weight: 700; padding: 1.5vh; z-index: 10; }
     .offline.show { display: block; }
-    .empty { grid-column: 1/-1; text-align: center; color: #9aa4b2; font-size: 4vh; padding: 8vh 0; }
+    .empty { grid-column: 1/-1; text-align: center; color: var(--muted); font-size: 4vh; padding: 8vh 0; }
 
     /* Переключатель вида: списком / по строкам (как на вкладке «Стирка» в приложении) */
     .view-toggle { display: inline-flex; gap: .5vw; margin-left: 1vw; }
-    .view-toggle button { border: 1px solid #232833; background: #12151c; color: #9aa4b2; border-radius: .8vh;
+    .view-toggle button { border: 1px solid var(--border); background: var(--surface); color: var(--muted); border-radius: .8vh;
       padding: .6vh 1vw; font-size: 2.2vh; font-weight: 600; cursor: pointer; font-family: inherit; }
     .view-toggle button.on { background: #2563eb; border-color: #2563eb; color: #fff; }
 
     /* Вид «списком»: колонки-списки по статусам, как в приложении */
     .cols { display: flex; gap: 1.5vw; padding: 0 2vw 2vh; align-items: flex-start; }
     .cols .col { flex: 1; min-width: 0; }
-    .cols .col h2 { font-size: 3vh; color: #9aa4b2; text-transform: uppercase; letter-spacing: .05em;
-      padding: 0 0 1.2vh; border-bottom: 1px solid #232833; margin-bottom: 1.5vh; }
+    .cols .col h2 { font-size: 3vh; color: var(--muted); text-transform: uppercase; letter-spacing: .05em;
+      padding: 0 0 1.2vh; border-bottom: 1px solid var(--border); margin-bottom: 1.5vh; }
     .cols .card { margin-bottom: 1.5vh; }
-    .cols .col-empty { text-align: center; color: #9aa4b2; font-size: 2.6vh; padding: 2vh 0; }
+    .cols .col-empty { text-align: center; color: var(--muted); font-size: 2.6vh; padding: 2vh 0; }
 
     /* Вид «по строкам»: клиент держит свою строку, карточка «переезжает» по горизонтали */
     .rows-board { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.5vw; padding: 0 2vw 2vh; }
-    .rows-board .col-head { font-size: 3vh; color: #9aa4b2; text-transform: uppercase; letter-spacing: .05em;
-      padding: 0 0 1.2vh; border-bottom: 1px solid #232833; }
-    .card.ghost { background: transparent; border-left-color: transparent; outline: 1px dashed #232833; opacity: .6; }
-    .card.ghost .client { font-weight: 400; color: #9aa4b2; }
-    .card.ghost .arrow { font-size: 2.2vh; color: #9aa4b2; margin-top: .8vh; }
+    .rows-board .col-head { font-size: 3vh; color: var(--muted); text-transform: uppercase; letter-spacing: .05em;
+      padding: 0 0 1.2vh; border-bottom: 1px solid var(--border); }
+    .card.ghost { background: transparent; border-left-color: transparent; outline: 1px dashed var(--border); opacity: .6; }
+    .card.ghost .client { font-weight: 400; color: var(--muted); }
+    .card.ghost .arrow { font-size: 2.2vh; color: var(--muted); margin-top: .8vh; }
 
     /* #stage — обёртка для зума (?zoom=0.8, клавиши +/-/0) и поворота (?rotate=1 / -1) */
     #stage { transform-origin: top left; }
@@ -83,6 +92,7 @@
     <div class="view-toggle">
       <button id="viewListBtn" title="Списки по колонкам">☰ Списком</button>
       <button id="viewRowsBtn" title="Клиент держит свою строку">⇄ По строкам</button>
+      <button id="themeBtn" title="Тёмная/светлая тема (клавиша 't')"></button>
     </div>
   </header>
   <div class="counters" id="counters"></div>
@@ -129,10 +139,24 @@ var KEY = new URLSearchParams(location.search).get('key') || '';
 // масштабируем сами через transform). Параметры запоминаются в localStorage:
 //   ?zoom=0.8   — масштаб (клавиши: '+' увеличить, '-' уменьшить, '0' сброс)
 //   ?rotate=1   — повернуть на 90° по часовой (ТВ стоит вертикально), ?rotate=-1 — против
+//   ?theme=light — светлая тема (по умолчанию тёмная; клавиша 't' — переключить)
 var params = new URLSearchParams(location.search);
 var zoom = parseFloat(params.get('zoom')) || parseFloat(localStorage.getItem('cl_tv_zoom')) || 1;
 var rotate = params.get('rotate') != null ? parseInt(params.get('rotate'), 10) || 0
   : parseInt(localStorage.getItem('cl_tv_rotate'), 10) || 0;
+var theme = params.get('theme') === 'light' || params.get('theme') === 'dark' ? params.get('theme')
+  : localStorage.getItem('cl_tv_theme') || 'dark';
+
+function applyTheme() {
+  document.documentElement.dataset.theme = theme;
+  localStorage.setItem('cl_tv_theme', theme);
+  document.getElementById('themeBtn').textContent = theme === 'dark' ? '☀ Светлая' : '☾ Тёмная';
+}
+applyTheme();
+document.getElementById('themeBtn').onclick = function () {
+  theme = theme === 'dark' ? 'light' : 'dark';
+  applyTheme();
+};
 
 function applyTransform() {
   var stage = document.getElementById('stage');
@@ -156,6 +180,11 @@ document.addEventListener('keydown', function (e) {
   if (e.key === '+' || e.key === '=') zoom = Math.min(3, Math.round((zoom + 0.05) * 100) / 100);
   else if (e.key === '-') zoom = Math.max(0.3, Math.round((zoom - 0.05) * 100) / 100);
   else if (e.key === '0') zoom = 1;
+  else if (e.key === 't' || e.key === 'T' || e.key === 'е' || e.key === 'Е') {
+    theme = theme === 'dark' ? 'light' : 'dark';
+    applyTheme();
+    return;
+  }
   else return;
   applyTransform();
 });
