@@ -16,6 +16,13 @@ const VISIT_FINAL = ['delivered', 'picked', 'both', 'empty'];
 
 function isOpenVisit_(v) { return v.status === 'planned'; }
 
+// Этаж подъёма (P2): пусто/1/2 = без доплаты; доплачивается всё выше 2-го.
+function normalizeLiftFloor_(floor) {
+  if (floor === undefined || floor === null || floor === '') return '';
+  const n = Math.floor(Number(floor));
+  return n > 2 ? String(n) : '';
+}
+
 // Визиты на дату (без отменённых), по порядку ord.
 function getVisitsByDate_(date, laundryId) {
   return db.findRowsByTenant_(SHEETS.DELIVERIES, function (v) {
@@ -246,7 +253,7 @@ function driverTakeAllClean(token, date) {
   });
 }
 
-function driverAction(token, visitId, action) {
+function driverAction(token, visitId, action, liftFloor) {
   const session = requireRole_(token, ['driver', 'owner']);
   if (!session) return err_('Нет доступа');
   const laundryId = session.laundryId;
@@ -257,6 +264,9 @@ function driverAction(token, visitId, action) {
     if (!found) return err_('Визит не найден');
     const v = found.obj;
     if (VISIT_FINAL.indexOf(v.status) !== -1) return err_('Визит уже закрыт');
+
+    // Этаж подъёма при подтверждении визита (P2): пусто/1/2 = без доплаты
+    if (liftFloor !== undefined) v.lift_floor = normalizeLiftFloor_(liftFloor);
 
     if (action === 'take_clean') {
       if (v.clean_taken_at) return err_('Чистое уже взято');
@@ -309,7 +319,26 @@ function driverAction(token, visitId, action) {
 
     db.updateRow_(SHEETS.DELIVERIES, found.rowNumber, v);
     logEvent(actorOf_(session), 'visit_' + action, visitId, { client_id: v.client_id, date: v.date }, laundryId);
+    if (liftFloor !== undefined) {
+      logEvent(actorOf_(session), 'visit_lift', visitId, { floor: v.lift_floor || '—' }, laundryId);
+    }
     return ok_({ visit: v, cargo: driverCargo_(laundryId) });
+  });
+}
+
+// Правка этажа подъёма владельцем задним числом (P2): счёт пересчитывается,
+// т.к. строится по текущему lift_floor визита.
+function setVisitLiftFloor(token, visitId, floor) {
+  const session = requireRole_(token, ['owner']);
+  if (!session) return err_('Нет доступа');
+  const laundryId = session.laundryId;
+  return withLock_(function () {
+    const found = findTenantVisit_(visitId, laundryId);
+    if (!found) return err_('Визит не найден');
+    found.obj.lift_floor = normalizeLiftFloor_(floor);
+    db.updateRow_(SHEETS.DELIVERIES, found.rowNumber, found.obj);
+    logEvent(actorOf_(session), 'visit_lift', visitId, { floor: found.obj.lift_floor || '—' }, laundryId);
+    return ok_({ visit: found.obj });
   });
 }
 
@@ -388,5 +417,6 @@ module.exports = {
   VISIT_FINAL, isOpenVisit_, getVisitsByDate_, getVisitsByWeek_, decorateVisit_, ensureVisit_,
   getDeliveryVisits, addDeliveryVisit, moveDeliveryVisit, removeDeliveryVisit, setPickupOnly,
   driverCargo_, getDriverRoute, takeCleanForVisit_, driverTakeAllClean,
-  driverAction, driverHandover, migrateWashesToVisits, migrateIssueDatesToVisits
+  driverAction, driverHandover, setVisitLiftFloor, normalizeLiftFloor_,
+  migrateWashesToVisits, migrateIssueDatesToVisits
 };

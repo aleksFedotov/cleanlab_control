@@ -4,7 +4,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const Database = require('better-sqlite3');
-const { HEADERS } = require('./schema');
+const { HEADERS, START_BILLING_ITEMS } = require('./schema');
 const { config } = require('./config');
 const { hashPassword } = require('./util/passwords');
 
@@ -26,6 +26,7 @@ function open(dbPath = DB_PATH) {
   createTables_(db);
   migrateToV2_(db);
   migrateToV3_(db);
+  migrateToV4_(db);
   return db;
 }
 
@@ -36,6 +37,7 @@ function openTest(dbPath = ':memory:') {
   createTables_(testDb);
   migrateToV2_(testDb);
   migrateToV3_(testDb);
+  migrateToV4_(testDb);
   return testDb;
 }
 
@@ -105,6 +107,32 @@ function migrateToV3_(d) {
       login: config.OWNER_LOGIN, pass_hash: passHash
     }, d);
   }
+}
+
+// Миграция v4 (P2, прайс): стартовое наполнение BillingItems на каждую прачку.
+// Идемпотентно: прачка с хотя бы одной позицией прайса пропускается.
+function migrateToV4_(d) {
+  readAll_('Laundries', d).forEach(laundry => {
+    const existing = findRowsBy_('BillingItems', function (r) {
+      return r.laundry_id === String(laundry.id);
+    }, 10, d);
+    if (existing.length) return;
+    START_BILLING_ITEMS.forEach(function (item, idx) {
+      appendRow_('BillingItems', {
+        id: nextId_('BillingItems', 'bi', d),
+        laundry_id: String(laundry.id),
+        name: item.name,
+        unit: item.unit,
+        kind: item.kind,
+        oneway: item.oneway || '',
+        max_kg: item.max_kg || '',
+        per_floor: item.per_floor || '',
+        ext_code: '',
+        sort: String(idx + 1),
+        active: 'да'
+      }, d);
+    });
+  });
 }
 
 // Per-tenant настройка: upsert строки Settings с laundry_id.
@@ -313,6 +341,6 @@ module.exports = {
   readAll_, readTail_, appendRow_, nextId_, findRowsBy_, findById_,
   updateRow_, deleteRow_, parseJsonList_,
   readAllByTenant_, readTailByTenant_, findRowsByTenant_, appendRowTenant_,
-  setTenantSetting_, migrateToV2_, migrateToV3_,
+  setTenantSetting_, migrateToV2_, migrateToV3_, migrateToV4_,
   invalidateRefCache_, getSettings_, getClients_, getItemTypes_
 };
