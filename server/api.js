@@ -13,7 +13,7 @@ const core = require('./core');
 const {
   addDaysStr_, mondayOf_, checkTransition_, applyDefer_, canEditWashData_,
   isDayWash_, sortDayList_, shiftBlockers_, buildDayReport_, completionStatus_,
-  err_, ok_, round1_, clientName_
+  err_, ok_, round1_, clientName_, resolveBillingItemForType_
 } = core;
 const { addStorageEntry_, openStorage_, consumeStorage_, storageSummaryByClient_ } = require('./storage');
 const deliveries = require('./deliveries');
@@ -119,6 +119,24 @@ function getDayList(token, date) {
       });
     const types = {};
     db.getItemTypes_().forEach(function (t) { types[t.id] = t.name; });
+    // P2: типы белья, идущие в счёт поштучно — работник должен отобрать их до взвешивания.
+    // Эффективная привязка: ClientItemBilling ?? ItemTypes.billing_item_id (core.resolveBillingItemForType_).
+    const itemTypesById = {};
+    db.getItemTypes_().forEach(function (t) { itemTypesById[t.id] = t; });
+    const pieceBillingById = {};
+    db.readAllByTenant_(SHEETS.BILLING_ITEMS, laundryId).forEach(function (b) {
+      if (b.kind === 'wash_pcs' && b.active === 'да') pieceBillingById[b.id] = true;
+    });
+    const clientBindings = db.findRowsByTenant_(SHEETS.CLIENT_ITEM_BILLING, function () { return true; }, 10000, laundryId)
+      .map(function (r) { return r.obj; });
+    const pieceTypesFor_ = function (clientId, typeIds) {
+      const out = [];
+      typeIds.forEach(function (tid) {
+        const bid = resolveBillingItemForType_(clientId, tid, clientBindings, itemTypesById);
+        if (bid && pieceBillingById[bid] && itemTypesById[tid]) out.push(itemTypesById[tid].name);
+      });
+      return out;
+    };
     const mapItem = function (wi) {
       return {
         item_type_id: wi.item_type_id,
@@ -139,6 +157,9 @@ function getDayList(token, date) {
         const cl = clients[w.client_id] || {};
         w.client_item_types = db.parseJsonList_(cl.item_types);
         w.client_accounting = cl.accounting === 'weight' || cl.accounting === 'count' ? cl.accounting : 'both';
+        // Пустой список типов у клиента = все типы (как в формах стирки)
+        w.piece_types = pieceTypesFor_(w.client_id,
+          w.client_item_types && w.client_item_types.length ? w.client_item_types : Object.keys(itemTypesById));
         // Остаток частичной стирки: показываем, что часть уже постирана
         const prev = prevItems[w.id];
         if (prev && prev.length) {

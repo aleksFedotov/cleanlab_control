@@ -7,7 +7,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
-import { useApiMutation } from '@/hooks/use-api';
+import { useApiMutation, useBillingItems } from '@/hooks/use-api';
 import { useUiStore } from '@/stores/ui';
 import { OPERATIONAL_PREFIXES } from '@/lib/query-keys';
 import type { ItemType } from '@/types/api';
@@ -15,6 +15,8 @@ import styles from './refs.module.css';
 
 const schema = z.object({
   name: z.string().trim().min(1, 'Укажите название'),
+  // Позиция в счёте (только штучные wash_pcs); '' — в счёт по весу
+  billing_item_id: z.string(),
 });
 type FormValues = z.infer<typeof schema>;
 
@@ -31,6 +33,10 @@ export function TypeForm({ type, onClose }: TypeFormProps) {
       onClose();
     },
   });
+  const billing = useBillingItems();
+  const pieceItems = (billing.data?.items || []).filter(
+    (b) => b.kind === 'wash_pcs' && b.active === 'да'
+  );
 
   const {
     register,
@@ -38,11 +44,11 @@ export function TypeForm({ type, onClose }: TypeFormProps) {
     formState: { errors },
   } = useForm<FormValues>({
     resolver: zodResolver(schema),
-    defaultValues: { name: type?.name || '' },
+    defaultValues: { name: type?.name || '', billing_item_id: type?.billing_item_id || '' },
   });
 
   function onSubmit(v: FormValues) {
-    const payload: Record<string, unknown> = { name: v.name };
+    const payload: Record<string, unknown> = { name: v.name, billing_item_id: v.billing_item_id };
     if (type) payload.id = type.id;
     save.mutate(payload);
   }
@@ -67,6 +73,20 @@ export function TypeForm({ type, onClose }: TypeFormProps) {
         <div>
           <input type="text" placeholder="Название" autoFocus {...register('name')} />
           {errors.name && <div className={styles.err}>{errors.name.message}</div>}
+        </div>
+        <div>
+          <div className={styles.sectionTitle}>Позиция в счёте</div>
+          <select aria-label="Позиция в счёте" {...register('billing_item_id')}>
+            <option value="">В счёт по весу</option>
+            {pieceItems.map((b) => (
+              <option key={b.id} value={b.id}>
+                {b.name}
+              </option>
+            ))}
+          </select>
+          <div className={styles.hint}>
+            Штучная позиция — бельё этого вида отбирается до взвешивания и идёт в счёт поштучно.
+          </div>
         </div>
       </form>
     </Modal>

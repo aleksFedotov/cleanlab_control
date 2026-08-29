@@ -13,6 +13,10 @@ export const qk = {
   shiftCloseState: (date: string) => ['shiftCloseState', date] as const,
   workHours: (from: string, to: string) => ['workHours', from, to] as const,
   deliveryPointStats: (from: string, to: string) => ['deliveryPointStats', from, to] as const,
+  billingItems: () => ['billingItems'] as const,
+  tariffs: (clientId?: string) => ['tariffs', clientId || ''] as const,
+  clientItemBilling: (clientId: string) => ['clientItemBilling', clientId] as const,
+  invoice: (clientId: string, from: string, to: string) => ['invoice', clientId, from, to] as const,
 };
 
 // Что инвалидировать после операционных мутаций (стирка/развоз/склад взаимосвязаны).

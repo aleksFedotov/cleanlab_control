@@ -5,7 +5,7 @@
 // все/активные/архив; архивация — через ConfirmDialog (deleteClient / saveItemType).
 import { useEffect, useMemo, useState } from 'react';
 import {
-  Plus, Pencil, Trash2, RotateCcw, Search, Users, Shirt, TriangleAlert,
+  Plus, Pencil, Trash2, RotateCcw, Search, Users, Shirt, TriangleAlert, ReceiptText,
 } from 'lucide-react';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Button } from '@/components/ui/Button';
@@ -14,18 +14,52 @@ import { FilterPills } from '@/components/ui/FilterPills';
 import { Empty } from '@/components/ui/Empty';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { Skeleton } from '@/components/ui/Skeleton';
-import { useRefs, useApiMutation } from '@/hooks/use-api';
+import { useRefs, useBillingItems, useTariffs, useApiMutation } from '@/hooks/use-api';
 import { useUiStore } from '@/stores/ui';
 import { OPERATIONAL_PREFIXES } from '@/lib/query-keys';
 import { plural } from '@/lib/format';
-import type { Client, ItemType } from '@/types/api';
+import type { BillingItem, Client, ItemType } from '@/types/api';
 import { ClientForm } from './client-form';
 import { TypeForm } from './type-form';
+import { PriceItemForm } from './price-item-form';
 import { parseItemTypes } from './refs-utils';
 import styles from './refs.module.css';
 
-type RefsTab = 'clients' | 'types';
+type RefsTab = 'clients' | 'types' | 'price';
 type ClientFilter = 'all' | 'active' | 'archived';
+
+const BILLING_KIND_LABELS: Record<string, string> = {
+  wash_weight: 'Стирка по весу',
+  wash_pcs: 'Поштучно',
+  trip: 'Рейс',
+  lift: 'Подъём',
+};
+
+// Инлайн-редактор дефолтной цены позиции (saveTariff с clientId='' — дефолт прачки)
+function DefaultPriceCell({ item, price }: { item: BillingItem; price: string }) {
+  const [value, setValue] = useState(price);
+  const save = useApiMutation('saveTariff', {
+    invalidate: ['tariffs'],
+    onSuccess: () => useUiStore.getState().toast('Цена сохранена'),
+  });
+  return (
+    <input
+      className={styles.priceInput}
+      type="text"
+      inputMode="decimal"
+      placeholder="—"
+      value={value}
+      onClick={(e) => e.stopPropagation()}
+      onChange={(e) => setValue(e.target.value)}
+      onBlur={() => {
+        const v = value.trim().replace(',', '.');
+        if (v === price) return;
+        save.mutate(['', item.id, v]);
+      }}
+      aria-label={`Дефолтная цена: ${item.name}`}
+    />
+  );
+}
 
 // Клиенты/виды белья видны на операционных экранах (стирка, развоз, склад) —
 // инвалидируем refs + все операционные чтения.
@@ -33,6 +67,8 @@ const REFS_INVALIDATE = ['refs', ...OPERATIONAL_PREFIXES];
 
 export default function RefsPage() {
   const refs = useRefs();
+  const billing = useBillingItems();
+  const tariffsQ = useTariffs();
   const toast = useUiStore((s) => s.toast);
 
   const [tab, setTab] = useState<RefsTab>('clients');
@@ -40,8 +76,9 @@ export default function RefsPage() {
   const [search, setSearch] = useState('');
   const [clientForm, setClientForm] = useState<Client | 'new' | null>(null);
   const [typeForm, setTypeForm] = useState<ItemType | 'new' | null>(null);
+  const [priceForm, setPriceForm] = useState<BillingItem | 'new' | null>(null);
   const [confirm, setConfirm] = useState<
-    { kind: 'client'; row: Client } | { kind: 'type'; row: ItemType } | null
+    { kind: 'client'; row: Client } | { kind: 'type'; row: ItemType } | { kind: 'price'; row: BillingItem } | null
   >(null);
 
   // §7: ошибка API — тост; на месте контента «Повторить», если данных нет
@@ -67,8 +104,27 @@ export default function RefsPage() {
     },
   });
 
+  // Архивация/возврат позиции прайса — saveBillingItem с переключением active.
+  // Удаление почти всегда запрещено сервером (используется в тарифах/привязках), поэтому архивируем.
+  const togglePrice = useApiMutation('saveBillingItem', {
+    invalidate: ['billingItems', 'tariffs'],
+    onSuccess: () => {
+      setConfirm(null);
+      toast('Сохранено');
+    },
+  });
+
   const clients = useMemo(() => refs.data?.clients || [], [refs.data]);
   const itemTypes = useMemo(() => refs.data?.itemTypes || [], [refs.data]);
+  const billingItems = useMemo(() => billing.data?.items || [], [billing.data]);
+  // Дефолтные цены прачки (client_id='') по позиции
+  const defaultPrices = useMemo(() => {
+    const m: Record<string, string> = {};
+    (tariffsQ.data?.tariffs || []).forEach((t) => {
+      if (!t.client_id) m[t.billing_item_id] = t.price;
+    });
+    return m;
+  }, [tariffsQ.data]);
 
   const q = search.trim().toLowerCase();
 
@@ -100,6 +156,11 @@ export default function RefsPage() {
   const visibleTypes = useMemo(
     () => itemTypes.filter((t) => !q || t.name.toLowerCase().includes(q)),
     [itemTypes, q]
+  );
+
+  const visiblePriceItems = useMemo(
+    () => billingItems.filter((b) => !q || b.name.toLowerCase().includes(q)),
+    [billingItems, q]
   );
 
   const clientColumns: DataTableColumn[] = [
@@ -211,9 +272,68 @@ export default function RefsPage() {
     },
   ];
 
+  const priceColumns: DataTableColumn[] = [
+    {
+      key: 'name',
+      title: 'Название',
+      render: (b: BillingItem) => (
+        <span className={b.active !== 'да' ? styles.muted : ''}>
+          <span className={styles.cellName}>{b.name}</span>
+          {b.active !== 'да' && <span className={styles.sub}> (архив)</span>}
+        </span>
+      ),
+    },
+    { key: 'kind', title: 'Тип', render: (b: BillingItem) => BILLING_KIND_LABELS[b.kind] || b.kind },
+    { key: 'unit', title: 'Ед.' },
+    { key: 'ext_code', title: 'Код НФ', render: (b: BillingItem) => b.ext_code || '—' },
+    { key: 'max_kg', title: 'Ярус, кг', align: 'right', mono: true, render: (b: BillingItem) => b.max_kg || '—' },
+    { key: 'oneway', title: 'В одну сторону', render: (b: BillingItem) => b.oneway === 'да' ? 'да' : '—' },
+    { key: 'per_floor', title: 'За этаж', render: (b: BillingItem) => b.per_floor === 'да' ? 'да' : '—' },
+    {
+      key: 'price',
+      title: 'Цена по умолч.',
+      align: 'right',
+      render: (b: BillingItem) => <DefaultPriceCell item={b} price={defaultPrices[b.id] || ''} />,
+    },
+    {
+      key: 'actions',
+      title: '',
+      align: 'right',
+      render: (b: BillingItem) => (
+        <span className={styles.rowActions}>
+          <Button
+            variant="subtle"
+            size="sm"
+            icon={<Pencil size={15} />}
+            aria-label="Изменить"
+            onClick={() => setPriceForm(b)}
+          />
+          {b.active === 'да' ? (
+            <Button
+              variant="subtle"
+              size="sm"
+              icon={<Trash2 size={15} />}
+              aria-label="Архивировать"
+              onClick={() => setConfirm({ kind: 'price', row: b })}
+            />
+          ) : (
+            <Button
+              variant="subtle"
+              size="sm"
+              icon={<RotateCcw size={15} />}
+              aria-label="Вернуть"
+              busy={togglePrice.isPending}
+              onClick={() => togglePrice.mutate({ ...b, active: 'да' })}
+            />
+          )}
+        </span>
+      ),
+    },
+  ];
+
   const addButton = (
-    <Button icon={<Plus size={16} />} onClick={() => (tab === 'clients' ? setClientForm('new') : setTypeForm('new'))}>
-      {tab === 'clients' ? 'Добавить клиента' : 'Добавить вид'}
+    <Button icon={<Plus size={16} />} onClick={() => (tab === 'clients' ? setClientForm('new') : tab === 'types' ? setTypeForm('new') : setPriceForm('new'))}>
+      {tab === 'clients' ? 'Добавить клиента' : tab === 'types' ? 'Добавить вид' : 'Добавить позицию'}
     </Button>
   );
 
@@ -249,6 +369,7 @@ export default function RefsPage() {
           options={[
             { key: 'clients', label: 'Клиенты' },
             { key: 'types', label: 'Виды белья' },
+            { key: 'price', label: 'Прайс' },
           ]}
           active={tab}
           onChange={(k) => {
@@ -261,7 +382,7 @@ export default function RefsPage() {
           <input
             className={styles.search}
             placeholder={
-              tab === 'clients' ? 'Поиск по названию, адресу, контакту…' : 'Поиск вида белья…'
+              tab === 'clients' ? 'Поиск по названию, адресу, контакту…' : tab === 'types' ? 'Поиск вида белья…' : 'Поиск позиции прайса…'
             }
             value={search}
             onChange={(e) => setSearch(e.target.value)}
@@ -303,7 +424,7 @@ export default function RefsPage() {
               }
             />
           </>
-        ) : (
+        ) : tab === 'types' ? (
           <DataTable
             columns={typeColumns}
             rows={visibleTypes}
@@ -325,6 +446,33 @@ export default function RefsPage() {
               )
             }
           />
+        ) : (
+          <>
+            <DataTable
+              columns={priceColumns}
+              rows={visiblePriceItems}
+              keyField="id"
+              empty={
+                q ? (
+                  <Empty icon={<Search size={26} />} title="Ничего не найдено" hint={`По запросу «${search.trim()}» позиций прайса нет`} />
+                ) : (
+                  <Empty
+                    icon={<ReceiptText size={28} />}
+                    title="Позиций прайса пока нет"
+                    hint="Добавьте первую позицию прайса"
+                    action={
+                      <Button icon={<Plus size={16} />} onClick={() => setPriceForm('new')}>
+                        Добавить позицию
+                      </Button>
+                    }
+                  />
+                )
+              }
+            />
+            <div className={styles.hint}>
+              В счёте должна быть ровно одна активная весовая позиция — в неё идёт всё бельё без штучной привязки.
+            </div>
+          </>
         )}
       </>
     );
@@ -351,23 +499,30 @@ export default function RefsPage() {
         <TypeForm type={typeForm === 'new' ? null : typeForm} onClose={() => setTypeForm(null)} />
       )}
 
+      {priceForm !== null && (
+        <PriceItemForm item={priceForm === 'new' ? null : priceForm} onClose={() => setPriceForm(null)} />
+      )}
+
       <ConfirmDialog
         open={confirm !== null}
         onClose={() => setConfirm(null)}
         danger
-        okLabel={confirm?.kind === 'type' ? 'Архивировать' : 'В архив'}
-        busy={archiveClient.isPending || toggleType.isPending}
+        okLabel={confirm?.kind === 'type' || confirm?.kind === 'price' ? 'Архивировать' : 'В архив'}
+        busy={archiveClient.isPending || toggleType.isPending || togglePrice.isPending}
         text={
           confirm?.kind === 'client'
             ? `Клиент «${confirm.row.name}» уйдёт в архив: пропадёт из списков для новых стирок и визитов.`
             : confirm?.kind === 'type'
               ? `Вид белья «${confirm.row.name}» будет архивирован и пропадёт из форм стирки.`
-              : ''
+              : confirm?.kind === 'price'
+                ? `Позиция прайса «${confirm.row.name}» будет архивирована и перестанет попадать в новые счета.`
+                : ''
         }
         onConfirm={() => {
           if (!confirm) return;
           if (confirm.kind === 'client') archiveClient.mutate(confirm.row.id);
-          else toggleType.mutate({ id: confirm.row.id, active: 'нет' });
+          else if (confirm.kind === 'type') toggleType.mutate({ id: confirm.row.id, active: 'нет' });
+          else togglePrice.mutate({ ...confirm.row, active: 'нет' });
         }}
       />
     </>

@@ -11,6 +11,7 @@ import type {
   DayListRes, DeliveryVisitsRes, WeekPlanRes, StorageRes, DayReportRes, SummaryReportRes,
   RefsRes, UsersRes, LaundriesRes, DriverRouteRes, ShiftCloseStateRes,
   WorkHoursRes, DeliveryPointStatsRes,
+  BillingItemsRes, TariffsRes, ClientItemBillingRes, InvoiceRes,
 } from '@/types/api';
 
 function token(): string {
@@ -121,6 +122,41 @@ export function useDeliveryPointStats(from: string, to: string) {
     queryKey: qk.deliveryPointStats(from, to),
     queryFn: () => api<DeliveryPointStatsRes>('getDeliveryPointStats', token(), from, to),
     enabled: !!token() && !!from && !!to,
+  });
+}
+
+// --- Прайс и счета (P2, owner-only) ---
+
+export function useBillingItems() {
+  return useQuery({
+    queryKey: qk.billingItems(),
+    queryFn: () => api<BillingItemsRes>('listBillingItems', token()),
+    enabled: !!token(),
+  });
+}
+
+// Без clientId — все тарифы; с clientId — дефолты + переопределения клиента
+export function useTariffs(clientId?: string) {
+  return useQuery({
+    queryKey: qk.tariffs(clientId),
+    queryFn: () => api<TariffsRes>('listTariffs', token(), clientId),
+    enabled: !!token(),
+  });
+}
+
+export function useClientItemBilling(clientId: string) {
+  return useQuery({
+    queryKey: qk.clientItemBilling(clientId),
+    queryFn: () => api<ClientItemBillingRes>('listClientItemBilling', token(), clientId),
+    enabled: !!token() && !!clientId,
+  });
+}
+
+export function useClientInvoice(clientId: string, from: string, to: string) {
+  return useQuery({
+    queryKey: qk.invoice(clientId, from, to),
+    queryFn: () => api<InvoiceRes>('getClientInvoice', token(), clientId, from, to),
+    enabled: !!token() && !!clientId && !!from && !!to,
   });
 }
 

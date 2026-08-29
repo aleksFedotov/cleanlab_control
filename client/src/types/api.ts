@@ -45,6 +45,8 @@ export interface DayWash extends Wash {
   prev_bags?: number | '';
   // Состав постиранного у завершённых (done/stored/partial/ready_clean) — для правки
   items?: { item_type_id: string; qty: number; item_name?: string }[];
+  // Типы белья клиента, идущие в счёт поштучно (P2) — «отобрать до взвешивания»
+  piece_types?: string[];
 }
 
 export interface Shift {
@@ -82,6 +84,8 @@ export interface ItemType {
   name: string;
   sort: number | string;
   active: string;
+  // Позиция прайса (BillingItems kind=wash_pcs), '' = в счёт по весу
+  billing_item_id: string;
 }
 
 export interface Visit {
@@ -100,6 +104,7 @@ export interface Visit {
   picked_at: string;
   dirty_handed_at: string;
   pickup_only: string; // '' | 'да'
+  lift_floor: string; // этаж подъёма; пусто/1/2 = без доплаты
   laundry_id: string;
 }
 
@@ -308,4 +313,77 @@ export interface DeliveryPointStatsRes {
   from: string;
   to: string;
   days: DeliveryPointStatsDay[];
+}
+
+// --- Прайс и авторасчёт счетов (P2, owner-only) ---
+
+export type BillingKind = 'wash_weight' | 'wash_pcs' | 'trip' | 'lift';
+
+export interface BillingItem {
+  id: string;
+  laundry_id: string;
+  name: string;
+  unit: string; // 'кг' | 'шт' | 'рейс' | 'этаж'
+  kind: BillingKind;
+  oneway: string; // '' | 'да'
+  max_kg: string; // ярус, число строкой или ''
+  per_floor: string; // '' | 'да'
+  ext_code: string;
+  sort: string;
+  active: string; // 'да' | 'нет'
+}
+
+export interface BillingItemsRes {
+  ok: true;
+  items: BillingItem[];
+}
+
+export interface Tariff {
+  id: string;
+  client_id: string; // '' = дефолт прачки
+  billing_item_id: string;
+  price: string;
+  laundry_id: string;
+}
+
+export interface TariffsRes {
+  ok: true;
+  tariffs: Tariff[];
+}
+
+export interface ClientItemBinding {
+  id: string;
+  client_id: string;
+  item_type_id: string;
+  billing_item_id: string; // '' = «этот тип в весе»
+  laundry_id: string;
+}
+
+export interface ClientItemBillingRes {
+  ok: true;
+  bindings: ClientItemBinding[];
+}
+
+export interface InvoiceLine {
+  billing_item_id: string;
+  name: string;
+  ext_code: string;
+  unit: string;
+  qty: number;
+  price: number | null;
+  amount: number | null;
+}
+
+export interface Invoice {
+  client: Client;
+  from: string;
+  to: string;
+  lines: InvoiceLine[];
+  total: number;
+  missing_prices: string[];
+}
+
+export interface InvoiceRes {
+  ok: true;
+  invoice: Invoice;
 }

@@ -98,22 +98,29 @@ export default function DriverPage() {
 
   // --- Локальное состояние диалогов ---
   const [visitTarget, setVisitTarget] = useState<RouteVisit | null>(null); // модал действий по точке
-  const [takeConfirm, setTakeConfirm] = useState<null | { visitId: string }>(null); // «Чистое бельё взято со склада?»
+  const [floor, setFloor] = useState(1); // этаж подъёма в модале (P2); сбрасывается при смене visitTarget
+  const [takeConfirm, setTakeConfirm] = useState<null | { visitId: string; floor: number | null }>(null); // «Чистое бельё взято со склада?»
   const [takeAllOpen, setTakeAllOpen] = useState(false);
   const [takeSelOpen, setTakeSelOpen] = useState(false);
   const [handoverOpen, setHandoverOpen] = useState(false);
   const [checked, setChecked] = useState<Record<string, boolean>>({});
   const [selBusy, setSelBusy] = useState(false);
 
+  const openVisit = (v: RouteVisit) => {
+    setVisitTarget(v);
+    setFloor(Math.max(1, Math.floor(num(v.lift_floor)) || 1));
+  };
+
   const runAction = (visitId: string, act: DriverAction) => {
+    const lift = floor > 2 ? floor : null; // пусто/1/2 — без доплаты (сервер нормализует)
     if (act === 'take_clean') {
       // Как в legacy: подтверждение перед take_clean
       setVisitTarget(null);
-      setTakeConfirm({ visitId });
+      setTakeConfirm({ visitId, floor: lift });
       return;
     }
     setVisitTarget(null);
-    actionMut.mutate([visitId, act]);
+    actionMut.mutate([visitId, act, lift]);
   };
 
   // Чистое на складе, которое надо развезти (planned + has_clean + ещё не взято)
@@ -226,7 +233,7 @@ export default function DriverPage() {
           {planned.length > 0 && (
           <MobileSection label={`Адреса (${planned.length})`}>
             {planned.map((v) => (
-              <Card key={v.id} interactive className={styles.compactCard} onClick={() => setVisitTarget(v)}>
+              <Card key={v.id} interactive className={styles.compactCard} onClick={() => openVisit(v)}>
                 <div className={styles.cardName}>{v.client_name}</div>
                 <div className={styles.metaDim}>{visitMeta(v, false).join(' · ')}</div>
               </Card>
@@ -348,6 +355,28 @@ export default function DriverPage() {
         {visitTarget && (
           <>
             <div className={styles.metaDim}>{visitMeta(visitTarget, false).join(' · ')}</div>
+            <div className={styles.floorRow}>
+              <span className={styles.floorLabel}>Этаж</span>
+              <Button
+                variant="subtle"
+                size="sm"
+                aria-label="Этаж ниже"
+                disabled={floor <= 1}
+                onClick={() => setFloor((f) => Math.max(1, f - 1))}
+              >
+                −
+              </Button>
+              <span className={styles.floorVal}>{floor}</span>
+              <Button
+                variant="subtle"
+                size="sm"
+                aria-label="Этаж выше"
+                onClick={() => setFloor((f) => f + 1)}
+              >
+                +
+              </Button>
+              {floor > 2 && <span className={styles.metaDim}>доплата за подъём</span>}
+            </div>
             {actionsFor(visitTarget).map((a) => (
               <Button
                 key={a.act}
@@ -367,7 +396,7 @@ export default function DriverPage() {
         open={!!takeConfirm}
         onClose={() => setTakeConfirm(null)}
         onConfirm={() => {
-          if (takeConfirm) actionMut.mutate([takeConfirm.visitId, 'take_clean']);
+          if (takeConfirm) actionMut.mutate([takeConfirm.visitId, 'take_clean', takeConfirm.floor]);
           setTakeConfirm(null);
         }}
         text="Чистое бельё взято со склада?"
