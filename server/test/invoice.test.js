@@ -487,6 +487,18 @@ test('saveBillingItem: валидация вида/единицы/названи
   assert.strictEqual(ctx.api.saveBillingItem(owner, { name: '  ', unit: 'шт', kind: 'wash_pcs' }).ok, false);
 });
 
+test('migrateToV4_: повторный запуск не дублирует прайс (страж по всей таблице)', () => {
+  const { ctx } = mkBillingCtx(); // прачка 1 уже имеет 8 позиций из openTest
+  // Три прачки: при хвостовом LIMIT-страже позиции первой «терялись» в хвосте
+  // и каждый перезапуск сидил её заново (баг «прайс дублируется»).
+  ctx.db.appendRow_('Laundries', { id: '2', name: 'П2', active: 'да' });
+  ctx.db.appendRow_('Laundries', { id: '3', name: 'П3', active: 'да' });
+  ctx.db.migrateToV4_(); // досидит прачки 2 и 3
+  assert.strictEqual(ctx.db.readAll_('BillingItems').length, 24, '3 прачки × 8 позиций');
+  ctx.db.migrateToV4_(); // повторно — ничего не добавляет
+  assert.strictEqual(ctx.db.readAll_('BillingItems').length, 24);
+});
+
 // --- Этаж от водителя ---
 
 test('driverAction принимает этаж подъёма; пусто/1/2 → без доплаты', () => {
@@ -507,6 +519,35 @@ test('driverAction принимает этаж подъёма; пусто/1/2 �
   // Событие visit_lift в Log
   const liftEvents = ctx.db.findRowsBy_('Log', function (e) { return e.action === 'visit_lift'; }, 100);
   assert.strictEqual(liftEvents.length, 2);
+});
+
+test('getDriverRoute: статистика дня — посещённые точки и доплата за подъём', () => {
+  const { ctx, owner, bi } = mkBillingCtx();
+  addClient(ctx, 'cli_v1');
+  addClient(ctx, 'cli_v2');
+  addClient(ctx, 'cli_v3');
+  ctx.api.saveTariff(owner, '', bi.lift, '200'); // дефолтная цена подъёма
+  const driver = loginDriver();
+  const d = '2026-08-05';
+  // На одну дату у клиента может быть только один визит — три разных клиента
+  const v1 = ctx.api.addDeliveryVisit(owner, 'cli_v1', d).visit.id;
+  const v2 = ctx.api.addDeliveryVisit(owner, 'cli_v2', d).visit.id;
+  ctx.api.addDeliveryVisit(owner, 'cli_v3', d); // остаётся planned — не посещена
+  ctx.api.driverAction(driver, v1, 'pickup_dirty', 5); // (5−2) × 200 = 600
+  ctx.api.driverAction(driver, v2, 'pickup_dirty', 3); // (3−2) × 200 = 200
+
+  const r = ctx.api.getDriverRoute(driver, d);
+  assert.ok(r.ok, r.error);
+  assert.strictEqual(r.stats.visited, 2);
+  assert.strictEqual(r.stats.lift_qty, 4, 'per_floor=да: этажи выше 2-го');
+  assert.strictEqual(r.stats.lift_total, 800);
+  assert.strictEqual(r.stats.lift_missing, false);
+
+  // Цену сняли — сумма не считается, флаг missing взведён
+  ctx.api.saveTariff(owner, '', bi.lift, '');
+  const r2 = ctx.api.getDriverRoute(driver, d);
+  assert.strictEqual(r2.stats.lift_total, 0);
+  assert.strictEqual(r2.stats.lift_missing, true);
 });
 
 test('старт стирки связывает dirty-запись склада со стиркой (вес ноги-забора)', () => {

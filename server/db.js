@@ -111,12 +111,14 @@ function migrateToV3_(d) {
 
 // Миграция v4 (P2, прайс): стартовое наполнение BillingItems на каждую прачку.
 // Идемпотентно: прачка с хотя бы одной позицией прайса пропускается.
-function migrateToV4_(d) {
+// Проверка — по ВСЕЙ таблице: findRowsBy_ читает только хвост (LIMIT n),
+// поэтому с ним страж не видел позиции ранних прачек и пересидил их на
+// каждом перезапуске (баг «прайс дублируется»).
+function migrateToV4_(d = db) {
+  const seeded = {};
+  readAll_('BillingItems', d).forEach(r => { seeded[String(r.laundry_id)] = true; });
   readAll_('Laundries', d).forEach(laundry => {
-    const existing = findRowsBy_('BillingItems', function (r) {
-      return r.laundry_id === String(laundry.id);
-    }, 10, d);
-    if (existing.length) return;
+    if (seeded[String(laundry.id)]) return;
     START_BILLING_ITEMS.forEach(function (item, idx) {
       appendRow_('BillingItems', {
         id: nextId_('BillingItems', 'bi', d),
