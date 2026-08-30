@@ -10,12 +10,8 @@ import { Button } from '@/components/ui/Button';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { Empty } from '@/components/ui/Empty';
 import { formatDateRu } from '@/lib/dates';
+import { money } from '@/lib/format';
 import styles from './invoice.module.css';
-
-function money(v: number | null): string {
-  if (v === null || v === undefined) return '—';
-  return v.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-}
 
 export function InvoiceView() {
   const session = useRequireRole(['owner']);

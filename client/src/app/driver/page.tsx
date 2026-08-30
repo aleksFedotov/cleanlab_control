@@ -9,7 +9,7 @@ import { useDriverRoute, useApiMutation } from '@/hooks/use-api';
 import { useRequireRole, useLogout } from '@/hooks/use-session';
 import { useUiStore } from '@/stores/ui';
 import { todayStr, shiftDateStr, formatDateRu, timeOf } from '@/lib/dates';
-import { num, bags } from '@/lib/format';
+import { num, bags, money } from '@/lib/format';
 import { roleLabel } from '@/lib/dicts';
 import { MobileLayout, MobileSection } from '@/components/layout/MobileLayout';
 import { Card } from '@/components/ui/Card';
@@ -79,6 +79,7 @@ export default function DriverPage() {
 
   const route = query.data;
   const cargo = route?.cargo || { clean_bags: 0, clean_points: 0, dirty_points: 0 };
+  const dayStats = route?.stats || { visited: 0, lift_qty: 0, lift_total: 0, lift_missing: false };
 
   // --- Мутации ---
   const actionMut = useApiMutation('driverAction', {
@@ -150,9 +151,18 @@ export default function DriverPage() {
       contextLine={`Маршрут · ${formatDateRu(date, false)}`}
       greeting={greetingFor(session.name)}
       stats={[
+        { value: `${dayStats.visited}/${visits.length}`, label: 'Точек посещено', tone: dayStats.visited && dayStats.visited === visits.length ? 'ok' : 'default' },
         { value: cargo.clean_bags, label: 'Чистое, меш.', tone: cargo.clean_bags ? 'ok' : 'default' },
         { value: cargo.clean_points, label: 'Точек выдачи' },
         { value: cargo.dirty_points, label: 'Точек забора', tone: cargo.dirty_points ? 'warn' : 'default' },
+        // Доплата за подъём выше 2-го этажа (P2); ⚠ — у какой-то точки нет цены в прайсе
+        ...(dayStats.lift_qty > 0
+          ? [{
+              value: `${money(dayStats.lift_total)} ₽${dayStats.lift_missing ? ' ⚠' : ''}`,
+              label: 'Подъём',
+              tone: 'ok' as const,
+            }]
+          : []),
       ]}
       nav={nav}
       activeNav={tab}

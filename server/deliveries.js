@@ -5,7 +5,7 @@
 const { SHEETS } = require('./schema');
 const db = require('./db');
 const { nowStr_, todayStr_, logEvent, actorOf_ } = require('./audit');
-const { addDaysStr_, err_, ok_, clientName_ } = require('./core');
+const { addDaysStr_, err_, ok_, clientName_, resolvePrice_ } = require('./core');
 const { requireRole_ } = require('./auth');
 const { addStorageEntry_, openStorage_, storageSummaryByClient_ } = require('./storage');
 
@@ -184,6 +184,32 @@ function driverCargo_(laundryId) {
   return cargo;
 }
 
+// Статистика дня водителя: сколько точек посещено (любой финальный статус,
+// включая empty — водитель до точки доехал) и доплата за подъём (P2).
+// Этаж выше 2-го: per_floor=да — за каждый этаж выше 2-го, иначе за факт.
+// Цена — как в счёте: тариф клиента → дефолт прачки; без цены — lift_missing.
+function driverDayStats_(visits, laundryId) {
+  const stats = {
+    visited: visits.filter(function (v) { return VISIT_FINAL.indexOf(v.status) >= 0; }).length,
+    lift_qty: 0, lift_total: 0, lift_missing: false
+  };
+  const lift = db.readAllByTenant_(SHEETS.BILLING_ITEMS, laundryId)
+    .filter(function (b) { return b.kind === 'lift' && b.active !== 'нет'; })[0];
+  if (!lift) return stats;
+  const tariffs = db.readAllByTenant_(SHEETS.CLIENT_TARIFFS, laundryId);
+  visits.forEach(function (v) {
+    const floor = Math.floor(Number(v.lift_floor) || 0);
+    if (floor <= 2) return;
+    const qty = lift.per_floor === 'да' ? floor - 2 : 1;
+    stats.lift_qty += qty;
+    const price = resolvePrice_(tariffs, v.client_id, lift.id);
+    if (price === null) stats.lift_missing = true;
+    else stats.lift_total += qty * price;
+  });
+  stats.lift_total = Math.round(stats.lift_total * 100) / 100;
+  return stats;
+}
+
 // Точки на дату: визиты + состояние склада клиента + груз водителя.
 function getDriverRoute(token, date) {
   const session = requireRole_(token, ['driver', 'owner']);
@@ -193,11 +219,13 @@ function getDriverRoute(token, date) {
   const clients = {};
   db.getClients_(laundryId).forEach(function (c) { clients[c.id] = c; });
   const storage = storageSummaryByClient_(laundryId);
+  const visits = getVisitsByDate_(date, laundryId);
   return ok_({
     date: date,
     laundryName: db.getSettings_(laundryId).LAUNDRY_NAME || 'CleanLab Pro',
     cargo: driverCargo_(laundryId),
-    visits: getVisitsByDate_(date, laundryId).map(function (v) {
+    stats: driverDayStats_(visits, laundryId),
+    visits: visits.map(function (v) {
       const c = clients[v.client_id] || {};
       v.address = c.address || '';
       return decorateVisit_(v, clients, storage);
