@@ -5,7 +5,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Truck, History, User, MapPin, Phone, LogOut } from 'lucide-react';
 import type { DriverRouteRes } from '@/types/api';
-import { useDriverRoute, useApiMutation } from '@/hooks/use-api';
+import { useDriverRoute, useApiMutation, useMyPayroll } from '@/hooks/use-api';
 import { useRequireRole, useLogout } from '@/hooks/use-session';
 import { useUiStore } from '@/stores/ui';
 import { todayStr, shiftDateStr, formatDateRu, timeOf } from '@/lib/dates';
@@ -62,6 +62,14 @@ function greetingFor(name: string): string {
   return `${name}, ${part}`;
 }
 
+// Первый/последний день месяца даты 'yyyy-MM-dd' (для отчёта «Зарплата за месяц»)
+function monthRange(dateStr: string): { from: string; to: string } {
+  const [y, m] = dateStr.split('-').map(Number);
+  const last = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  const mm = String(m).padStart(2, '0');
+  return { from: `${y}-${mm}-01`, to: `${y}-${mm}-${String(last).padStart(2, '0')}` };
+}
+
 export default function DriverPage() {
   const session = useRequireRole(['driver']);
   const logout = useLogout();
@@ -80,6 +88,11 @@ export default function DriverPage() {
   const route = query.data;
   const cargo = route?.cargo || { clean_bags: 0, clean_points: 0, dirty_points: 0 };
   const dayStats = route?.stats || { visited: 0, lift_qty: 0, lift_total: 0, lift_missing: false };
+
+  // Авто-отчёт «Зарплата за месяц» (P3): точки × ставка + подъёмы + корректировки
+  const payRange = useMemo(() => monthRange(todayStr()), []);
+  const payQ = useMyPayroll(payRange.from, payRange.to);
+  const pay = payQ.data;
 
   // --- Мутации ---
   const actionMut = useApiMutation('driverAction', {
@@ -160,6 +173,14 @@ export default function DriverPage() {
           ? [{
               value: `${money(dayStats.lift_total)} ₽${dayStats.lift_missing ? ' ⚠' : ''}`,
               label: 'Подъём',
+              tone: 'ok' as const,
+            }]
+          : []),
+        // Зарплата за текущий месяц (P3): точки · подъёмы · итого с корректировками
+        ...(pay
+          ? [{
+              value: `${money(pay.total)} ₽${pay.rate_missing ? ' ⚠' : ''}`,
+              label: `Зарплата месяца · ${pay.points} точек · подъёмы ${money(pay.amount_lifts)} ₽${pay.adjustments_total ? ` · корр. ${money(pay.adjustments_total)} ₽` : ''}`,
               tone: 'ok' as const,
             }]
           : []),

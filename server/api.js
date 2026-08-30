@@ -18,6 +18,7 @@ const {
 const { addStorageEntry_, openStorage_, consumeStorage_, storageSummaryByClient_ } = require('./storage');
 const deliveries = require('./deliveries');
 const workhours = require('./workhours');
+const payroll = require('./payroll');
 const { getVisitsByDate_, getVisitsByWeek_, decorateVisit_, isOpenVisit_, ensureVisit_ } = deliveries;
 
 // Замена LockService.getScriptLock(): синхронные операции атомарны в одном процессе.
@@ -1617,7 +1618,15 @@ const api = {
   // Табель: часы работников и статистика развозов (логика в workhours.js)
   setWorkHours: workhours.setWorkHours,
   getWorkHours: workhours.getWorkHours,
-  getDeliveryPointStats: workhours.getDeliveryPointStats
+  getDeliveryPointStats: workhours.getDeliveryPointStats,
+  // Зарплаты (логика в payroll.js)
+  getPayroll: payroll.getPayroll,
+  getMyPayroll: payroll.getMyPayroll,
+  listPayRates: payroll.listPayRates,
+  savePayRate: payroll.savePayRate,
+  savePayAdjustment: payroll.savePayAdjustment,
+  deletePayAdjustment: payroll.deletePayAdjustment,
+  listPayAdjustments: payroll.listPayAdjustments
 };
 
 function mountApi(app) {
@@ -1662,5 +1671,12 @@ module.exports = {
   setVisitLiftFloor: deliveries.setVisitLiftFloor,
   setWorkHours: workhours.setWorkHours,
   getWorkHours: workhours.getWorkHours,
-  getDeliveryPointStats: workhours.getDeliveryPointStats
+  getDeliveryPointStats: workhours.getDeliveryPointStats,
+  getPayroll: payroll.getPayroll,
+  getMyPayroll: payroll.getMyPayroll,
+  listPayRates: payroll.listPayRates,
+  savePayRate: payroll.savePayRate,
+  savePayAdjustment: payroll.savePayAdjustment,
+  deletePayAdjustment: payroll.deletePayAdjustment,
+  listPayAdjustments: payroll.listPayAdjustments
 };

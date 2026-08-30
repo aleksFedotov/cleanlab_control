@@ -389,3 +389,106 @@ export interface InvoiceRes {
   ok: true;
   invoice: Invoice;
 }
+
+// --- Зарплаты (P3): форматы — server/payroll.js ---
+
+// Разбивка начислений по дню (в amount уже включены корректировки дня)
+export interface PayrollDay {
+  date: string;
+  points: number;
+  lift_floors: number;
+  hours: number;
+  amount: number;
+}
+
+export interface PayrollEmployee {
+  user_id: string;
+  name: string;
+  role: string; // 'driver' | 'worker'
+  points: number;
+  lift_floors: number;
+  hours: number;
+  point_rate: number; // ставки уже разрешены сервером (PayRates → Settings → дефолт)
+  lift_floor_rate: number;
+  shift_base: number;
+  shift_norm_hours: number;
+  amount_points: number;
+  amount_lifts: number;
+  amount_shift: number;
+  adjustments_total: number; // только сумма: детали корректировок сервер не возвращает
+  total: number;
+  rate_missing: boolean; // стёртый дефолт в Settings без override — ставка 0
+  days: PayrollDay[];
+}
+
+export interface PayrollRes {
+  ok: true;
+  from: string;
+  to: string;
+  employees: PayrollEmployee[];
+}
+
+export interface PayRate {
+  id: string;
+  user_id: string;
+  name: string;
+  point_rate: string; // '' = дефолт прачки
+  lift_floor_rate: string;
+  shift_base: string;
+  shift_norm_hours: string;
+}
+
+export interface PayRatesRes {
+  ok: true;
+  rates: PayRate[];
+}
+
+export interface PayAdjustment {
+  id: string;
+  user_id: string;
+  date: string;
+  amount: string; // со знаком: премия + / штраф −
+  comment: string;
+  created_by: string;
+  created_at: string;
+}
+
+// Ответ savePayAdjustment
+export interface PayAdjustmentRes {
+  ok: true;
+  adjustment: PayAdjustment;
+}
+
+// getMyPayroll (driver): свой авто-отчёт за период
+export interface MyPayrollRes {
+  ok: true;
+  from: string;
+  to: string;
+  points: number;
+  lift_floors: number;
+  point_rate: number;
+  lift_floor_rate: number;
+  amount_points: number;
+  amount_lifts: number;
+  adjustments_total: number;
+  total: number;
+  rate_missing: boolean;
+  days: PayrollDay[];
+}
+
+// Элемент списка listPayAdjustments (amount — число, в отличие от PayAdjustment)
+export interface PayAdjustmentListItem {
+  id: string;
+  user_id: string;
+  name: string;
+  date: string;
+  amount: number;
+  comment: string;
+  created_by: string;
+  created_at: string;
+}
+
+export interface PayAdjustmentsListRes {
+  ok: true;
+  adjustments: PayAdjustmentListItem[];
+}

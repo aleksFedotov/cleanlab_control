@@ -12,6 +12,7 @@ import type {
   RefsRes, UsersRes, LaundriesRes, DriverRouteRes, ShiftCloseStateRes,
   WorkHoursRes, DeliveryPointStatsRes,
   BillingItemsRes, TariffsRes, ClientItemBillingRes, InvoiceRes,
+  PayrollRes, PayRatesRes, MyPayrollRes, PayAdjustmentRes, PayAdjustmentsListRes,
 } from '@/types/api';
 
 function token(): string {
@@ -160,6 +161,44 @@ export function useClientInvoice(clientId: string, from: string, to: string) {
   });
 }
 
+// --- Зарплаты (P3) ---
+
+// Расчёт по всем сотрудникам прачки (owner)
+export function usePayroll(from: string, to: string) {
+  return useQuery({
+    queryKey: qk.payroll(from, to),
+    queryFn: () => api<PayrollRes>('getPayroll', token(), from, to),
+    enabled: !!token() && !!from && !!to,
+  });
+}
+
+// Переопределения ставок сотрудников (owner)
+export function usePayRates() {
+  return useQuery({
+    queryKey: qk.payRates(),
+    queryFn: () => api<PayRatesRes>('listPayRates', token()),
+    enabled: !!token(),
+  });
+}
+
+// Свой авто-отчёт водителя за период
+export function useMyPayroll(from: string, to: string) {
+  return useQuery({
+    queryKey: qk.myPayroll(from, to),
+    queryFn: () => api<MyPayrollRes>('getMyPayroll', token(), from, to),
+    enabled: !!token() && !!from && !!to,
+  });
+}
+
+// Корректировки зарплаты (owner); пустые фильтры = все за прачку
+export function usePayAdjustments(userId?: string, from?: string, to?: string) {
+  return useQuery({
+    queryKey: qk.payAdjustments(userId, from, to),
+    queryFn: () => api<PayAdjustmentsListRes>('listPayAdjustments', token(), userId || '', from || '', to || ''),
+    enabled: !!token(),
+  });
+}
+
 // --- Мутации ---
 
 // Инвалидирует операционные чтения (стирка/развоз/неделя/склад/отчёт взаимосвязаны).
@@ -191,5 +230,31 @@ export function useApiMutation<TRes = any>(
       opts?.onSuccess?.(res);
     },
     onError: (e: Error) => toast(e.message || 'Ошибка сервера', 'err'),
+  });
+}
+
+// --- Зарплаты (P3): мутации owner ---
+
+// Upsert переопределения ставок сотрудника: mutate([userId, fields])
+export function useSavePayRate(onSuccess?: () => void) {
+  return useApiMutation('savePayRate', {
+    invalidate: ['payroll', 'payRates', 'myPayroll'],
+    onSuccess,
+  });
+}
+
+// Ручная корректировка (премия/штраф): mutate([userId, date, amount, comment])
+export function useSavePayAdjustment(onSuccess?: (res: PayAdjustmentRes) => void) {
+  return useApiMutation<PayAdjustmentRes>('savePayAdjustment', {
+    invalidate: ['payroll', 'myPayroll', 'payAdjustments'],
+    onSuccess,
+  });
+}
+
+// Удаление корректировки: mutate(adjId)
+export function useDeletePayAdjustment(onSuccess?: () => void) {
+  return useApiMutation('deletePayAdjustment', {
+    invalidate: ['payroll', 'myPayroll', 'payAdjustments'],
+    onSuccess,
   });
 }

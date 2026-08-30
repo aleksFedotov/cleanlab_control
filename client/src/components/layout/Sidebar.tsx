@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
   LayoutDashboard, Truck, Waves, Calendar, Package, BarChart3, PieChart, BookOpen, Users, Building2,
-  LogOut, PanelLeftClose, PanelLeftOpen, Clock,
+  LogOut, PanelLeftClose, PanelLeftOpen, Clock, Wallet,
 } from 'lucide-react';
 import Image from 'next/image';
 import { useUiStore } from '@/stores/ui';
@@ -20,6 +20,7 @@ const NAV = [
   { href: '/plan', label: 'План', icon: Calendar },
   { href: '/storage', label: 'Склад', icon: Package },
   { href: '/timesheet', label: 'Табель', icon: Clock },
+  { href: '/payroll', label: 'Зарплата', icon: Wallet },
   { href: '/report', label: 'Отчёт', icon: BarChart3 },
   { href: '/summary', label: 'Сводный отчёт', icon: PieChart },
 ];

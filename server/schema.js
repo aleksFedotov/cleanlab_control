@@ -1,7 +1,7 @@
 // Схема данных CleanLab Control — порт src/Schema.gs.
 // Таблицы SQLite = листам Sheets, колонки = HEADERS. Все значения храним как TEXT
 // (даты — строками формата схемы), как и в Sheets.
-const SCHEMA_VERSION = 4;
+const SCHEMA_VERSION = 5;
 
 const SHEETS = {
   SETTINGS: 'Settings',
@@ -19,7 +19,9 @@ const SHEETS = {
   WORK_HOURS: 'WorkHours',
   BILLING_ITEMS: 'BillingItems',
   CLIENT_TARIFFS: 'ClientTariffs',
-  CLIENT_ITEM_BILLING: 'ClientItemBilling'
+  CLIENT_ITEM_BILLING: 'ClientItemBilling',
+  PAY_RATES: 'PayRates',
+  PAY_ADJUSTMENTS: 'PayAdjustments'
 };
 
 // Мультитенантность: laundry_id — во всех операционных таблицах.
@@ -67,7 +69,13 @@ const HEADERS = {
   // Per-клиентская привязка типа белья к позиции счёта. billing_item_id пусто =
   // «у этого клиента тип идёт в вес», даже если глобально тип привязан к wash_pcs.
   // Нет строки → ItemTypes.billing_item_id → весовая позиция по умолчанию.
-  ClientItemBilling: ['id', 'client_id', 'item_type_id', 'billing_item_id', 'laundry_id']
+  ClientItemBilling: ['id', 'client_id', 'item_type_id', 'billing_item_id', 'laundry_id'],
+  // Зарплаты (P3): индивидуальные переопределения ставок. Пустое поле = дефолт
+  // прачки из Settings (PAY_*). Одна строка на сотрудника (upsert по user_id).
+  PayRates: ['id', 'user_id', 'point_rate', 'lift_floor_rate', 'shift_base', 'shift_norm_hours', 'laundry_id'],
+  // Ручные корректировки зарплаты: amount со знаком (+ премия / − штраф),
+  // попадает в период по date. created_by — имя из сессии владельца.
+  PayAdjustments: ['id', 'user_id', 'date', 'amount', 'comment', 'created_by', 'created_at', 'laundry_id']
 };
 
 // Стартовое наполнение ItemTypes (spec §3.4).
