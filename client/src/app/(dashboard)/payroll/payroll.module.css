@@ -119,3 +119,40 @@
   font-family: inherit;
   color: var(--text-3);
 }
+
+/* --- Блок «Ставки по умолчанию» (P3.1) --- */
+
+.settingsForm {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.settingsGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+}
+
+.settingsField {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.settingsLabel {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-3);
+}
+
+.settingsActions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.settingsHint {
+  font-size: 12px;
+  color: var(--text-3);
+  line-height: 1.45;
+}

@@ -455,6 +455,19 @@ export interface PayRatesRes {
   rates: PayRate[];
 }
 
+// Дефолтные ставки прачки (P3.1): действующие значения (Settings → встроенный дефолт)
+export interface PaySettings {
+  point_rate: number;
+  lift_floor_rate: number;
+  shift_base: number;
+  shift_norm_hours: number;
+}
+
+export interface PaySettingsRes {
+  ok: true;
+  settings: PaySettings;
+}
+
 export interface PayAdjustment {
   id: string;
   user_id: string;

@@ -19,6 +19,7 @@ export const qk = {
   invoice: (clientId: string, from: string, to: string) => ['invoice', clientId, from, to] as const,
   payroll: (from: string, to: string) => ['payroll', from, to] as const,
   payRates: () => ['payRates'] as const,
+  paySettings: () => ['paySettings'] as const,
   myPayroll: (from: string, to: string) => ['myPayroll', from, to] as const,
   payAdjustments: (userId?: string, from?: string, to?: string) =>
     ['payAdjustments', userId || '', from || '', to || ''] as const,

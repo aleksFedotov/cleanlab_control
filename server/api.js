@@ -1719,7 +1719,9 @@ const api = {
   savePayRate: payroll.savePayRate,
   savePayAdjustment: payroll.savePayAdjustment,
   deletePayAdjustment: payroll.deletePayAdjustment,
-  listPayAdjustments: payroll.listPayAdjustments
+  listPayAdjustments: payroll.listPayAdjustments,
+  listPaySettings: payroll.listPaySettings,
+  savePaySettings: payroll.savePaySettings
 };
 
 function mountApi(app) {
@@ -1771,5 +1773,7 @@ module.exports = {
   savePayRate: payroll.savePayRate,
   savePayAdjustment: payroll.savePayAdjustment,
   deletePayAdjustment: payroll.deletePayAdjustment,
-  listPayAdjustments: payroll.listPayAdjustments
+  listPayAdjustments: payroll.listPayAdjustments,
+  listPaySettings: payroll.listPaySettings,
+  savePaySettings: payroll.savePaySettings
 };

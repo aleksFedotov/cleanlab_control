@@ -326,8 +326,56 @@ function deletePayAdjustment(token, adjId) {
   return ok_({ deleted: true });
 }
 
+// Действующие дефолтные ставки прачки (owner): Settings → встроенный дефолт.
+function listPaySettings(token) {
+  const session = requireRole_(token, ['owner']);
+  if (!session) return err_('Нет доступа');
+  const settings = db.getSettings_(session.laundryId);
+  const out = {};
+  Object.keys(RATE_DEFAULTS).forEach(function (f) {
+    const conf = RATE_DEFAULTS[f];
+    const v = Object.prototype.hasOwnProperty.call(settings, conf.key)
+      ? num_(settings[conf.key]) : null;
+    out[f] = v !== null ? v : conf.def;
+  });
+  return ok_({ settings: out });
+}
+
+// Дефолтные ставки прачки (owner). Пустое поле = удалить ключ из Settings
+// (возврат к встроенному дефолту), а не записать '' — записанная пустая строка
+// для resolveRate_ выглядит как «стёртый дефолт» → rate_missing у всех.
+function savePaySettings(token, fields) {
+  const session = requireRole_(token, ['owner']);
+  if (!session) return err_('Нет доступа');
+  const laundryId = session.laundryId;
+  fields = fields || {};
+  const clean = {};
+  for (const f of Object.keys(RATE_DEFAULTS)) {
+    const v = fields[f];
+    if (v === '' || v === null || v === undefined) { clean[f] = ''; continue; }
+    const n = Number(v);
+    if (!isFinite(n) || n < 0) return err_('Ставка: неотрицательное число или пусто');
+    clean[f] = String(n);
+  }
+  Object.keys(clean).forEach(function (f) {
+    const key = RATE_DEFAULTS[f].key;
+    if (clean[f] === '') {
+      const found = db.findRowsByTenant_(SHEETS.SETTINGS, function (r) {
+        return r.key === key;
+      }, 10, laundryId);
+      found.forEach(function (r) { db.deleteRow_(SHEETS.SETTINGS, r.rowNumber); });
+    } else {
+      db.setTenantSetting_(laundryId, key, clean[f]);
+    }
+  });
+  db.invalidateRefCache_(); // Settings кэшируются (getSettings_) — сбрасываем
+  logEvent(actorOf_(session), 'pay_settings_set', String(laundryId), { fields: clean }, laundryId);
+  return ok_({ settings: clean });
+}
+
 module.exports = {
   computePayroll_,
   getPayroll, getMyPayroll, listPayRates,
-  savePayRate, savePayAdjustment, deletePayAdjustment, listPayAdjustments
+  savePayRate, savePayAdjustment, deletePayAdjustment, listPayAdjustments,
+  listPaySettings, savePaySettings
 };

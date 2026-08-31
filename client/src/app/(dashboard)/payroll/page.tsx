@@ -5,18 +5,19 @@
 // (с удалением) — из listPayAdjustments, в раскрытой строке сотрудника.
 import { useEffect, useMemo, useState } from 'react';
 import { Wallet, ChevronLeft, ChevronRight, Trash2 } from 'lucide-react';
-import { usePayroll, usePayAdjustments, useDeletePayAdjustment } from '@/hooks/use-api';
+import { usePayroll, usePayAdjustments, useDeletePayAdjustment, usePaySettings, useSavePaySettings } from '@/hooks/use-api';
 import { useUiStore } from '@/stores/ui';
 import { DataTable, DataTableColumn } from '@/components/ui/DataTable';
 import { Empty } from '@/components/ui/Empty';
 import { Button } from '@/components/ui/Button';
 import { Skeleton, SkeletonCards } from '@/components/ui/Skeleton';
+import { Accordion } from '@/components/ui/Accordion';
 import { AdjustmentModal } from '@/components/payroll/AdjustmentModal';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { todayStr, formatDateRu } from '@/lib/dates';
 import { money } from '@/lib/format';
 import { roleLabel } from '@/lib/dicts';
-import type { PayrollEmployee, PayAdjustmentListItem } from '@/types/api';
+import type { PayrollEmployee, PayAdjustmentListItem, PaySettings } from '@/types/api';
 import styles from './payroll.module.css';
 
 const MONTHS_NOM = [
@@ -49,6 +50,73 @@ function ratesLabel(e: PayrollEmployee): string {
 
 function signed(v: number): string {
   return `${v > 0 ? '+' : ''}${money(v)} ₽`;
+}
+
+// --- P3.1: дефолтные ставки прачки ---
+// Пустое поле = вернуться к встроенному дефолту (сервер удаляет ключ Settings).
+
+const PAY_SETTING_FIELDS: { key: keyof PaySettings; label: string }[] = [
+  { key: 'point_rate', label: 'За точку, ₽' },
+  { key: 'lift_floor_rate', label: 'За этаж подъёма, ₽' },
+  { key: 'shift_base', label: 'Ставка смены, ₽' },
+  { key: 'shift_norm_hours', label: 'Норма часов смены' },
+];
+
+// Внутренняя форма: монтируется с готовыми данными (начальные значения — из useState)
+function PaySettingsForm({ initial }: { initial: PaySettings }) {
+  const toast = useUiStore((s) => s.toast);
+  const [values, setValues] = useState<Record<keyof PaySettings, string>>({
+    point_rate: String(initial.point_rate),
+    lift_floor_rate: String(initial.lift_floor_rate),
+    shift_base: String(initial.shift_base),
+    shift_norm_hours: String(initial.shift_norm_hours),
+  });
+  const saveMut = useSavePaySettings(() => toast('Ставки сохранены ✓'));
+
+  return (
+    <div className={styles.settingsForm}>
+      <div className={styles.settingsGrid}>
+        {PAY_SETTING_FIELDS.map((f) => (
+          <label key={f.key} className={styles.settingsField}>
+            <span className={styles.settingsLabel}>{f.label}</span>
+            <input
+              type="number"
+              min="0"
+              value={values[f.key]}
+              onChange={(e) => setValues((v) => ({ ...v, [f.key]: e.target.value }))}
+            />
+          </label>
+        ))}
+      </div>
+      <div className={styles.settingsActions}>
+        <Button size="sm" onClick={() => saveMut.mutate(values)} disabled={saveMut.isPending}>
+          Сохранить
+        </Button>
+      </div>
+      <div className={styles.settingsHint}>
+        Новые ставки применяются ко всем периодам, прошлые месяцы пересчитаются.
+        Персональные ставки — в карточке сотрудника (раздел «Сотрудники»); пустое поле
+        здесь = встроенный дефолт (250 / 100 / 4000 / 12).
+      </div>
+    </div>
+  );
+}
+
+function PaySettingsBlock() {
+  const settingsQ = usePaySettings();
+  return (
+    <Accordion id="pay-settings" title="Ставки по умолчанию">
+      {settingsQ.isPending || !settingsQ.data ? (
+        <Skeleton height={38} lines={2} radius={8} />
+      ) : (
+        // key — перемонтирование формы при смене данных (начальные значения свежие)
+        <PaySettingsForm
+          key={JSON.stringify(settingsQ.data.settings)}
+          initial={settingsQ.data.settings}
+        />
+      )}
+    </Accordion>
+  );
 }
 
 // Раскрытая строка: начисления по дням + корректировки сотрудника за период
@@ -227,6 +295,8 @@ export default function PayrollPage() {
           + Корректировка
         </Button>
       </div>
+
+      <PaySettingsBlock />
 
       {query.isPending ? (
         <>

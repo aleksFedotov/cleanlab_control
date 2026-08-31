@@ -305,3 +305,107 @@ test('getPayroll: owner и неактивные сотрудники в расч
   assert.ok(!employeeOf(res, 'usr_off'));
   assert.deepStrictEqual(res.employees.map(e => e.user_id).sort(), ['usr_d1', 'usr_w1']);
 });
+
+// --- P3.1: дефолтные ставки прачки (listPaySettings/savePaySettings) ---
+
+test('listPaySettings: встроенные дефолты, затем значения из Settings', () => {
+  const ctx = makeCtx();
+  const owner = loginOwner();
+
+  const def = ctx.api.listPaySettings(owner);
+  assert.ok(def.ok);
+  assert.deepStrictEqual(def.settings, {
+    point_rate: 250, lift_floor_rate: 100, shift_base: 4000, shift_norm_hours: 12
+  });
+
+  ctx.db.setTenantSetting_('1', 'PAY_POINT_RATE', '300');
+  ctx.db.invalidateRefCache_();
+  const r = ctx.api.listPaySettings(owner);
+  assert.strictEqual(r.settings.point_rate, 300);
+  assert.strictEqual(r.settings.lift_floor_rate, 100);
+
+  assert.strictEqual(ctx.api.listPaySettings(loginWorker()).error, 'Нет доступа');
+  assert.strictEqual(ctx.api.listPaySettings(loginDriver()).error, 'Нет доступа');
+});
+
+test('savePaySettings: новый дефолт действует, override в PayRates важнее', () => {
+  const ctx = makeCtx();
+  const owner = loginOwner();
+  const ts = TODAY + ' 12:00:00';
+  seedVisit(ctx, { date: TODAY, delivered_at: ts });
+
+  const r = ctx.api.savePaySettings(owner, { point_rate: 300, junk: 'ignored' });
+  assert.ok(r.ok);
+  const d = employeeOf(ctx.api.getPayroll(owner, TODAY, TODAY), 'usr_d1');
+  assert.strictEqual(d.point_rate, 300);
+  assert.strictEqual(d.total, 300);
+  assert.strictEqual(d.rate_missing, false);
+
+  // Индивидуальный override перекрывает новый дефолт
+  ctx.api.savePayRate(owner, 'usr_d1', { point_rate: 280 });
+  const d2 = employeeOf(ctx.api.getPayroll(owner, TODAY, TODAY), 'usr_d1');
+  assert.strictEqual(d2.point_rate, 280);
+  assert.strictEqual(d2.total, 280);
+
+  // Событие в Log
+  const ev = ctx.db.readAll_('Log').filter(e => e.action === 'pay_settings_set');
+  assert.strictEqual(ev.length, 1);
+  assert.ok(ev[0].details.indexOf('point_rate') !== -1);
+
+  // Права
+  assert.strictEqual(ctx.api.savePaySettings(loginWorker(), { point_rate: 1 }).error, 'Нет доступа');
+  assert.strictEqual(ctx.api.savePaySettings(loginDriver(), { point_rate: 1 }).error, 'Нет доступа');
+});
+
+test('savePaySettings: пустое значение удаляет ключ → встроенный дефолт, не rate_missing', () => {
+  const ctx = makeCtx();
+  const owner = loginOwner();
+  const ts = TODAY + ' 12:00:00';
+  seedVisit(ctx, { date: TODAY, delivered_at: ts });
+
+  ctx.api.savePaySettings(owner, { point_rate: 300 });
+  assert.strictEqual(employeeOf(ctx.api.getPayroll(owner, TODAY, TODAY), 'usr_d1').point_rate, 300);
+
+  // Очищаем поле — ключ Settings удаляется, действует встроенный дефолт 250
+  const r = ctx.api.savePaySettings(owner, { point_rate: '' });
+  assert.ok(r.ok);
+  const rows = ctx.db.findRowsByTenant_('Settings', s => s.key === 'PAY_POINT_RATE', 10, '1');
+  assert.strictEqual(rows.length, 0, 'ключ удалён, а не записан пустым');
+  const d = employeeOf(ctx.api.getPayroll(owner, TODAY, TODAY), 'usr_d1');
+  assert.strictEqual(d.point_rate, 250);
+  assert.strictEqual(d.rate_missing, false);
+});
+
+test('savePaySettings: нечисло/отрицательное — ошибка, настройка не меняется', () => {
+  const ctx = makeCtx();
+  const owner = loginOwner();
+
+  assert.ok(!ctx.api.savePaySettings(owner, { point_rate: 'abc' }).ok);
+  assert.ok(!ctx.api.savePaySettings(owner, { point_rate: -5 }).ok);
+  const rows = ctx.db.findRowsByTenant_('Settings', s => s.key.indexOf('PAY_') === 0, 10, '1');
+  assert.strictEqual(rows.length, 0);
+  assert.deepStrictEqual(ctx.api.listPaySettings(owner).settings, {
+    point_rate: 250, lift_floor_rate: 100, shift_base: 4000, shift_norm_hours: 12
+  });
+});
+
+test('savePaySettings: тенантность — ставки прачки 2 не влияют на прачку 1', () => {
+  const ctx = makeCtx();
+  seedLaundry2();
+  const owner = loginOwner();
+  const ts = TODAY + ' 12:00:00';
+  seedVisit(ctx, { date: TODAY, delivered_at: ts });
+
+  // Ставка прачки 2 напрямую в БД
+  ctx.db.setTenantSetting_('2', 'PAY_POINT_RATE', '999');
+  ctx.db.invalidateRefCache_();
+
+  const d = employeeOf(ctx.api.getPayroll(owner, TODAY, TODAY), 'usr_d1');
+  assert.strictEqual(d.point_rate, 250);
+
+  // Сохранение на прачке 1 не трогает прачку 2
+  ctx.api.savePaySettings(owner, { point_rate: 300 });
+  const rows2 = ctx.db.findRowsByTenant_('Settings', s => s.key === 'PAY_POINT_RATE', 10, '2');
+  assert.strictEqual(rows2.length, 1);
+  assert.strictEqual(rows2[0].obj.value, '999');
+});
