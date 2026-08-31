@@ -57,7 +57,7 @@
 .tariffHead,
 .tariffRow {
   display: grid;
-  grid-template-columns: 1fr 70px auto minmax(90px, auto);
+  grid-template-columns: 1fr 70px auto auto minmax(0, auto);
   align-items: center;
   gap: 8px;
   padding: 3px 0;
@@ -142,6 +142,80 @@
   color: var(--danger);
   font-size: 12.5px;
   margin-top: 4px;
+}
+
+/* --- Бейджи статуса цены / индикатор сохранения (P2.1) --- */
+
+.badge {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: var(--radius-pill);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.badgeOverride {
+  color: var(--wash);
+  background: var(--wash-bg);
+}
+
+.badgeInherit {
+  color: var(--neutral);
+  background: var(--neutral-bg);
+}
+
+.badgeMissing {
+  color: var(--warn);
+  background: var(--warn-bg);
+}
+
+.savedMark {
+  color: var(--ok);
+  font-size: 12px;
+  white-space: nowrap;
+  animation: savedFade 2.5s ease forwards;
+}
+
+@keyframes savedFade {
+  0% {
+    opacity: 0;
+  }
+  10% {
+    opacity: 1;
+  }
+  75% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+.fieldRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.fieldRow > input,
+.fieldRow > select {
+  flex: 1;
+  min-width: 0;
+}
+
+.moreBtn {
+  align-self: flex-start;
+  background: none;
+  border: none;
+  padding: 4px 0;
+  cursor: pointer;
+  color: var(--bluing);
+  font-size: 13px;
+}
+
+.moreBtn:hover {
+  text-decoration: underline;
 }
 
 @media (max-width: 640px) {
