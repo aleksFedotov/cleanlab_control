@@ -954,6 +954,99 @@ function getSummaryReport(token, from, to) {
   return ok_({ from: from, to: to, clients: result });
 }
 
+// Финансовая сводка (P4): объёмы getSummaryReport + денежный слой buildInvoice_
+// по каждому активному клиенту прачки. Read-only, один проход по данным.
+function getFinanceSummary(token, from, to) {
+  const session = requireRole_(token, ['owner']);
+  if (!session) return err_('Нет доступа');
+  const laundryId = session.laundryId;
+  const re = /^\d{4}-\d{2}-\d{2}$/;
+  if (!re.test(from || '') || !re.test(to || '') || from > to) {
+    return err_('Некорректный период');
+  }
+  const inPeriod = function (ts) {
+    const d = String(ts || '').slice(0, 10);
+    return d >= from && d <= to;
+  };
+  const DONE = core.DONE_STATUSES;
+  // Стирки: постиранные в периоде (DONE_STATUSES, для объёмов и строк счёта)
+  // ИЛИ выданные в периоде (для веса ноги-доставки в buildInvoice_)
+  const washes = db.findRowsByTenant_(SHEETS.WASHES, function (w) {
+    return (w.wash_date >= from && w.wash_date <= to && DONE.indexOf(w.status) !== -1) ||
+      inPeriod(w.issued_at);
+  }, 100000, laundryId).map(function (r) { return r.obj; });
+  const washIds = {};
+  washes.forEach(function (w) { washIds[w.id] = true; });
+  const washItems = db.findRowsBy_(SHEETS.WASH_ITEMS, function (wi) {
+    return !!washIds[wi.wash_id];
+  }, 100000).map(function (r) { return r.obj; });
+  const visits = db.findRowsByTenant_(SHEETS.DELIVERIES, function (v) {
+    return inPeriod(v.date);
+  }, 100000, laundryId).map(function (r) { return r.obj; });
+  const storageRows = db.findRowsByTenant_(SHEETS.STORAGE, function (s) {
+    return s.kind === 'dirty' && inPeriod(s.created_at);
+  }, 100000, laundryId).map(function (r) { return r.obj; });
+  const itemTypes = db.getItemTypes_();
+  const clientItemBilling = db.findRowsByTenant_(SHEETS.CLIENT_ITEM_BILLING, function () {
+    return true;
+  }, 100000, laundryId).map(function (r) { return r.obj; });
+  const billingItems = billingItems_(laundryId);
+  // kind позиции прайса по id: у строк счёта buildInvoice_ поля kind нет
+  const kindByBillingId = {};
+  billingItems.forEach(function (b) { kindByBillingId[b.id] = b.kind; });
+  const tariffs = db.readAllByTenant_(SHEETS.CLIENT_TARIFFS, laundryId);
+  const clients = {};
+  db.getClients_(laundryId).forEach(function (c) { clients[c.id] = c; });
+  // Объёмы: только стирки по wash_date со статусами DONE_STATUSES (как getSummaryReport)
+  const byClient = {};
+  washes.forEach(function (w) {
+    if (!(w.wash_date >= from && w.wash_date <= to && DONE.indexOf(w.status) !== -1)) return;
+    const s = byClient[w.client_id] || (byClient[w.client_id] = {
+      client_id: w.client_id, client_name: clientName_(w.client_id, clients),
+      washes: 0, bags: 0, weight_kg: 0, items_total: 0
+    });
+    s.washes++;
+    s.bags += Number(w.bags) || 0;
+    s.weight_kg = round1_(s.weight_kg + (Number(w.dirty_weight_kg) || 0));
+    s.items_total += Number(w.items_total) || 0;
+  });
+  const totals = { washes: 0, weight_kg: 0, items_total: 0, amount: 0 };
+  const result = Object.keys(byClient).map(function (cid) {
+    const s = byClient[cid];
+    const clientWashes = washes.filter(function (w) { return w.client_id === cid; });
+    const clientWashIds = {};
+    clientWashes.forEach(function (w) { clientWashIds[w.id] = true; });
+    const invoice = core.buildInvoice_({
+      client: clients[cid], from: from, to: to,
+      washes: clientWashes,
+      washItems: washItems.filter(function (wi) { return !!clientWashIds[wi.wash_id]; }),
+      itemTypes: itemTypes,
+      clientItemBilling: clientItemBilling.filter(function (r) { return r.client_id === cid; }),
+      billingItems: billingItems,
+      tariffs: tariffs,
+      visits: visits.filter(function (v) { return v.client_id === cid; }),
+      storageRows: storageRows.filter(function (s2) { return s2.client_id === cid; })
+    });
+    let trips = 0, lifts = 0;
+    invoice.lines.forEach(function (l) {
+      const kind = kindByBillingId[l.billing_item_id];
+      if (kind === 'trip') trips += l.qty;
+      if (kind === 'lift') lifts += l.qty;
+    });
+    totals.washes += s.washes;
+    totals.weight_kg = round1_(totals.weight_kg + s.weight_kg);
+    totals.items_total += s.items_total;
+    totals.amount = Math.round((totals.amount + invoice.total) * 100) / 100;
+    return {
+      client_id: cid, client_name: s.client_name,
+      washes: s.washes, bags: s.bags, weight_kg: s.weight_kg, items_total: s.items_total,
+      trips: trips, lifts: lifts, amount: invoice.total,
+      missing_prices: invoice.missing_prices.length, lines: invoice.lines
+    };
+  }).sort(function (a, b) { return a.client_name < b.client_name ? -1 : 1; });
+  return ok_({ from: from, to: to, clients: result, totals: totals });
+}
+
 // --- Справочники (owner). Записи сбрасывают кэш (spec §10) ---
 
 function saveClient(token, client) {
@@ -1598,7 +1691,7 @@ const api = {
   getShiftCloseState, closeShift,
   getDeliveryPlan, addToDelivery, cancelWash, deleteWash, confirmStorageCheck, markIssued, updateIssueDate,
   getWeekPlan, addWeekCard, moveWeekCard, removeWeekCard,
-  getStorage, getDayReport, getSummaryReport,
+  getStorage, getDayReport, getSummaryReport, getFinanceSummary,
   saveClient, deleteClient, saveItemType, rememberClientItemType, getRefs,
   listBillingItems, saveBillingItem, deleteBillingItem,
   listTariffs, saveTariff, saveClientItemBilling, listClientItemBilling, getClientInvoice,
@@ -1653,7 +1746,7 @@ module.exports = {
   getShiftCloseState, closeShift,
   getDeliveryPlan, addToDelivery, cancelWash, deleteWash, confirmStorageCheck, markIssued, updateIssueDate,
   getWeekPlan, addWeekCard, moveWeekCard, removeWeekCard,
-  getStorage, getDayReport, getSummaryReport,
+  getStorage, getDayReport, getSummaryReport, getFinanceSummary,
   saveClient, deleteClient, saveItemType, rememberClientItemType, getRefs,
   listBillingItems, saveBillingItem, deleteBillingItem,
   listTariffs, saveTariff, saveClientItemBilling, listClientItemBilling, getClientInvoice,

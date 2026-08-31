@@ -1,10 +1,10 @@
 'use client';
 
-// Сводный отчёт: итоги по клиентам (мешки/вес/вещи) за месяц, год или произвольный
-// период. Раскрытие строки клиента — разбивка по видам вещей за тот же период.
+// Финансы (P4): начисления по клиентам за месяц, год или произвольный период.
+// Раскрытие строки клиента — строки счёта + ссылка на печатный счёт (/invoice).
 import { useEffect, useMemo, useState } from 'react';
-import { PieChart, ChevronLeft, ChevronRight } from 'lucide-react';
-import { useSummaryReport } from '@/hooks/use-api';
+import { CircleDollarSign, ChevronLeft, ChevronRight, ExternalLink } from 'lucide-react';
+import { useFinanceSummary } from '@/hooks/use-api';
 import { useUiStore } from '@/stores/ui';
 import { StatRow } from '@/components/ui/StatRow';
 import { StatCard } from '@/components/ui/StatCard';
@@ -14,9 +14,9 @@ import { Empty } from '@/components/ui/Empty';
 import { Button } from '@/components/ui/Button';
 import { Skeleton, SkeletonCards } from '@/components/ui/Skeleton';
 import { todayStr, formatDateRu } from '@/lib/dates';
-import { kg, num, bags } from '@/lib/format';
-import type { SummaryReportClient } from '@/types/api';
-import styles from './summary.module.css';
+import { kg, num, money } from '@/lib/format';
+import type { FinanceSummaryClient } from '@/types/api';
+import styles from './finance.module.css';
 
 type Mode = 'month' | 'year' | 'custom';
 
@@ -51,29 +51,48 @@ const columns: DataTableColumn[] = [
   { key: 'client_name', title: 'Клиент' },
   { key: 'washes', title: 'Стирок', align: 'right', mono: true },
   {
-    key: 'bags',
-    title: 'Мешки',
-    align: 'right',
-    mono: true,
-    render: (c: SummaryReportClient) => (c.bags ? bags(c.bags) : '—'),
-  },
-  {
     key: 'weight_kg',
     title: 'Вес',
     align: 'right',
     mono: true,
-    render: (c: SummaryReportClient) => (c.weight_kg ? kg(c.weight_kg) : '—'),
+    render: (c: FinanceSummaryClient) => (c.weight_kg ? kg(c.weight_kg) : '—'),
   },
   {
     key: 'items_total',
     title: 'Вещей',
     align: 'right',
     mono: true,
-    render: (c: SummaryReportClient) => (c.items_total ? `${num(c.items_total)} шт.` : '—'),
+    render: (c: FinanceSummaryClient) => (c.items_total ? `${num(c.items_total)} шт.` : '—'),
+  },
+  {
+    key: 'trips',
+    title: 'Рейсы',
+    align: 'right',
+    mono: true,
+    render: (c: FinanceSummaryClient) => c.trips || '—',
+  },
+  {
+    key: 'lifts',
+    title: 'Подъёмы',
+    align: 'right',
+    mono: true,
+    render: (c: FinanceSummaryClient) => c.lifts || '—',
+  },
+  {
+    key: 'amount',
+    title: 'Начислено, ₽',
+    align: 'right',
+    mono: true,
+    render: (c: FinanceSummaryClient) => (
+      <span className={styles.amountCell}>
+        {money(c.amount)} ₽
+        {c.missing_prices > 0 && <span className={styles.warnBadge}>не все цены заданы</span>}
+      </span>
+    ),
   },
 ];
 
-export default function SummaryPage() {
+export default function FinancePage() {
   const [mode, setMode] = useState<Mode>('month');
   const [anchor, setAnchor] = useState(todayStr());
   // Произвольный период: черновик в инпутах + применённый диапазон (запрос — по кнопке)
@@ -97,26 +116,15 @@ export default function SummaryPage() {
     return custom ? `${formatDateRu(custom.from)} — ${formatDateRu(custom.to)}` : 'Выберите период';
   }, [mode, anchor, custom]);
 
-  const { data, isPending, isError, error, refetch } = useSummaryReport(range.from, range.to);
+  const { data, isPending, isError, error, refetch } = useFinanceSummary(range.from, range.to);
 
   useEffect(() => {
-    if (isError && error) toast(error.message || 'Ошибка загрузки отчёта', 'err');
+    if (isError && error) toast(error.message || 'Ошибка загрузки финансов', 'err');
   }, [isError, error, toast]);
 
   const clients = useMemo(() => data?.clients || [], [data]);
-  const totals = useMemo(
-    () =>
-      clients.reduce(
-        (t, c) => ({
-          washes: t.washes + c.washes,
-          bags: t.bags + c.bags,
-          weight: Math.round((t.weight + c.weight_kg) * 10) / 10,
-          items: t.items + c.items_total,
-        }),
-        { washes: 0, bags: 0, weight: 0, items: 0 }
-      ),
-    [clients]
-  );
+  const totals = data?.totals;
+  const hasMissingPrices = clients.some((c) => c.missing_prices > 0);
 
   const applyCustom = () => {
     if (!draftFrom || !draftTo) return;
@@ -188,8 +196,8 @@ export default function SummaryPage() {
         </>
       ) : isError || !data ? (
         <Empty
-          icon={<PieChart size={40} />}
-          title="Не удалось загрузить отчёт"
+          icon={<CircleDollarSign size={40} />}
+          title="Не удалось загрузить финансы"
           hint={error?.message}
           action={<Button onClick={() => refetch()}>Повторить</Button>}
         />
@@ -197,10 +205,16 @@ export default function SummaryPage() {
         <>
           <StatRow>
             <StatCard label="Клиентов" value={clients.length} />
-            <StatCard label="Стирок" value={totals.washes} />
-            <StatCard label="Мешков" value={totals.bags} />
-            <StatCard label="Вес" value={totals.weight} unit="кг" tone="ok" />
-            <StatCard label="Вещей" value={totals.items} unit="шт." />
+            <StatCard label="Стирок" value={totals?.washes ?? 0} />
+            <StatCard label="Вес" value={totals?.weight_kg ?? 0} unit="кг" />
+            <StatCard label="Вещей" value={totals?.items_total ?? 0} unit="шт." />
+            <StatCard
+              label="Начислено"
+              value={money(totals?.amount ?? 0)}
+              unit="₽"
+              tone={hasMissingPrices ? 'warn' : 'ok'}
+              sub={hasMissingPrices ? 'не все цены заданы' : undefined}
+            />
           </StatRow>
 
           <DataTable
@@ -209,33 +223,57 @@ export default function SummaryPage() {
             keyField="client_id"
             empty={
               <Empty
-                icon={<PieChart size={40} />}
-                title="За период стирок не было"
+                icon={<CircleDollarSign size={40} />}
+                title="За период начислений не было"
                 hint={periodLabel}
               />
             }
-            expandable={(c: SummaryReportClient) => (
+            expandable={(c: FinanceSummaryClient) => (
               <div className={styles.detail}>
-                <div className={styles.detailMeta}>
-                  За период {periodLabel}:{' '}
-                  <b>
-                    {c.weight_kg ? kg(c.weight_kg) : '—'}
-                    {c.items_total ? ` · ${num(c.items_total)} шт.` : ''}
-                    {c.bags ? ` · ${bags(c.bags)}` : ''}
-                  </b>
-                </div>
-                {c.items.length ? (
-                  <div className={styles.items}>
-                    {c.items.map((it) => (
-                      <div key={it.item_type_id} className={styles.itemRow}>
-                        <span>{it.item_name}</span>
-                        <span className={styles.qty}>×{num(it.qty)}</span>
-                      </div>
-                    ))}
-                  </div>
+                {c.lines.length ? (
+                  <table className={styles.lines}>
+                    <thead>
+                      <tr>
+                        <th>Позиция</th>
+                        <th>Кол-во</th>
+                        <th>Цена</th>
+                        <th>Сумма</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {c.lines.map((l) => (
+                        <tr key={l.billing_item_id}>
+                          <td>{l.name}</td>
+                          <td>
+                            {num(l.qty)} {l.unit}
+                          </td>
+                          <td>
+                            {l.price === null ? (
+                              <span className={styles.noPrice}>цена не задана</span>
+                            ) : (
+                              `${money(l.price)} ₽`
+                            )}
+                          </td>
+                          <td>{l.amount === null ? '—' : `${money(l.amount)} ₽`}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 ) : (
                   <div className={styles.detailMeta}>Позиций нет</div>
                 )}
+                <div>
+                  <a
+                    className={styles.invoiceLink}
+                    href={`/invoice?client=${c.client_id}&from=${range.from}&to=${range.to}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <ExternalLink size={14} />
+                    Открыть счёт
+                  </a>
+                </div>
               </div>
             )}
           />

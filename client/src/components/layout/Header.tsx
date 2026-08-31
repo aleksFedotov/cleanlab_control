@@ -20,7 +20,7 @@ const TITLES: Record<string, string> = {
   '/plan': 'План',
   '/storage': 'Склад',
   '/report': 'Отчёт',
-  '/summary': 'Сводный отчёт',
+  '/finance': 'Финансы',
   '/payroll': 'Зарплата',
   '/refs': 'Справочники',
   '/users': 'Сотрудники',

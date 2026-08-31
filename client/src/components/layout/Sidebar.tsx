@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
-  LayoutDashboard, Truck, Waves, Calendar, Package, BarChart3, PieChart, BookOpen, Users, Building2,
+  LayoutDashboard, Truck, Waves, Calendar, Package, BarChart3, CircleDollarSign, BookOpen, Users, Building2,
   LogOut, PanelLeftClose, PanelLeftOpen, Clock, Wallet,
 } from 'lucide-react';
 import Image from 'next/image';
@@ -22,7 +22,7 @@ const NAV = [
   { href: '/timesheet', label: 'Табель', icon: Clock },
   { href: '/payroll', label: 'Зарплата', icon: Wallet },
   { href: '/report', label: 'Отчёт', icon: BarChart3 },
-  { href: '/summary', label: 'Сводный отчёт', icon: PieChart },
+  { href: '/finance', label: 'Финансы', icon: CircleDollarSign },
 ];
 const NAV_SETTINGS = [
   { href: '/refs', label: 'Справочники', icon: BookOpen },

@@ -1,12 +1,10 @@
-/* Стили страницы «Зарплата». Цвета/радиусы — только токены globals.css. */
-
 .page {
   display: flex;
   flex-direction: column;
   gap: var(--gap);
 }
 
-/* --- Навигация по месяцам (как в timesheet.module.css) --- */
+/* --- Выбор периода --- */
 
 .periodRow {
   display: flex;
@@ -40,26 +38,36 @@
   background: var(--bluing-soft);
 }
 
-.spacer {
-  flex: 1;
+.dateInput {
+  height: 32px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-s);
+  background: var(--surface);
+  color: var(--text-2);
+  font-size: 13px;
 }
 
-/* --- Сотрудник --- */
+.dateInput:focus {
+  outline: none;
+  border-color: var(--bluing-border);
+}
 
-.nameWrap {
+.dash {
+  color: var(--text-3);
+}
+
+/* --- Начислено: подсветка неполных цен --- */
+
+.amountCell {
   display: inline-flex;
-  align-items: baseline;
+  align-items: center;
   gap: 8px;
   flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
-.sub {
-  color: var(--text-4);
-  font-size: 12px;
-}
-
-/* «Стёртый дефолт» в Settings без override — ставка 0, надо заметно */
-.miss {
+.warnBadge {
   display: inline-block;
   padding: 3px 9px;
   border-radius: var(--radius-pill);
@@ -67,55 +75,70 @@
   font-weight: 700;
   line-height: 1.2;
   white-space: nowrap;
-  color: var(--danger);
-  background: var(--danger-bg, #fdecec);
+  font-family: inherit;
+  color: var(--warn);
+  background: var(--warn-bg);
 }
 
-/* --- Раскрытая строка: начисления по дням --- */
+/* --- Раскрытие клиента: строки счёта + ссылка на печатный счёт --- */
 
-.days {
+.detail {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 4px 0;
+}
+
+.detailMeta {
+  font-size: 13px;
+  color: var(--text-2);
+}
+
+.lines {
   border-collapse: collapse;
   font-size: 12.5px;
   min-width: 320px;
 }
 
-.days th,
-.days td {
+.lines th,
+.lines td {
   padding: 4px 14px 4px 0;
   text-align: left;
   white-space: nowrap;
 }
 
-.days th {
+.lines th {
   font-weight: 600;
   color: var(--text-3);
   border-bottom: 1px solid var(--border);
 }
 
-.days td {
+.lines td {
   color: var(--text-2);
   font-family: var(--font-mono), ui-monospace, monospace;
   font-variant-numeric: tabular-nums;
 }
 
-.days td:first-child {
+.lines td:first-child {
   font-family: inherit;
 }
 
-.detailEmpty {
-  font-size: 13px;
-  color: var(--text-3);
-}
-
-.adjTitle {
-  margin-top: 12px;
-  font-size: 12px;
+.noPrice {
+  font-family: inherit;
+  color: var(--warn);
   font-weight: 600;
-  color: var(--text-3);
 }
 
-.adjComment {
-  white-space: normal;
-  font-family: inherit;
-  color: var(--text-3);
+.invoiceLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--bluing);
+  text-decoration: none;
+}
+
+.invoiceLink:hover {
+  text-decoration: underline;
 }

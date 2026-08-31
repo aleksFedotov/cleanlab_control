@@ -1,0 +1,28 @@
+/* Форма корректировки зарплаты в модалке (вынесено из payroll.module.css, P4). */
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.formRow {
+  display: flex;
+  gap: 10px;
+}
+
+.formRow .field {
+  flex: 1;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-3);
+}

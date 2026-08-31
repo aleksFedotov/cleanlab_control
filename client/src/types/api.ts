@@ -227,27 +227,39 @@ export interface DayReportRes {
   shift: Shift | null;
 }
 
-export interface SummaryReportItem {
-  item_type_id: string;
-  item_name: string;
+// --- Финансы (P4): начисления по клиентам за период (getFinanceSummary) ---
+
+// Строка счёта внутри клиента — тот же формат, что InvoiceLine
+export interface FinanceSummaryLine {
+  billing_item_id: string;
+  name: string;
+  ext_code: string;
+  unit: string;
   qty: number;
+  price: number | null;
+  amount: number | null;
 }
 
-export interface SummaryReportClient {
+export interface FinanceSummaryClient {
   client_id: string;
   client_name: string;
   washes: number;
   bags: number;
   weight_kg: number;
   items_total: number;
-  items: SummaryReportItem[];
+  trips: number;
+  lifts: number;
+  amount: number;
+  missing_prices: number; // позиций без цены — сумма занижена
+  lines: FinanceSummaryLine[];
 }
 
-export interface SummaryReportRes {
+export interface FinanceSummaryRes {
   ok: true;
   from: string;
   to: string;
-  clients: SummaryReportClient[];
+  clients: FinanceSummaryClient[];
+  totals: { washes: number; weight_kg: number; items_total: number; amount: number };
 }
 
 export interface RefsRes {

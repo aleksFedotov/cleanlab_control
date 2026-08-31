@@ -8,7 +8,7 @@ import { getSession } from '@/lib/session';
 import { qk, OPERATIONAL_PREFIXES } from '@/lib/query-keys';
 import { useUiStore } from '@/stores/ui';
 import type {
-  DayListRes, DeliveryVisitsRes, WeekPlanRes, StorageRes, DayReportRes, SummaryReportRes,
+  DayListRes, DeliveryVisitsRes, WeekPlanRes, StorageRes, DayReportRes, FinanceSummaryRes,
   RefsRes, UsersRes, LaundriesRes, DriverRouteRes, ShiftCloseStateRes,
   WorkHoursRes, DeliveryPointStatsRes,
   BillingItemsRes, TariffsRes, ClientItemBillingRes, InvoiceRes,
@@ -61,10 +61,11 @@ export function useDayReport(date: string) {
   });
 }
 
-export function useSummaryReport(from: string, to: string) {
+// Начисления по клиентам за период (P4, owner-only)
+export function useFinanceSummary(from: string, to: string) {
   return useQuery({
-    queryKey: qk.summaryReport(from, to),
-    queryFn: () => api<SummaryReportRes>('getSummaryReport', token(), from, to),
+    queryKey: qk.financeSummary(from, to),
+    queryFn: () => api<FinanceSummaryRes>('getFinanceSummary', token(), from, to),
     enabled: !!token() && !!from && !!to,
   });
 }
@@ -163,12 +164,12 @@ export function useClientInvoice(clientId: string, from: string, to: string) {
 
 // --- Зарплаты (P3) ---
 
-// Расчёт по всем сотрудникам прачки (owner)
-export function usePayroll(from: string, to: string) {
+// Расчёт по всем сотрудникам прачки (owner); enabled — чтобы не грузить в режимах, где не нужен
+export function usePayroll(from: string, to: string, enabled = true) {
   return useQuery({
     queryKey: qk.payroll(from, to),
     queryFn: () => api<PayrollRes>('getPayroll', token(), from, to),
-    enabled: !!token() && !!from && !!to,
+    enabled: enabled && !!token() && !!from && !!to,
   });
 }
 

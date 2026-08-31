@@ -5,13 +5,13 @@
 // (с удалением) — из listPayAdjustments, в раскрытой строке сотрудника.
 import { useEffect, useMemo, useState } from 'react';
 import { Wallet, ChevronLeft, ChevronRight, Trash2 } from 'lucide-react';
-import { usePayroll, usePayAdjustments, useSavePayAdjustment, useDeletePayAdjustment } from '@/hooks/use-api';
+import { usePayroll, usePayAdjustments, useDeletePayAdjustment } from '@/hooks/use-api';
 import { useUiStore } from '@/stores/ui';
 import { DataTable, DataTableColumn } from '@/components/ui/DataTable';
 import { Empty } from '@/components/ui/Empty';
 import { Button } from '@/components/ui/Button';
 import { Skeleton, SkeletonCards } from '@/components/ui/Skeleton';
-import { Modal } from '@/components/ui/Modal';
+import { AdjustmentModal } from '@/components/payroll/AdjustmentModal';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { todayStr, formatDateRu } from '@/lib/dates';
 import { money } from '@/lib/format';
@@ -129,10 +129,6 @@ function DayDetails({ e, from, to }: { e: PayrollEmployee; from: string; to: str
 export default function PayrollPage() {
   const [anchor, setAnchor] = useState(todayStr());
   const [adjOpen, setAdjOpen] = useState(false);
-  const [adjUser, setAdjUser] = useState('');
-  const [adjDate, setAdjDate] = useState(todayStr());
-  const [adjAmount, setAdjAmount] = useState('');
-  const [adjComment, setAdjComment] = useState('');
   const toast = useUiStore((s) => s.toast);
 
   const range = useMemo(() => monthRange(anchor), [anchor]);
@@ -147,26 +143,6 @@ export default function PayrollPage() {
   }, [query.error, toast]);
 
   const employees = useMemo(() => query.data?.employees || [], [query.data]);
-
-  const adjMut = useSavePayAdjustment(() => {
-    toast('Корректировка сохранена');
-    setAdjOpen(false);
-  });
-
-  function openAdj() {
-    setAdjUser(employees[0]?.user_id || '');
-    setAdjDate(todayStr());
-    setAdjAmount('');
-    setAdjComment('');
-    setAdjOpen(true);
-  }
-
-  function submitAdj() {
-    if (!adjUser) return toast('Выберите сотрудника', 'err');
-    const amt = Number(adjAmount);
-    if (adjAmount === '' || !isFinite(amt)) return toast('Сумма: число со знаком', 'err');
-    adjMut.mutate([adjUser, adjDate, amt, adjComment.trim()]);
-  }
 
   const columns: DataTableColumn[] = [
     {
@@ -247,7 +223,7 @@ export default function PayrollPage() {
           </Button>
         )}
         <div className={styles.spacer} />
-        <Button size="sm" onClick={openAdj} disabled={!employees.length}>
+        <Button size="sm" onClick={() => setAdjOpen(true)} disabled={!employees.length}>
           + Корректировка
         </Button>
       </div>
@@ -279,54 +255,7 @@ export default function PayrollPage() {
         />
       )}
 
-      <Modal
-        open={adjOpen}
-        onClose={() => setAdjOpen(false)}
-        title="Корректировка"
-        footer={
-          <>
-            <Button variant="subtle" onClick={() => setAdjOpen(false)} disabled={adjMut.isPending}>
-              Отмена
-            </Button>
-            <Button onClick={submitAdj} busy={adjMut.isPending}>
-              Сохранить
-            </Button>
-          </>
-        }
-      >
-        <div className={styles.form}>
-          <label className={styles.field}>
-            <span className={styles.label}>Сотрудник</span>
-            <select value={adjUser} onChange={(e) => setAdjUser(e.target.value)}>
-              {employees.map((e) => (
-                <option key={e.user_id} value={e.user_id}>
-                  {e.name} — {roleLabel(e.role)}
-                </option>
-              ))}
-            </select>
-          </label>
-          <div className={styles.formRow}>
-            <label className={styles.field}>
-              <span className={styles.label}>Дата</span>
-              <input type="date" value={adjDate} onChange={(e) => setAdjDate(e.target.value)} />
-            </label>
-            <label className={styles.field}>
-              <span className={styles.label}>Сумма, ₽</span>
-              <input
-                type="number"
-                step="any"
-                value={adjAmount}
-                onChange={(e) => setAdjAmount(e.target.value)}
-                placeholder="+500 премия / −300 штраф"
-              />
-            </label>
-          </div>
-          <label className={styles.field}>
-            <span className={styles.label}>Комментарий</span>
-            <input value={adjComment} onChange={(e) => setAdjComment(e.target.value)} />
-          </label>
-        </div>
-      </Modal>
+      <AdjustmentModal open={adjOpen} onClose={() => setAdjOpen(false)} employees={employees} />
     </div>
   );
 }

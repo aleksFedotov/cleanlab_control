@@ -5,7 +5,7 @@
 // сервером из Deliveries (getDeliveryPointStats) и не редактируются.
 import { useEffect, useMemo, useState } from 'react';
 import { Clock, ChevronLeft, ChevronRight } from 'lucide-react';
-import { useWorkHours, useDeliveryPointStats } from '@/hooks/use-api';
+import { useWorkHours, useDeliveryPointStats, usePayroll } from '@/hooks/use-api';
 import { useUiStore } from '@/stores/ui';
 import { StatRow } from '@/components/ui/StatRow';
 import { StatCard } from '@/components/ui/StatCard';
@@ -15,8 +15,10 @@ import { Empty } from '@/components/ui/Empty';
 import { Button } from '@/components/ui/Button';
 import { Skeleton, SkeletonCards } from '@/components/ui/Skeleton';
 import { WorkHoursModal } from '@/components/WorkHoursModal';
+import { AdjustmentModal } from '@/components/payroll/AdjustmentModal';
 import { todayStr, shiftDateStr, formatDateRu } from '@/lib/dates';
-import type { WorkHoursEntry, DeliveryPointStatsDay } from '@/types/api';
+import { money } from '@/lib/format';
+import type { WorkHoursEntry, DeliveryPointStatsDay, PayrollEmployee } from '@/types/api';
 import styles from './timesheet.module.css';
 
 type Mode = 'day' | 'month' | 'year';
@@ -77,6 +79,7 @@ export default function TimesheetPage() {
   const [mode, setMode] = useState<Mode>('day');
   const [anchor, setAnchor] = useState(todayStr());
   const [edit, setEdit] = useState<EditTarget | null>(null);
+  const [adjOpen, setAdjOpen] = useState(false);
   const toast = useUiStore((s) => s.toast);
 
   const range = useMemo(() => {
@@ -96,15 +99,30 @@ export default function TimesheetPage() {
 
   const hoursQ = useWorkHours(range.from, range.to);
   const statsQ = useDeliveryPointStats(range.from, range.to);
+  // Начисления (P3/P4) нужны только в режиме «Месяц» — в день/год запрос не делаем
+  const payrollQ = usePayroll(range.from, range.to, mode === 'month');
 
   useEffect(() => {
-    const err = hoursQ.error || statsQ.error;
+    const err = hoursQ.error || statsQ.error || payrollQ.error;
     if (err) toast(err.message || 'Ошибка загрузки табеля', 'err');
-  }, [hoursQ.error, statsQ.error, toast]);
+  }, [hoursQ.error, statsQ.error, payrollQ.error, toast]);
 
   const workers = useMemo(() => hoursQ.data?.workers || [], [hoursQ.data]);
   const entries = useMemo(() => hoursQ.data?.entries || [], [hoursQ.data]);
   const statDays = useMemo(() => statsQ.data?.days || [], [statsQ.data]);
+
+  // Начисления по user_id (режим «Месяц»)
+  const payrollByUser = useMemo(() => {
+    const m: Record<string, PayrollEmployee> = {};
+    (payrollQ.data?.employees || []).forEach((e) => { m[e.user_id] = e; });
+    return m;
+  }, [payrollQ.data]);
+
+  // Водители с итогом за месяц — для блока «Развозы водителя»
+  const payrollDrivers = useMemo(
+    () => (payrollQ.data?.employees || []).filter((e) => e.role === 'driver'),
+    [payrollQ.data]
+  );
 
   // Быстрый доступ к отметке: 'user_id|date' → entry
   const entryByKey = useMemo(() => {
@@ -217,8 +235,11 @@ export default function TimesheetPage() {
     { key: 'both', title: 'Доставка + забор', align: 'right', mono: true },
   ];
 
-  const isPending = hoursQ.isPending || statsQ.isPending;
-  const isError = (hoursQ.isError && !hoursQ.data) || (statsQ.isError && !statsQ.data);
+  const isPending = hoursQ.isPending || statsQ.isPending || (mode === 'month' && payrollQ.isPending);
+  const isError =
+    (hoursQ.isError && !hoursQ.data) ||
+    (statsQ.isError && !statsQ.data) ||
+    (mode === 'month' && payrollQ.isError && !payrollQ.data);
 
   return (
     <div className={styles.page}>
@@ -255,6 +276,14 @@ export default function TimesheetPage() {
             Сегодня
           </Button>
         )}
+        {mode === 'month' && (
+          <>
+            <div className={styles.spacer} />
+            <Button size="sm" onClick={() => setAdjOpen(true)}>
+              + Корректировка
+            </Button>
+          </>
+        )}
       </div>
 
       {isPending ? (
@@ -266,12 +295,13 @@ export default function TimesheetPage() {
         <Empty
           icon={<Clock size={40} />}
           title="Не удалось загрузить табель"
-          hint={hoursQ.error?.message || statsQ.error?.message}
+          hint={hoursQ.error?.message || statsQ.error?.message || payrollQ.error?.message}
           action={
             <Button
               onClick={() => {
                 hoursQ.refetch();
                 statsQ.refetch();
+                if (mode === 'month') payrollQ.refetch();
               }}
             >
               Повторить
@@ -305,11 +335,13 @@ export default function TimesheetPage() {
                         </th>
                       ))}
                       <th className={styles.matrixDay}>Σ</th>
+                      <th className={styles.matrixDay}>Начислено, ₽</th>
                     </tr>
                   </thead>
                   <tbody>
                     {workers.map((w) => {
                       const mine = entries.filter((e) => e.user_id === w.id);
+                      const pay = payrollByUser[w.id];
                       return (
                         <tr key={w.id}>
                           <td className={styles.matrixName}>{w.name}</td>
@@ -326,6 +358,16 @@ export default function TimesheetPage() {
                             );
                           })}
                           <td className={`${styles.matrixCell} ${styles.matrixTotal}`}>{sumHours(mine) || ''}</td>
+                          <td className={`${styles.matrixCell} ${styles.matrixTotal}`}>
+                            {pay ? (
+                              <>
+                                {money(pay.total)}
+                                {pay.rate_missing && <span className={styles.miss}>нет ставки</span>}
+                              </>
+                            ) : (
+                              '—'
+                            )}
+                          </td>
                         </tr>
                       );
                     })}
@@ -351,6 +393,16 @@ export default function TimesheetPage() {
             <StatCard label="Доставка + забор" value={statsTotals.both} />
           </StatRow>
 
+          {mode === 'month' &&
+            payrollDrivers.map((d) => (
+              <div key={d.user_id} className={styles.driverTotal}>
+                <b>{d.name}:</b> Точек {d.points} × {money(d.point_rate)} ₽ + подъёмы {d.lift_floors} эт. ×{' '}
+                {money(d.lift_floor_rate)} ₽ + корректировки {money(d.adjustments_total)} ₽ ={' '}
+                <b>{money(d.total)} ₽</b>
+                {d.rate_missing && <span className={styles.miss}>нет ставки</span>}
+              </div>
+            ))}
+
           {mode !== 'day' && (
             <DataTable
               columns={statsColumns}
@@ -371,6 +423,12 @@ export default function TimesheetPage() {
           onClose={() => setEdit(null)}
         />
       )}
+
+      <AdjustmentModal
+        open={adjOpen}
+        onClose={() => setAdjOpen(false)}
+        employees={payrollQ.data?.employees || []}
+      />
     </div>
   );
 }
