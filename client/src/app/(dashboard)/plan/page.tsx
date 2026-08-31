@@ -9,6 +9,7 @@ import { useApiMutation, useWeekPlan } from '@/hooks/use-api';
 import { useSectionDate } from '@/hooks/use-section-date';
 import { useUiStore } from '@/stores/ui';
 import { WEEKDAYS, formatDateRu, isToday, todayStr, weekdayOf } from '@/lib/dates';
+import { plural } from '@/lib/format';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { Button } from '@/components/ui/Button';
 import { Empty } from '@/components/ui/Empty';
@@ -111,7 +112,8 @@ export default function PlanPage() {
             }}
           >
             <h3 className={styles.colHead}>
-              {WEEKDAYS[i]}, {formatDateRu(d.date, false)}
+              {WEEKDAYS[i]}, {formatDateRu(d.date, false)} ·{' '}
+              {d.cards.length} {plural(d.cards.length, 'точка', 'точки', 'точек')}
             </h3>
             {d.cards.map((c) => (
               <button
