@@ -170,7 +170,15 @@ function formatDigest_(laundryName, date, report, washLines, shift) {
 // (partial попадёт при достирке — итоги суммируются, как в getDayList).
 const INVOICE_WASH_STATUSES = ['done', 'stored', 'issued'];
 
-// Цена позиции: переопределение клиента → дефолт прачки (client_id пуст) → null.
+// Эффективные тарифы прачки (v7): из полного списка ClientTariffs оставляет
+// глобальные дефолты (client_id='') и клиентские переопределения этой прачки.
+function effectiveTariffs_(tariffs, laundryId) {
+  return (tariffs || []).filter(function (t) {
+    return !t.client_id || String(t.laundry_id) === String(laundryId);
+  });
+}
+
+// Цена позиции: переопределение клиента → глобальный дефолт (client_id пуст) → null.
 function resolvePrice_(tariffs, clientId, billingItemId) {
   const own = (tariffs || []).filter(function (t) {
     return t.client_id === clientId && t.billing_item_id === billingItemId && t.price !== '';
@@ -360,7 +368,7 @@ module.exports = {
   completionStatus_, TRANSITIONS, checkTransition_, applyDefer_, canEditWashData_,
   isDayWash_, sortDayList_, shiftBlockers_, parseDetails_, buildDayReport_,
   formatWashLine_, formatDigest_,
-  INVOICE_WASH_STATUSES, resolvePrice_, resolveBillingItemForType_,
+  INVOICE_WASH_STATUSES, resolvePrice_, resolveBillingItemForType_, effectiveTariffs_,
   pickByTier_, pickTripPosition_, pickupWeightKg_, deliveryWeightKg_, buildInvoice_,
   err_, ok_, round1_, clientName_
 };

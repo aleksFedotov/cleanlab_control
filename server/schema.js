@@ -1,7 +1,7 @@
 // Схема данных CleanLab Control — порт src/Schema.gs.
 // Таблицы SQLite = листам Sheets, колонки = HEADERS. Все значения храним как TEXT
 // (даты — строками формата схемы), как и в Sheets.
-const SCHEMA_VERSION = 6;
+const SCHEMA_VERSION = 7;
 
 const SHEETS = {
   SETTINGS: 'Settings',
@@ -27,6 +27,9 @@ const SHEETS = {
 // Мультитенантность: laundry_id — во всех операционных таблицах.
 // Пустой laundry_id в Settings = глобальная настройка (per-tenant строки её перекрывают).
 // WashItems и ItemTypes без laundry_id: тенант через wash_id / справочник глобальный.
+// BillingItems — глобальный прайс (v7): laundry_id='' у всех строк, список общий
+// для всех прачек. Дефолтные тарифы (ClientTariffs.client_id='') — тоже глобальные;
+// клиентские переопределения цен остаются per-прачка.
 const HEADERS = {
   Settings: ['key', 'value', 'laundry_id'],
   Clients: ['id', 'name', 'contact', 'address', 'type', 'active', 'comment', 'item_types', 'accounting', 'inn', 'kpp', 'legal_address', 'laundry_id'],
@@ -85,8 +88,9 @@ const START_ITEM_TYPES = [
   'халат', 'скатерть', 'салфетка', 'покрывало', 'прочее'
 ];
 
-// Стартовый прайс прачки (P2, тикет в docs/tickets.md): сидится миграцией v4
-// на каждую существующую прачку. name — как в счёте. Порядок = sort.
+// Стартовый прайс (P2, тикет в docs/tickets.md): глобальный, сидится миграцией v4
+// один раз на пустую таблицу (v7: строки с laundry_id=''). name — как в счёте.
+// Порядок = sort.
 // P2.2: логистические позиции фиксированы (создание trip/lift закрыто), позиция
 // «Доставка» (рейс без яруса) удалена миграцией v6 — доставка от N кг бесплатна.
 // Пороговая позиция — единственная trip с max_kg и oneway ≠ да.

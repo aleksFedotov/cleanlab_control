@@ -5,7 +5,7 @@
 const { SHEETS } = require('./schema');
 const db = require('./db');
 const { nowStr_, todayStr_, logEvent, actorOf_ } = require('./audit');
-const { addDaysStr_, err_, ok_, clientName_, resolvePrice_ } = require('./core');
+const { addDaysStr_, err_, ok_, clientName_, resolvePrice_, effectiveTariffs_ } = require('./core');
 const { requireRole_ } = require('./auth');
 const { addStorageEntry_, openStorage_, storageSummaryByClient_ } = require('./storage');
 
@@ -193,10 +193,11 @@ function driverDayStats_(visits, laundryId) {
     visited: visits.filter(function (v) { return VISIT_FINAL.indexOf(v.status) >= 0; }).length,
     lift_qty: 0, lift_total: 0, lift_missing: false
   };
-  const lift = db.readAllByTenant_(SHEETS.BILLING_ITEMS, laundryId)
+  // Прайс и дефолтные тарифы глобальны (v7)
+  const lift = db.readAll_(SHEETS.BILLING_ITEMS)
     .filter(function (b) { return b.kind === 'lift' && b.active !== 'нет'; })[0];
   if (!lift) return stats;
-  const tariffs = db.readAllByTenant_(SHEETS.CLIENT_TARIFFS, laundryId);
+  const tariffs = effectiveTariffs_(db.readAll_(SHEETS.CLIENT_TARIFFS), laundryId);
   visits.forEach(function (v) {
     const floor = Math.floor(Number(v.lift_floor) || 0);
     if (floor <= 2) return;

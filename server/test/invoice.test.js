@@ -473,12 +473,12 @@ test('миграция v6: «Доставка» и её тарифы удале�
   assert.strictEqual(
     ctx.db.readAllByTenant_('ClientTariffs', '2').filter(t => t.billing_item_id === 'bi_old_trip').length,
     0, 'тарифы удалённой позиции удалены');
-  // Прачка 1 (уже на v6) не тронута
-  assert.strictEqual(ctx.api.listBillingItems(owner).items.length, 7);
+  // Прачка 1 (уже на v6) не тронута; список глобальный (v7): 7 + пороговая прачки 2
+  assert.strictEqual(ctx.api.listBillingItems(owner).items.length, 8);
   // Повторный запуск — без изменений
   ctx.db.migrateToV6_();
   assert.strictEqual(ctx.db.readAllByTenant_('BillingItems', '2').length, items2.length);
-  assert.strictEqual(ctx.api.listBillingItems(owner).items.length, 7);
+  assert.strictEqual(ctx.api.listBillingItems(owner).items.length, 8);
   // Пороговая позиция прачки 1 — та же, что в хелпере
   assert.ok(ctx.api.listBillingItems(owner).items.find(i => i.id === bi.light));
 });
@@ -582,16 +582,15 @@ test('пороговая позиция: смена порога 30 → 20 пе�
   assert.strictEqual(line(inv, bi.light).name, 'Доставка менее 20 кг');
 });
 
-test('migrateToV4_: повторный запуск не дублирует прайс (страж по всей таблице)', () => {
-  const { ctx } = mkBillingCtx(); // прачка 1 уже имеет 7 позиций из openTest
-  // Три прачки: при хвостовом LIMIT-страже позиции первой «терялись» в хвосте
-  // и каждый перезапуск сидил её заново (баг «прайс дублируется»).
+test('migrateToV4_: повторный запуск не дублирует прайс (v7 — прайс глобальный)', () => {
+  const { ctx } = mkBillingCtx(); // 7 глобальных позиций из openTest
+  // Прайс глобальный: новые прачки не получают свои копии, повторный запуск — no-op.
   ctx.db.appendRow_('Laundries', { id: '2', name: 'П2', active: 'да' });
   ctx.db.appendRow_('Laundries', { id: '3', name: 'П3', active: 'да' });
-  ctx.db.migrateToV4_(); // досидит прачки 2 и 3
-  assert.strictEqual(ctx.db.readAll_('BillingItems').length, 21, '3 прачки × 7 позиций');
-  ctx.db.migrateToV4_(); // повторно — ничего не добавляет
-  assert.strictEqual(ctx.db.readAll_('BillingItems').length, 21);
+  ctx.db.migrateToV4_();
+  assert.strictEqual(ctx.db.readAll_('BillingItems').length, 7, 'прайс один на все прачки');
+  ctx.db.migrateToV4_();
+  assert.strictEqual(ctx.db.readAll_('BillingItems').length, 7);
 });
 
 // --- Этаж от водителя ---

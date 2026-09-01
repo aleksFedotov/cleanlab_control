@@ -125,7 +125,7 @@ function getDayList(token, date) {
     const itemTypesById = {};
     db.getItemTypes_().forEach(function (t) { itemTypesById[t.id] = t; });
     const pieceBillingById = {};
-    db.readAllByTenant_(SHEETS.BILLING_ITEMS, laundryId).forEach(function (b) {
+    db.readAll_(SHEETS.BILLING_ITEMS).forEach(function (b) {
       if (b.kind === 'wash_pcs' && b.active === 'да') pieceBillingById[b.id] = true;
     });
     const clientBindings = db.findRowsByTenant_(SHEETS.CLIENT_ITEM_BILLING, function () { return true; }, 10000, laundryId)
@@ -990,11 +990,11 @@ function getFinanceSummary(token, from, to) {
   const clientItemBilling = db.findRowsByTenant_(SHEETS.CLIENT_ITEM_BILLING, function () {
     return true;
   }, 100000, laundryId).map(function (r) { return r.obj; });
-  const billingItems = billingItems_(laundryId);
+  const billingItems = billingItems_();
   // kind позиции прайса по id: у строк счёта buildInvoice_ поля kind нет
   const kindByBillingId = {};
   billingItems.forEach(function (b) { kindByBillingId[b.id] = b.kind; });
-  const tariffs = db.readAllByTenant_(SHEETS.CLIENT_TARIFFS, laundryId);
+  const tariffs = core.effectiveTariffs_(db.readAll_(SHEETS.CLIENT_TARIFFS), laundryId);
   const clients = {};
   db.getClients_(laundryId).forEach(function (c) { clients[c.id] = c; });
   // Объёмы: только стирки по wash_date со статусами DONE_STATUSES (как getSummaryReport)
@@ -1144,7 +1144,7 @@ function saveItemType(token, itemType) {
   if (itemType.billing_item_id !== undefined) {
     const bid = String(itemType.billing_item_id || '');
     if (bid) {
-      const bi = findTenantRow_(SHEETS.BILLING_ITEMS, bid, session.laundryId);
+      const bi = db.findById_(SHEETS.BILLING_ITEMS, bid);
       if (!bi || bi.obj.kind !== 'wash_pcs') return err_('Позиция в счёте должна быть штучной');
     }
     itemType.billing_item_id = bid;
@@ -1229,15 +1229,16 @@ function getRefs(token) {
 
 const BILLING_KINDS = ['wash_weight', 'wash_pcs', 'trip', 'lift'];
 
-function billingItems_(laundryId) {
-  return db.readAllByTenant_(SHEETS.BILLING_ITEMS, laundryId)
+// Прайс глобальный (v7): laundry_id у позиций пуст, список общий для всех прачек.
+function billingItems_() {
+  return db.readAll_(SHEETS.BILLING_ITEMS)
     .sort(function (a, b) { return (Number(a.sort) || 0) - (Number(b.sort) || 0); });
 }
 
 function listBillingItems(token) {
   const session = requireRole_(token, ['owner']);
   if (!session) return err_('Нет доступа');
-  return ok_({ items: billingItems_(session.laundryId) });
+  return ok_({ items: billingItems_() });
 }
 
 function saveBillingItem(token, item) {
@@ -1254,7 +1255,7 @@ function saveBillingItem(token, item) {
       return err_('Позиции доставки и подъёма фиксированы');
     }
     if (item.id) {
-      const found = findTenantRow_(SHEETS.BILLING_ITEMS, item.id, laundryId);
+      const found = db.findById_(SHEETS.BILLING_ITEMS, item.id);
       if (!found) return err_('Позиция прайса не найдена');
       if (found.obj.kind === 'trip' || found.obj.kind === 'lift') {
         return saveLogisticsItem_(session, found, item, laundryId);
@@ -1263,9 +1264,9 @@ function saveBillingItem(token, item) {
     const name = String(item.name || '').trim();
     if (!name) return err_('Укажите название позиции');
     const active = item.active === 'нет' ? 'нет' : 'да';
-    // На прачку — ровно одна активная весовая позиция (весовая по умолчанию)
+    // Ровно одна активная весовая позиция на весь глобальный прайс (весовая по умолчанию)
     if (kind === 'wash_weight' && active === 'да') {
-      const dup = billingItems_(laundryId).filter(function (b) {
+      const dup = billingItems_().filter(function (b) {
         return b.kind === 'wash_weight' && b.active === 'да' && b.id !== item.id;
       })[0];
       if (dup) return err_('Активная весовая позиция уже есть: ' + dup.name);
@@ -1278,18 +1279,18 @@ function saveBillingItem(token, item) {
     };
     let saved;
     if (item.id) {
-      const found = findTenantRow_(SHEETS.BILLING_ITEMS, item.id, laundryId);
+      const found = db.findById_(SHEETS.BILLING_ITEMS, item.id);
       Object.keys(normalized).forEach(function (k) { found.obj[k] = normalized[k]; });
       if (Number(item.sort) > 0) found.obj.sort = String(Number(item.sort));
       db.updateRow_(SHEETS.BILLING_ITEMS, found.rowNumber, found.obj);
       saved = found.obj;
     } else {
       let maxSort = 0;
-      billingItems_(laundryId).forEach(function (b) { maxSort = Math.max(maxSort, Number(b.sort) || 0); });
+      billingItems_().forEach(function (b) { maxSort = Math.max(maxSort, Number(b.sort) || 0); });
       saved = Object.assign({
-        id: db.nextId_(SHEETS.BILLING_ITEMS, 'bi'), sort: String(maxSort + 1)
+        id: db.nextId_(SHEETS.BILLING_ITEMS, 'bi'), laundry_id: '', sort: String(maxSort + 1)
       }, normalized);
-      db.appendRowTenant_(SHEETS.BILLING_ITEMS, saved, laundryId);
+      db.appendRow_(SHEETS.BILLING_ITEMS, saved);
     }
     logEvent(actorOf_(session), 'billing_item_save', saved.id,
       { name: saved.name, kind: saved.kind, active: saved.active }, laundryId);
@@ -1358,18 +1359,19 @@ function deleteBillingItem(token, itemId) {
   if (!session) return err_('Нет доступа');
   const laundryId = session.laundryId;
   return withLock_(function () {
-    const found = findTenantRow_(SHEETS.BILLING_ITEMS, itemId, laundryId);
+    const found = db.findById_(SHEETS.BILLING_ITEMS, itemId);
     if (!found) return err_('Позиция прайса не найдена');
     // P2.2: логистические позиции (системные и legacy) удалять нельзя
     if (found.obj.kind === 'trip' || found.obj.kind === 'lift') {
       return err_('Позиции доставки и подъёма удалять нельзя');
     }
-    const inTariffs = db.findRowsByTenant_(SHEETS.CLIENT_TARIFFS, function (t) {
+    // Позиция глобальная — использование проверяем по всем прачкам
+    const inTariffs = db.findRowsBy_(SHEETS.CLIENT_TARIFFS, function (t) {
       return t.billing_item_id === itemId;
-    }, 100, laundryId).length;
-    const inBindings = db.findRowsByTenant_(SHEETS.CLIENT_ITEM_BILLING, function (r) {
+    }, 10000).length;
+    const inBindings = db.findRowsBy_(SHEETS.CLIENT_ITEM_BILLING, function (r) {
       return r.billing_item_id === itemId;
-    }, 100, laundryId).length;
+    }, 10000).length;
     const inTypes = db.getItemTypes_().filter(function (t) {
       return t.billing_item_id === itemId;
     }).length;
@@ -1382,32 +1384,36 @@ function deleteBillingItem(token, itemId) {
   });
 }
 
-// Тарифы прачки. С clientId — дефолты + переопределения этого клиента.
+// Тарифы прачки: глобальные дефолты (client_id='') + переопределения её клиентов.
+// С clientId — дефолты + переопределения этого клиента.
 function listTariffs(token, clientId) {
   const session = requireRole_(token, ['owner']);
   if (!session) return err_('Нет доступа');
-  const rows = db.readAllByTenant_(SHEETS.CLIENT_TARIFFS, session.laundryId)
+  const rows = core.effectiveTariffs_(db.readAll_(SHEETS.CLIENT_TARIFFS), session.laundryId)
     .filter(function (t) { return !clientId || !t.client_id || t.client_id === clientId; });
   return ok_({ tariffs: rows });
 }
 
 // Upsert по (client_id, billing_item_id); price=''/null — снять переопределение.
-// clientId пусто = дефолт прачки.
+// clientId пусто = глобальный дефолт (общий для всех прачек, laundry_id='').
 function saveTariff(token, clientId, billingItemId, price) {
   const session = requireRole_(token, ['owner']);
   if (!session) return err_('Нет доступа');
   const laundryId = session.laundryId;
   return withLock_(function () {
-    if (!findTenantRow_(SHEETS.BILLING_ITEMS, billingItemId, laundryId)) {
+    if (!db.findById_(SHEETS.BILLING_ITEMS, billingItemId)) {
       return err_('Позиция прайса не найдена');
     }
     clientId = clientId || '';
     if (clientId && !findTenantRow_(SHEETS.CLIENTS, clientId, laundryId)) {
       return err_('Клиент не найден');
     }
-    const existing = db.findRowsByTenant_(SHEETS.CLIENT_TARIFFS, function (t) {
-      return t.client_id === clientId && t.billing_item_id === billingItemId;
-    }, 100, laundryId)[0];
+    // Дефолт глобальный — ищем среди дефолтов любой прачки; клиентское
+    // переопределение — только в своей прачке.
+    const existing = db.findRowsBy_(SHEETS.CLIENT_TARIFFS, function (t) {
+      if (t.client_id !== clientId || t.billing_item_id !== billingItemId) return false;
+      return clientId ? String(t.laundry_id) === String(laundryId) : true;
+    }, 10000)[0];
     if (price === '' || price === null || price === undefined) {
       if (existing) {
         db.deleteRow_(SHEETS.CLIENT_TARIFFS, existing.rowNumber);
@@ -1426,9 +1432,10 @@ function saveTariff(token, clientId, billingItemId, price) {
     } else {
       saved = {
         id: db.nextId_(SHEETS.CLIENT_TARIFFS, 'trf'),
+        laundry_id: clientId ? String(laundryId) : '',
         client_id: clientId, billing_item_id: billingItemId, price: String(p)
       };
-      db.appendRowTenant_(SHEETS.CLIENT_TARIFFS, saved, laundryId);
+      db.appendRow_(SHEETS.CLIENT_TARIFFS, saved);
     }
     logEvent(actorOf_(session), 'tariff_set', billingItemId,
       { client_id: clientId, price: saved.price }, laundryId);
@@ -1447,7 +1454,7 @@ function saveClientItemBilling(token, clientId, itemTypeId, billingItemId) {
     if (!findTenantRow_(SHEETS.CLIENTS, clientId, laundryId)) return err_('Клиент не найден');
     if (!db.findById_(SHEETS.ITEM_TYPES, itemTypeId)) return err_('Тип белья не найден');
     if (billingItemId) {
-      const bi = findTenantRow_(SHEETS.BILLING_ITEMS, billingItemId, laundryId);
+      const bi = db.findById_(SHEETS.BILLING_ITEMS, billingItemId);
       if (!bi || bi.obj.kind !== 'wash_pcs') return err_('Привязка возможна только к штучной позиции прайса');
     }
     const existing = db.findRowsByTenant_(SHEETS.CLIENT_ITEM_BILLING, function (r) {
@@ -1520,8 +1527,8 @@ function getClientInvoice(token, clientId, from, to) {
     clientItemBilling: db.findRowsByTenant_(SHEETS.CLIENT_ITEM_BILLING, function (r) {
       return r.client_id === clientId;
     }, 1000, laundryId).map(function (r) { return r.obj; }),
-    billingItems: billingItems_(laundryId),
-    tariffs: db.readAllByTenant_(SHEETS.CLIENT_TARIFFS, laundryId),
+    billingItems: billingItems_(),
+    tariffs: core.effectiveTariffs_(db.readAll_(SHEETS.CLIENT_TARIFFS), laundryId),
     visits: visits, storageRows: storageRows
   });
   return ok_({ invoice: invoice });

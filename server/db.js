@@ -28,6 +28,7 @@ function open(dbPath = DB_PATH) {
   migrateToV3_(db);
   migrateToV4_(db);
   migrateToV6_(db);
+  migrateToV7_(db);
   return db;
 }
 
@@ -40,6 +41,7 @@ function openTest(dbPath = ':memory:') {
   migrateToV3_(testDb);
   migrateToV4_(testDb);
   migrateToV6_(testDb);
+  migrateToV7_(testDb);
   return testDb;
 }
 
@@ -111,31 +113,27 @@ function migrateToV3_(d) {
   }
 }
 
-// Миграция v4 (P2, прайс): стартовое наполнение BillingItems на каждую прачку.
-// Идемпотентно: прачка с хотя бы одной позицией прайса пропускается.
-// Проверка — по ВСЕЙ таблице: findRowsBy_ читает только хвост (LIMIT n),
-// поэтому с ним страж не видел позиции ранних прачек и пересидил их на
-// каждом перезапуске (баг «прайс дублируется»).
+// Миграция v4 (P2, прайс): стартовое наполнение BillingItems. v7: прайс
+// глобальный — сидится один раз на всю систему (laundry_id=''), только если
+// таблица пуста вообще. Проверка — по ВСЕЙ таблице: findRowsBy_ читает только
+// хвост (LIMIT n), поэтому с ним страж не видел позиции ранних прачек и
+// пересидил их на каждом перезапуске (баг «прайс дублируется»).
 function migrateToV4_(d = db) {
-  const seeded = {};
-  readAll_('BillingItems', d).forEach(r => { seeded[String(r.laundry_id)] = true; });
-  readAll_('Laundries', d).forEach(laundry => {
-    if (seeded[String(laundry.id)]) return;
-    START_BILLING_ITEMS.forEach(function (item, idx) {
-      appendRow_('BillingItems', {
-        id: nextId_('BillingItems', 'bi', d),
-        laundry_id: String(laundry.id),
-        name: item.name,
-        unit: item.unit,
-        kind: item.kind,
-        oneway: item.oneway || '',
-        max_kg: item.max_kg || '',
-        per_floor: item.per_floor || '',
-        ext_code: '',
-        sort: String(idx + 1),
-        active: 'да'
-      }, d);
-    });
+  if (readAll_('BillingItems', d).length > 0) return;
+  START_BILLING_ITEMS.forEach(function (item, idx) {
+    appendRow_('BillingItems', {
+      id: nextId_('BillingItems', 'bi', d),
+      laundry_id: '',
+      name: item.name,
+      unit: item.unit,
+      kind: item.kind,
+      oneway: item.oneway || '',
+      max_kg: item.max_kg || '',
+      per_floor: item.per_floor || '',
+      ext_code: '',
+      sort: String(idx + 1),
+      active: 'да'
+    }, d);
   });
 }
 
@@ -156,7 +154,69 @@ function migrateToV6_(d = db) {
   });
 }
 
-// Per-tenant настройка: upsert строки Settings с laundry_id.
+// Миграция v7: прайс и дефолтные тарифы становятся глобальными.
+// 1) Дубли BillingItems (сидились на каждую прачку) сливаются по сигнатуре
+//    (kind,name,unit,oneway,max_kg,per_floor): каноническая — первая по rowid,
+//    ей laundry_id=''; ссылки дублей (ClientTariffs, ClientItemBilling,
+//    ItemTypes.billing_item_id) ремапятся на канонический id, дубли удаляются.
+// 2) После ремапа возможны конфликты — дедуп ClientTariffs по
+//    (laundry_id,client_id,billing_item_id) и ClientItemBilling по
+//    (laundry_id,client_id,item_type_id), остаётся первая по rowid.
+// 3) Дефолтные тарифы (client_id='') дедупятся глобально по billing_item_id,
+//    у оставшейся строки laundry_id=''.
+// Идемпотентно: на уже слитых данных групп из >1 строки нет — no-op.
+function migrateToV7_(d = db) {
+  const items = d.prepare(
+    `SELECT rowid AS _rowid, id, laundry_id, name, unit, kind, oneway, max_kg, per_floor
+     FROM "BillingItems" ORDER BY rowid`
+  ).all();
+  const canonBySig = {};
+  const remap = {}; // старый id → канонический id
+  const dupRowids = [];
+  items.forEach(function (it) {
+    const sig = [it.kind, it.name, it.unit, it.oneway || '', it.max_kg || '', it.per_floor || ''].join('|');
+    const canon = canonBySig[sig];
+    if (!canon) {
+      canonBySig[sig] = it;
+      if (String(it.laundry_id || '') !== '') {
+        d.prepare(`UPDATE "BillingItems" SET laundry_id = '' WHERE rowid = ?`).run(it._rowid);
+      }
+    } else {
+      remap[it.id] = canon.id;
+      dupRowids.push(it._rowid);
+    }
+  });
+  const remapSql = {
+    ClientTariffs: `UPDATE "ClientTariffs" SET billing_item_id = ? WHERE billing_item_id = ?`,
+    ClientItemBilling: `UPDATE "ClientItemBilling" SET billing_item_id = ? WHERE billing_item_id = ?`,
+    ItemTypes: `UPDATE "ItemTypes" SET billing_item_id = ? WHERE billing_item_id = ?`
+  };
+  Object.keys(remap).forEach(function (oldId) {
+    Object.values(remapSql).forEach(function (sql) {
+      d.prepare(sql).run(remap[oldId], oldId);
+    });
+  });
+  dupRowids.forEach(function (rid) {
+    d.prepare(`DELETE FROM "BillingItems" WHERE rowid = ?`).run(rid);
+  });
+  // Дедуп после ремапа
+  const dedup = function (table, keyCols) {
+    const rows = d.prepare(`SELECT rowid AS _rowid, ${keyCols.map(c => `"${c}"`).join(', ')} FROM "${table}" ORDER BY rowid`).all();
+    const seen = {};
+    rows.forEach(function (r) {
+      const key = keyCols.map(function (c) { return String(r[c] == null ? '' : r[c]); }).join('|');
+      if (seen[key]) d.prepare(`DELETE FROM "${table}" WHERE rowid = ?`).run(r._rowid);
+      else seen[key] = true;
+    });
+  };
+  dedup('ClientTariffs', ['laundry_id', 'client_id', 'billing_item_id']);
+  dedup('ClientItemBilling', ['laundry_id', 'client_id', 'item_type_id']);
+  // Глобальный дедуп дефолтных тарифов
+  dedup('ClientTariffs', ['client_id', 'billing_item_id']); // для client_id='' глобально
+  d.prepare(`UPDATE "ClientTariffs" SET laundry_id = '' WHERE client_id IS NULL OR client_id = ''`).run();
+}
+
+
 function setTenantSetting_(laundryId, key, value, d = db) {
   const found = findRowsBy_('Settings', function (r) {
     return r.key === key && r.laundry_id === String(laundryId);
@@ -362,6 +422,6 @@ module.exports = {
   readAll_, readTail_, appendRow_, nextId_, findRowsBy_, findById_,
   updateRow_, deleteRow_, parseJsonList_,
   readAllByTenant_, readTailByTenant_, findRowsByTenant_, appendRowTenant_,
-  setTenantSetting_, migrateToV2_, migrateToV3_, migrateToV4_, migrateToV6_,
+  setTenantSetting_, migrateToV2_, migrateToV3_, migrateToV4_, migrateToV6_, migrateToV7_,
   invalidateRefCache_, getSettings_, getClients_, getItemTypes_
 };
