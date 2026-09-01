@@ -111,26 +111,4 @@ test.describe.serial('форма клиента (P2.1)', () => {
     await expect(dialog.getByLabel('Цена клиента: Услуги прачечной (Халат)')).toHaveValue('25');
     await expect(dialog.getByText('переопределено')).toBeVisible();
   });
-
-  test('счёт: пилюля «Прошлый» формирует ссылку прошлого месяца', async ({ page }) => {
-    await login(page);
-    const dialog = await openClient(page);
-
-    // Ожидаемый диапазон — прошлый календарный месяц
-    const now = new Date();
-    const first = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-    const last = new Date(now.getFullYear(), now.getMonth(), 0);
-    const iso = (d: Date) =>
-      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-
-    await dialog.getByRole('button', { name: 'Прошлый' }).click();
-    const [popup] = await Promise.all([
-      page.waitForEvent('popup'),
-      dialog.getByRole('button', { name: 'Сформировать' }).click(),
-    ]);
-    expect(popup.url()).toContain(`/invoice?`);
-    expect(popup.url()).toContain(`from=${iso(first)}`);
-    expect(popup.url()).toContain(`to=${iso(last)}`);
-    await popup.close();
-  });
 });

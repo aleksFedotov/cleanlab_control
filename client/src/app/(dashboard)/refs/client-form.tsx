@@ -15,13 +15,11 @@ import { z } from 'zod';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { Accordion } from '@/components/ui/Accordion';
-import { FilterPills } from '@/components/ui/FilterPills';
 import {
   useApiMutation, useBillingItems, useTariffs, useClientItemBilling,
 } from '@/hooks/use-api';
 import { useUiStore } from '@/stores/ui';
 import { OPERATIONAL_PREFIXES } from '@/lib/query-keys';
-import { todayStr } from '@/lib/dates';
 import { plural } from '@/lib/format';
 import type { BillingItem, Client, ItemType } from '@/types/api';
 import { parseItemTypes } from './refs-utils';
@@ -292,59 +290,6 @@ function ClientBindingsSection({
         </button>
       )}
     </>
-  );
-}
-
-// Счёт за период: пилюли месяца + произвольный период; открывает /invoice в новой вкладке
-function InvoiceSection({ clientId }: { clientId: string }) {
-  const today = todayStr();
-  const [mode, setMode] = useState('month');
-  const [from, setFrom] = useState(`${today.slice(0, 8)}01`);
-  const [to, setTo] = useState(today);
-
-  function range(): [string, string] {
-    if (mode === 'month') return [`${today.slice(0, 8)}01`, today];
-    if (mode === 'prev') {
-      // Прошлый календарный месяц: 1-е — последний день
-      const first = new Date(`${today.slice(0, 8)}01T00:00:00`);
-      first.setMonth(first.getMonth() - 1);
-      const last = new Date(first);
-      last.setMonth(last.getMonth() + 1);
-      last.setDate(0);
-      const iso = (d: Date) =>
-        `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-      return [iso(first), iso(last)];
-    }
-    return [from, to];
-  }
-
-  const [f, t] = range();
-  return (
-    <div className={styles.invoiceRow}>
-      <FilterPills
-        options={[
-          { key: 'month', label: 'Этот месяц' },
-          { key: 'prev', label: 'Прошлый' },
-          { key: 'custom', label: 'Период' },
-        ]}
-        active={mode}
-        onChange={setMode}
-      />
-      {mode === 'custom' && (
-        <>
-          <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} aria-label="С" />
-          <input type="date" value={to} onChange={(e) => setTo(e.target.value)} aria-label="По" />
-        </>
-      )}
-      <Button
-        variant="subtle"
-        size="sm"
-        disabled={!f || !t}
-        onClick={() => window.open(`/invoice?client=${clientId}&from=${f}&to=${t}`, '_blank')}
-      >
-        Сформировать
-      </Button>
-    </div>
   );
 }
 
@@ -749,11 +694,6 @@ function ClientEditForm({
             onCount={setBoundCount}
           />
         </Accordion>
-
-        <div className={styles.section}>
-          <div className={styles.sectionTitle}>Счёт за период</div>
-          <InvoiceSection clientId={client.id} />
-        </div>
       </div>
     </Modal>
   );
