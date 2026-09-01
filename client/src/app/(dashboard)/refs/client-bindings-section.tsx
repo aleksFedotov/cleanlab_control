@@ -64,7 +64,7 @@ export function ClientBindingsSection({
         const effBid = bound ? bindings[t.id] : t.billing_item_id || '';
         const effName = effBid ? pieceItems.find((b) => b.id === effBid)?.name || effBid : 'в счёт по весу';
         return (
-          <div key={t.id} className={styles.tariffRow}>
+          <div key={t.id} className={styles.bindingRow}>
             <span className={styles.tariffName}>{t.name}</span>
             <select
               aria-label={`Привязка: ${t.name}`}
