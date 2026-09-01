@@ -29,6 +29,13 @@ import styles from './refs.module.css';
 
 type RefsTab = 'clients' | 'types' | 'price';
 type StatusFilter = 'all' | 'active' | 'archived';
+type TypeSort = 'nameAsc' | 'nameDesc' | 'usage';
+
+const TYPE_SORT_PILLS = [
+  { key: 'nameAsc', label: 'Название А–Я' },
+  { key: 'nameDesc', label: 'Название Я–А' },
+  { key: 'usage', label: 'По клиентам' },
+];
 
 const STATUS_PILLS = [
   { key: 'all', label: 'Все' },
@@ -152,6 +159,7 @@ export default function RefsPage() {
 
   const [tab, setTab] = useState<RefsTab>('clients');
   const [filter, setFilter] = useState<StatusFilter>('active');
+  const [typeSort, setTypeSort] = useState<TypeSort>('nameAsc');
   const [search, setSearch] = useState('');
   const [clientForm, setClientForm] = useState<Client | 'new' | null>(null);
   const [typeForm, setTypeForm] = useState<ItemType | 'new' | null>(null);
@@ -267,12 +275,21 @@ export default function RefsPage() {
 
   const visibleTypes = useMemo(
     () =>
-      itemTypes.filter((t) => {
-        if (filter === 'active' && t.active !== 'да') return false;
-        if (filter === 'archived' && t.active === 'да') return false;
-        return !q || t.name.toLowerCase().includes(q);
-      }),
-    [itemTypes, filter, q]
+      itemTypes
+        .filter((t) => {
+          if (filter === 'active' && t.active !== 'да') return false;
+          if (filter === 'archived' && t.active === 'да') return false;
+          return !q || t.name.toLowerCase().includes(q);
+        })
+        .sort((a, b) => {
+          if (typeSort === 'usage') {
+            const d = (typeUsage[b.id] || 0) - (typeUsage[a.id] || 0);
+            return d || a.name.localeCompare(b.name, 'ru');
+          }
+          const d = a.name.localeCompare(b.name, 'ru');
+          return typeSort === 'nameAsc' ? d : -d;
+        }),
+    [itemTypes, filter, q, typeSort, typeUsage]
   );
 
   const visiblePriceItems = useMemo(
@@ -644,6 +661,11 @@ export default function RefsPage() {
               options={STATUS_PILLS}
               active={filter}
               onChange={(k) => setFilter(k as StatusFilter)}
+            />
+            <FilterPills
+              options={TYPE_SORT_PILLS}
+              active={typeSort}
+              onChange={(k) => setTypeSort(k as TypeSort)}
             />
             <DataTable
               columns={typeColumns}
