@@ -1101,6 +1101,39 @@ function deleteClient(token, clientId) {
   });
 }
 
+// Физическое удаление клиента. Стирки/визиты блокируют (история счетов);
+// тарифы и привязки клиента чистятся каскадно — без клиента они мусор.
+function purgeClient(token, clientId) {
+  const session = requireRole_(token, ['owner']);
+  if (!session) return err_('Нет доступа');
+  const laundryId = session.laundryId;
+  return withLock_(function () {
+    const found = findTenantRow_(SHEETS.CLIENTS, clientId, laundryId);
+    if (!found) return err_('Клиент не найден');
+    const used = db.findRowsByTenant_(SHEETS.WASHES, function (w) {
+      return w.client_id === clientId;
+    }, 1, laundryId).length
+      || db.findRowsByTenant_(SHEETS.DELIVERIES, function (d) {
+        return d.client_id === clientId;
+      }, 1, laundryId).length;
+    if (used) return err_('Клиент используется в стирках или визитах — можно только архивировать');
+    db.findRowsByTenant_(SHEETS.CLIENT_TARIFFS, function (t) {
+      return t.client_id === clientId;
+    }, 1000, laundryId).forEach(function (t) {
+      db.deleteRow_(SHEETS.CLIENT_TARIFFS, t.rowNumber);
+    });
+    db.findRowsByTenant_(SHEETS.CLIENT_ITEM_BILLING, function (r) {
+      return r.client_id === clientId;
+    }, 1000, laundryId).forEach(function (r) {
+      db.deleteRow_(SHEETS.CLIENT_ITEM_BILLING, r.rowNumber);
+    });
+    db.deleteRow_(SHEETS.CLIENTS, found.rowNumber);
+    db.invalidateRefCache_();
+    logEvent(actorOf_(session), 'client_purge', clientId, { name: found.obj.name }, laundryId);
+    return ok_({});
+  });
+}
+
 // Создавать новый тип («Другое…») может и работник с экрана стирки;
 // переименование существующего — только владелец.
 // billing_item_id — позиция в счёте (только штучная wash_pcs, пусто = в счёт по весу).
@@ -1155,6 +1188,33 @@ function rememberClientItemType(token, clientId, itemTypeId) {
       db.invalidateRefCache_();
     }
     return ok_({ client: found.obj });
+  });
+}
+
+// Физическое удаление вида белья. Блокируется, если вид привязан
+// у клиента (item_types) или есть per-клиентская привязка к позиции счёта —
+// иначе только архивация (active=нет). ItemTypes — глобальный справочник
+// (без laundry_id), клиентов проверяем только своей прачки.
+function deleteItemType(token, itemTypeId) {
+  const session = requireRole_(token, ['owner']);
+  if (!session) return err_('Нет доступа');
+  const laundryId = session.laundryId;
+  return withLock_(function () {
+    const found = db.findById_(SHEETS.ITEM_TYPES, itemTypeId);
+    if (!found) return err_('Тип не найден');
+    const inClients = db.getClients_(laundryId).some(function (c) {
+      return (db.parseJsonList_(c.item_types) || []).indexOf(itemTypeId) !== -1;
+    });
+    const inBindings = db.findRowsByTenant_(SHEETS.CLIENT_ITEM_BILLING, function (r) {
+      return r.item_type_id === itemTypeId;
+    }, 1, laundryId).length;
+    if (inClients || inBindings) {
+      return err_('Вид белья используется у клиентов — можно только архивировать');
+    }
+    db.deleteRow_(SHEETS.ITEM_TYPES, found.rowNumber);
+    db.invalidateRefCache_();
+    logEvent(actorOf_(session), 'item_type_delete', itemTypeId, { name: found.obj.name }, laundryId);
+    return ok_({});
   });
 }
 
@@ -1756,7 +1816,7 @@ const api = {
   getDeliveryPlan, addToDelivery, cancelWash, deleteWash, confirmStorageCheck, markIssued, updateIssueDate,
   getWeekPlan, addWeekCard, moveWeekCard, removeWeekCard,
   getStorage, getDayReport, getSummaryReport, getFinanceSummary,
-  saveClient, deleteClient, saveItemType, rememberClientItemType, getRefs,
+  saveClient, deleteClient, purgeClient, saveItemType, deleteItemType, rememberClientItemType, getRefs,
   listBillingItems, saveBillingItem, deleteBillingItem,
   listTariffs, saveTariff, saveClientItemBilling, listClientItemBilling, getClientInvoice,
   listUsers, createUser, updateUser, resetUserPassword, deactivateUser, reactivateUser, deleteUser, makeTelegramBindCode,
@@ -1813,7 +1873,7 @@ module.exports = {
   getDeliveryPlan, addToDelivery, cancelWash, deleteWash, confirmStorageCheck, markIssued, updateIssueDate,
   getWeekPlan, addWeekCard, moveWeekCard, removeWeekCard,
   getStorage, getDayReport, getSummaryReport, getFinanceSummary,
-  saveClient, deleteClient, saveItemType, rememberClientItemType, getRefs,
+  saveClient, deleteClient, purgeClient, saveItemType, deleteItemType, rememberClientItemType, getRefs,
   listBillingItems, saveBillingItem, deleteBillingItem,
   listTariffs, saveTariff, saveClientItemBilling, listClientItemBilling, getClientInvoice,
   listUsers, createUser, updateUser, resetUserPassword, deactivateUser, reactivateUser, deleteUser, makeTelegramBindCode,

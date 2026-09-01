@@ -111,4 +111,29 @@ test.describe.serial('форма клиента (P2.1)', () => {
     await expect(dialog.getByLabel('Цена клиента: Услуги прачечной (Халат)')).toHaveValue('25');
     await expect(dialog.getByText('переопределено')).toBeVisible();
   });
+
+  test('архив и возврат: диалог выбора, архивация, возврат из архива', async ({ page }) => {
+    await login(page);
+    const dialog = await openClient(page);
+
+    // Кнопка «В архив» в футере формы → диалог с выбором: архив или удаление
+    await dialog.getByRole('button', { name: 'В архив' }).click();
+    const confirmDlg = page.getByRole('dialog');
+    await expect(confirmDlg.getByRole('button', { name: 'В архив' })).toBeVisible();
+    await expect(confirmDlg.getByRole('button', { name: 'Удалить совсем' })).toBeVisible();
+    await confirmDlg.getByRole('button', { name: 'В архив' }).click();
+    await expect(page.getByText('Клиент в архиве')).toBeVisible();
+
+    // Активные — без клиента; в фильтре «Архив» — есть, кнопка возврата
+    await expect(page.getByText(CLIENT_NAME, { exact: true })).toHaveCount(0);
+    await page.getByRole('button', { name: 'Архив', exact: true }).click();
+    const row = page.getByRole('row', { name: new RegExp(CLIENT_NAME) });
+    await expect(row).toBeVisible();
+    await row.getByRole('button', { name: 'Вернуть из архива' }).click();
+    await expect(page.getByText('Клиент возвращён из архива')).toBeVisible();
+
+    // Снова активен
+    await page.getByRole('button', { name: 'Активные' }).click();
+    await expect(page.getByText(CLIENT_NAME, { exact: true })).toBeVisible();
+  });
 });

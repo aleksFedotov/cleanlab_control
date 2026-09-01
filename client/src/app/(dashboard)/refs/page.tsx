@@ -2,7 +2,9 @@
 
 // Справочники (owner): клиенты + виды белья. Перенос renderRefs/renderRefsBody
 // из legacy server/public/index.html:2272-2372. Подвкладки, поиск, фильтр
-// все/активные/архив; архивация — через ConfirmDialog (deleteClient / saveItemType).
+// все/активные/архив; корзина открывает диалог выбора: архив (обратимо)
+// или удаление совсем (deleteClient=архив / purgeClient, saveItemType /
+// deleteItemType, saveBillingItem / deleteBillingItem).
 import { useEffect, useMemo, useState } from 'react';
 import {
   Plus, Pencil, Trash2, RotateCcw, Search, Users, Shirt, TriangleAlert, ReceiptText,
@@ -12,7 +14,7 @@ import { Button } from '@/components/ui/Button';
 import { DataTable, DataTableColumn } from '@/components/ui/DataTable';
 import { FilterPills } from '@/components/ui/FilterPills';
 import { Empty } from '@/components/ui/Empty';
-import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { Modal } from '@/components/ui/Modal';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { useRefs, useBillingItems, useTariffs, useApiMutation } from '@/hooks/use-api';
 import { useUiStore } from '@/stores/ui';
@@ -166,12 +168,36 @@ export default function RefsPage() {
     },
   });
 
+  // Возврат клиента из архива — saveClient с active=да (сервер мержит поля)
+  const restoreClient = useApiMutation('saveClient', {
+    invalidate: REFS_INVALIDATE,
+    onSuccess: () => toast('Клиент возвращён из архива'),
+  });
+
+  // Удаление клиента совсем; сервер откажет, если есть стирки/визиты (ошибка → тост)
+  const purgeClientM = useApiMutation('purgeClient', {
+    invalidate: REFS_INVALIDATE,
+    onSuccess: () => {
+      setConfirm(null);
+      toast('Клиент удалён');
+    },
+  });
+
   // Архивация/возврат вида белья — saveItemType с переключением active (legacy data-ttoggle)
   const toggleType = useApiMutation('saveItemType', {
     invalidate: REFS_INVALIDATE,
     onSuccess: () => {
       setConfirm(null);
       toast('Сохранено');
+    },
+  });
+
+  // Удаление вида белья совсем; сервер откажет, если вид используется у клиентов
+  const deleteTypeM = useApiMutation('deleteItemType', {
+    invalidate: REFS_INVALIDATE,
+    onSuccess: () => {
+      setConfirm(null);
+      toast('Вид белья удалён');
     },
   });
 
@@ -182,6 +208,15 @@ export default function RefsPage() {
     onSuccess: () => {
       setConfirm(null);
       toast('Сохранено');
+    },
+  });
+
+  // Удаление позиции прайса совсем (только стирка; сервер проверяет использование)
+  const deletePriceM = useApiMutation('deleteBillingItem', {
+    invalidate: ['billingItems', 'tariffs'],
+    onSuccess: () => {
+      setConfirm(null);
+      toast('Позиция удалена');
     },
   });
 
@@ -276,7 +311,7 @@ export default function RefsPage() {
               setClientForm(c);
             }}
           />
-          {c.active === 'да' && (
+          {c.active === 'да' ? (
             <Button
               variant="subtle"
               size="sm"
@@ -287,6 +322,30 @@ export default function RefsPage() {
                 setConfirm({ kind: 'client', row: c });
               }}
             />
+          ) : (
+            <>
+              <Button
+                variant="subtle"
+                size="sm"
+                icon={<RotateCcw size={15} />}
+                aria-label="Вернуть из архива"
+                busy={restoreClient.isPending}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  restoreClient.mutate({ id: c.id, active: 'да' });
+                }}
+              />
+              <Button
+                variant="subtle"
+                size="sm"
+                icon={<Trash2 size={15} />}
+                aria-label="Удалить совсем"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setConfirm({ kind: 'client', row: c });
+                }}
+              />
+            </>
           )}
         </span>
       ),
@@ -651,28 +710,69 @@ export default function RefsPage() {
         <PriceItemForm item={priceForm === 'new' ? null : priceForm} onClose={() => setPriceForm(null)} />
       )}
 
-      <ConfirmDialog
-        open={confirm !== null}
-        onClose={() => setConfirm(null)}
-        danger
-        okLabel={confirm?.kind === 'type' || confirm?.kind === 'price' ? 'Архивировать' : 'В архив'}
-        busy={archiveClient.isPending || toggleType.isPending || togglePrice.isPending}
-        text={
+      {(() => {
+        const canDelete = !!confirm && !(confirm.kind === 'price' && isLogistics(confirm.row));
+        const canArchive = !!confirm && confirm.row.active === 'да';
+        const busy =
+          archiveClient.isPending || toggleType.isPending || togglePrice.isPending ||
+          purgeClientM.isPending || deleteTypeM.isPending || deletePriceM.isPending;
+        const name = confirm?.row.name || '';
+        const text =
           confirm?.kind === 'client'
-            ? `Клиент «${confirm.row.name}» уйдёт в архив: пропадёт из списков для новых стирок и визитов.`
+            ? `Клиент «${name}»: архив — обратимо, пропадёт из списков для новых стирок и визитов. Удаление совсем возможно, только если у клиента ещё не было стирок и визитов.`
             : confirm?.kind === 'type'
-              ? `Вид белья «${confirm.row.name}» будет архивирован и пропадёт из форм стирки.`
+              ? `Вид белья «${name}»: архив — обратимо, пропадёт из форм стирки. Удалить совсем можно, только если вид не привязан ни у одного клиента.`
               : confirm?.kind === 'price'
-                ? `Позиция прайса «${confirm.row.name}» будет архивирована и перестанет попадать в новые счета.`
-                : ''
-        }
-        onConfirm={() => {
-          if (!confirm) return;
-          if (confirm.kind === 'client') archiveClient.mutate(confirm.row.id);
-          else if (confirm.kind === 'type') toggleType.mutate({ id: confirm.row.id, active: 'нет' });
-          else togglePrice.mutate({ ...confirm.row, active: 'нет' });
-        }}
-      />
+                ? isLogistics(confirm.row)
+                  ? `Позиция прайса «${name}» будет архивирована и перестанет попадать в новые счета.`
+                  : `Позиция прайса «${name}»: архив — обратимо, позиция перестанет попадать в новые счета. Удалить совсем можно, только если позиция не используется в тарифах и привязках.`
+                : '';
+        return (
+          <Modal
+            open={confirm !== null}
+            onClose={() => setConfirm(null)}
+            title="Подтверждение"
+            footer={
+              <>
+                <Button variant="subtle" onClick={() => setConfirm(null)} disabled={busy}>
+                  Отмена
+                </Button>
+                {canArchive && (
+                  <Button
+                    busy={archiveClient.isPending || toggleType.isPending || togglePrice.isPending}
+                    disabled={busy}
+                    onClick={() => {
+                      if (!confirm) return;
+                      if (confirm.kind === 'client') archiveClient.mutate(confirm.row.id);
+                      else if (confirm.kind === 'type') toggleType.mutate({ id: confirm.row.id, active: 'нет' });
+                      else togglePrice.mutate({ ...confirm.row, active: 'нет' });
+                    }}
+                  >
+                    В архив
+                  </Button>
+                )}
+                {canDelete && (
+                  <Button
+                    variant="danger"
+                    busy={purgeClientM.isPending || deleteTypeM.isPending || deletePriceM.isPending}
+                    disabled={busy}
+                    onClick={() => {
+                      if (!confirm) return;
+                      if (confirm.kind === 'client') purgeClientM.mutate(confirm.row.id);
+                      else if (confirm.kind === 'type') deleteTypeM.mutate(confirm.row.id);
+                      else deletePriceM.mutate(confirm.row.id);
+                    }}
+                  >
+                    Удалить совсем
+                  </Button>
+                )}
+              </>
+            }
+          >
+            {text}
+          </Modal>
+        );
+      })()}
     </>
   );
 }
