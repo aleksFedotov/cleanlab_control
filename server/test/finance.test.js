@@ -308,3 +308,17 @@ test('некорректный период: формат дат и from > to', 
   assert.strictEqual(ctx.api.getFinanceSummary(owner, TO, FROM).error, 'Некорректный период');
   assert.strictEqual(ctx.api.getFinanceSummary(owner, '', '').error, 'Некорректный период');
 });
+
+test('регрессия: стирка по удалённому клиенту не роняет сводку', () => {
+  const { ctx, owner, bi } = mkBillingCtx();
+  ctx.api.saveTariff(owner, '', bi.weight, 50);
+  // Строки Clients нет (клиент удалён вне purgeClient) — сводка обязана отработать
+  addWash(ctx, { client_id: 'cli_deleted', wash_date: '2026-08-03', status: 'done', kg: 100 });
+
+  const res = summary(ctx, owner);
+  assert.strictEqual(res.clients.length, 1);
+  assert.strictEqual(res.clients[0].client_id, 'cli_deleted');
+  assert.strictEqual(res.totals.washes, 1);
+  assert.strictEqual(res.totals.weight_kg, 100);
+  assert.strictEqual(res.totals.amount, 5000);
+});

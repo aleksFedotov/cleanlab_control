@@ -1017,7 +1017,8 @@ function getFinanceSummary(token, from, to) {
     const clientWashIds = {};
     clientWashes.forEach(function (w) { clientWashIds[w.id] = true; });
     const invoice = core.buildInvoice_({
-      client: clients[cid], from: from, to: to,
+      // Клиент мог быть удалён вне purgeClient (старые данные): счёт всё равно строим
+      client: clients[cid] || { id: cid, name: s.client_name, active: 'нет' }, from: from, to: to,
       washes: clientWashes,
       washItems: washItems.filter(function (wi) { return !!clientWashIds[wi.wash_id]; }),
       itemTypes: itemTypes,
