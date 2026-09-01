@@ -2,7 +2,7 @@
 
 // Справочники (owner): клиенты + виды белья. Перенос renderRefs/renderRefsBody
 // из legacy server/public/index.html:2272-2372. Подвкладки, поиск, фильтр
-// все/активные/архив; корзина открывает диалог выбора: архив (обратимо)
+// все/активные/архив (на всех трёх вкладках); корзина открывает диалог выбора: архив (обратимо)
 // или удаление совсем (deleteClient=архив / purgeClient, saveItemType /
 // deleteItemType, saveBillingItem / deleteBillingItem).
 import { useEffect, useMemo, useState } from 'react';
@@ -28,7 +28,13 @@ import { parseItemTypes } from './refs-utils';
 import styles from './refs.module.css';
 
 type RefsTab = 'clients' | 'types' | 'price';
-type ClientFilter = 'all' | 'active' | 'archived';
+type StatusFilter = 'all' | 'active' | 'archived';
+
+const STATUS_PILLS = [
+  { key: 'all', label: 'Все' },
+  { key: 'active', label: 'Активные' },
+  { key: 'archived', label: 'Архив' },
+];
 
 // P2.2: позиции доставки/подъёма — фиксированный блок, свободные — только стирка
 const isLogistics = (b: BillingItem) => b.kind === 'trip' || b.kind === 'lift';
@@ -145,7 +151,7 @@ export default function RefsPage() {
   const toast = useUiStore((s) => s.toast);
 
   const [tab, setTab] = useState<RefsTab>('clients');
-  const [filter, setFilter] = useState<ClientFilter>('active');
+  const [filter, setFilter] = useState<StatusFilter>('active');
   const [search, setSearch] = useState('');
   const [clientForm, setClientForm] = useState<Client | 'new' | null>(null);
   const [typeForm, setTypeForm] = useState<ItemType | 'new' | null>(null);
@@ -260,17 +266,34 @@ export default function RefsPage() {
   );
 
   const visibleTypes = useMemo(
-    () => itemTypes.filter((t) => !q || t.name.toLowerCase().includes(q)),
-    [itemTypes, q]
+    () =>
+      itemTypes.filter((t) => {
+        if (filter === 'active' && t.active !== 'да') return false;
+        if (filter === 'archived' && t.active === 'да') return false;
+        return !q || t.name.toLowerCase().includes(q);
+      }),
+    [itemTypes, filter, q]
   );
 
   const visiblePriceItems = useMemo(
-    () => billingItems.filter((b) => !isLogistics(b) && (!q || b.name.toLowerCase().includes(q))),
-    [billingItems, q]
+    () =>
+      billingItems.filter((b) => {
+        if (isLogistics(b)) return false;
+        if (filter === 'active' && b.active !== 'да') return false;
+        if (filter === 'archived' && b.active === 'да') return false;
+        return !q || b.name.toLowerCase().includes(q);
+      }),
+    [billingItems, filter, q]
   );
   const logisticsItems = useMemo(
-    () => billingItems.filter((b) => isLogistics(b) && (!q || b.name.toLowerCase().includes(q))),
-    [billingItems, q]
+    () =>
+      billingItems.filter((b) => {
+        if (!isLogistics(b)) return false;
+        if (filter === 'active' && b.active !== 'да') return false;
+        if (filter === 'archived' && b.active === 'да') return false;
+        return !q || b.name.toLowerCase().includes(q);
+      }),
+    [billingItems, filter, q]
   );
 
   const clientColumns: DataTableColumn[] = [
@@ -586,13 +609,9 @@ export default function RefsPage() {
         {tab === 'clients' ? (
           <>
             <FilterPills
-              options={[
-                { key: 'all', label: 'Все' },
-                { key: 'active', label: 'Активные' },
-                { key: 'archived', label: 'Архив' },
-              ]}
+              options={STATUS_PILLS}
               active={filter}
-              onChange={(k) => setFilter(k as ClientFilter)}
+              onChange={(k) => setFilter(k as StatusFilter)}
             />
             <DataTable
               columns={clientColumns}
@@ -620,29 +639,43 @@ export default function RefsPage() {
             />
           </>
         ) : tab === 'types' ? (
-          <DataTable
-            columns={typeColumns}
-            rows={visibleTypes}
-            keyField="id"
-            empty={
-              q ? (
-                <Empty icon={<Search size={26} />} title="Ничего не найдено" hint={`По запросу «${search.trim()}» видов белья нет`} />
-              ) : (
-                <Empty
-                  icon={<Shirt size={28} />}
-                  title="Видов белья пока нет"
-                  hint="Добавьте первый вид белья"
-                  action={
-                    <Button icon={<Plus size={16} />} onClick={() => setTypeForm('new')}>
-                      Добавить вид
-                    </Button>
-                  }
-                />
-              )
-            }
-          />
+          <>
+            <FilterPills
+              options={STATUS_PILLS}
+              active={filter}
+              onChange={(k) => setFilter(k as StatusFilter)}
+            />
+            <DataTable
+              columns={typeColumns}
+              rows={visibleTypes}
+              keyField="id"
+              empty={
+                q ? (
+                  <Empty icon={<Search size={26} />} title="Ничего не найдено" hint={`По запросу «${search.trim()}» видов белья нет`} />
+                ) : (
+                  <Empty
+                    icon={<Shirt size={28} />}
+                    title={filter === 'archived' ? 'Архив пуст' : 'Видов белья пока нет'}
+                    hint={filter === 'archived' ? 'Архивированные виды белья появятся здесь' : 'Добавьте первый вид белья'}
+                    action={
+                      filter !== 'archived' ? (
+                        <Button icon={<Plus size={16} />} onClick={() => setTypeForm('new')}>
+                          Добавить вид
+                        </Button>
+                      ) : undefined
+                    }
+                  />
+                )
+              }
+            />
+          </>
         ) : (
           <>
+            <FilterPills
+              options={STATUS_PILLS}
+              active={filter}
+              onChange={(k) => setFilter(k as StatusFilter)}
+            />
             <div className={styles.hint}>Стирка</div>
             <DataTable
               columns={priceColumns}
@@ -654,12 +687,14 @@ export default function RefsPage() {
                 ) : (
                   <Empty
                     icon={<ReceiptText size={28} />}
-                    title="Позиций прайса пока нет"
-                    hint="Добавьте первую позицию прайса"
+                    title={filter === 'archived' ? 'Архив пуст' : 'Позиций прайса пока нет'}
+                    hint={filter === 'archived' ? 'Архивированные позиции появятся здесь' : 'Добавьте первую позицию прайса'}
                     action={
-                      <Button icon={<Plus size={16} />} onClick={() => setPriceForm('new')}>
-                        Добавить позицию
-                      </Button>
+                      filter !== 'archived' ? (
+                        <Button icon={<Plus size={16} />} onClick={() => setPriceForm('new')}>
+                          Добавить позицию
+                        </Button>
+                      ) : undefined
                     }
                   />
                 )
