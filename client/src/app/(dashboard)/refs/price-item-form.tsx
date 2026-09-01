@@ -1,13 +1,15 @@
 'use client';
 
 // Форма позиции прайса (создание/редактирование) — saveBillingItem (P2).
-// Поля max_kg/oneway — только для рейсов (trip), per_floor — только для подъёма (lift).
+// P2.2: свободное создание только для стирки (по весу / поштучно); позиции
+// доставки и подъёма фиксированы и здесь не редактируются. Единица
+// выставляется по kind (кг/шт), селекта единицы нет.
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
-import { useApiMutation } from '@/hooks/use-api';
+import { useApiMutation, useBillingItems } from '@/hooks/use-api';
 import { useUiStore } from '@/stores/ui';
 import type { BillingItem, BillingKind } from '@/types/api';
 import styles from './refs.module.css';
@@ -15,19 +17,12 @@ import styles from './refs.module.css';
 const KINDS: Array<[BillingKind, string]> = [
   ['wash_weight', 'Стирка по весу'],
   ['wash_pcs', 'Стирка поштучно'],
-  ['trip', 'Рейс'],
-  ['lift', 'Подъём на этаж'],
 ];
-const UNITS = ['кг', 'шт', 'рейс', 'этаж'] as const;
 
 const schema = z.object({
   name: z.string().trim().min(1, 'Укажите название'),
-  kind: z.enum(['wash_weight', 'wash_pcs', 'trip', 'lift']),
-  unit: z.enum(UNITS),
+  kind: z.enum(['wash_weight', 'wash_pcs']),
   ext_code: z.string(),
-  max_kg: z.string().trim().refine((v) => v === '' || Number(v) > 0, 'Ярус — положительное число'),
-  oneway: z.boolean(),
-  per_floor: z.boolean(),
   active: z.boolean(),
 });
 type FormValues = z.infer<typeof schema>;
@@ -38,6 +33,7 @@ export interface PriceItemFormProps {
 }
 
 export function PriceItemForm({ item, onClose }: PriceItemFormProps) {
+  const billing = useBillingItems();
   const save = useApiMutation('saveBillingItem', {
     invalidate: ['billingItems', 'tariffs'],
     onSuccess: () => {
@@ -49,33 +45,28 @@ export function PriceItemForm({ item, onClose }: PriceItemFormProps) {
   const {
     register,
     handleSubmit,
-    watch,
     formState: { errors },
   } = useForm<FormValues>({
     resolver: zodResolver(schema),
     defaultValues: {
       name: item?.name || '',
-      kind: item?.kind || 'wash_weight',
-      unit: (item?.unit as (typeof UNITS)[number]) || 'кг',
+      kind: item?.kind === 'wash_pcs' ? 'wash_pcs' : 'wash_weight',
       ext_code: item?.ext_code || '',
-      max_kg: item?.max_kg || '',
-      oneway: item?.oneway === 'да',
-      per_floor: item?.per_floor === 'да',
       active: item ? item.active === 'да' : true,
     },
   });
 
-  const kind = watch('kind');
+  // Весовая позиция на прачку одна: вариант «по весу» недоступен,
+  // если активная весовая уже есть (сервер тоже отвергнет).
+  const weightTaken = (billing.data?.items || []).some(
+    (b) => b.kind === 'wash_weight' && b.active === 'да' && b.id !== item?.id
+  );
 
   function onSubmit(v: FormValues) {
     const payload: Record<string, unknown> = {
       name: v.name,
       kind: v.kind,
-      unit: v.unit,
       ext_code: v.ext_code,
-      max_kg: v.kind === 'trip' ? v.max_kg : '',
-      oneway: v.kind === 'trip' && v.oneway ? 'да' : '',
-      per_floor: v.kind === 'lift' && v.per_floor ? 'да' : '',
       active: v.active ? 'да' : 'нет',
     };
     if (item) payload.id = item.id;
@@ -103,44 +94,23 @@ export function PriceItemForm({ item, onClose }: PriceItemFormProps) {
           <input type="text" placeholder="Название *" autoFocus {...register('name')} />
           {errors.name && <div className={styles.err}>{errors.name.message}</div>}
         </div>
-        <select aria-label="Тип позиции" {...register('kind')}>
+        <div className={styles.checkRow} role="radiogroup" aria-label="Тип позиции">
           {KINDS.map(([v, label]) => (
-            <option key={v} value={v}>
-              {label}
-            </option>
-          ))}
-        </select>
-        <select aria-label="Единица" {...register('unit')}>
-          {UNITS.map((u) => (
-            <option key={u} value={u}>
-              {u}
-            </option>
-          ))}
-        </select>
-        <input type="text" placeholder="Код НФ (ext_code)" {...register('ext_code')} />
-        {kind === 'trip' && (
-          <>
-            <div>
+            <label key={v} className={styles.checkRow}>
               <input
-                type="text"
-                inputMode="numeric"
-                placeholder="Ярус max_kg (пусто — без яруса)"
-                {...register('max_kg')}
+                type="radio"
+                value={v}
+                disabled={v === 'wash_weight' && weightTaken}
+                {...register('kind')}
               />
-              {errors.max_kg && <div className={styles.err}>{errors.max_kg.message}</div>}
-            </div>
-            <label className={styles.checkRow}>
-              <input type="checkbox" {...register('oneway')} />
-              <span>Только одна нога (в одну сторону)</span>
+              <span>
+                {label}
+                {v === 'wash_weight' && weightTaken && ' (уже есть активная)'}
+              </span>
             </label>
-          </>
-        )}
-        {kind === 'lift' && (
-          <label className={styles.checkRow}>
-            <input type="checkbox" {...register('per_floor')} />
-            <span>За каждый этаж</span>
-          </label>
-        )}
+          ))}
+        </div>
+        <input type="text" placeholder="Код НФ (ext_code)" {...register('ext_code')} />
         <label className={styles.checkRow}>
           <input type="checkbox" {...register('active')} />
           <span>Активна</span>

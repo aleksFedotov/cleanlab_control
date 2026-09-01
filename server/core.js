@@ -195,7 +195,10 @@ function resolveBillingItemForType_(clientId, itemTypeId, clientItemBilling, ite
   return (t && t.billing_item_id) || '';
 }
 
-// Ярус: первая позиция с max_kg > вес (по возрастанию max_kg), иначе без max_kg.
+// Ярус: первая позиция с max_kg > вес (по возрастанию max_kg), иначе позиция
+// без яруса (legacy), иначе null — рейс без подходящей позиции строки в счёте
+// не даёт: доставка от N кг бесплатна (P2.2, сидовская «Доставка» без яруса
+// удалена миграцией v6).
 function pickByTier_(items, weightKg) {
   const tiered = items.filter(function (i) { return i.max_kg; })
     .sort(function (a, b) { return Number(a.max_kg) - Number(b.max_kg); });

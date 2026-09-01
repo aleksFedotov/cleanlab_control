@@ -7,7 +7,7 @@ const { makeCtx, loginOwner, loginWorker, loginDriver, seedLaundry2 } = require(
 const FROM = '2026-08-01';
 const TO = '2026-08-31';
 
-// Контекст + id стартовых позиций прайса (сид миграции v4).
+// Контекст + id стартовых позиций прайса (сид миграции v4, P2.2 — 7 позиций).
 function mkBillingCtx() {
   const ctx = makeCtx();
   const owner = loginOwner();
@@ -17,7 +17,6 @@ function mkBillingCtx() {
     robe: items.find(i => i.name.indexOf('Халат') !== -1).id,
     pillow: items.find(i => i.name.indexOf('Подушка') !== -1).id,
     curtain: items.find(i => i.name.indexOf('Штора') !== -1).id,
-    trip: items.find(i => i.kind === 'trip' && !i.max_kg && i.oneway !== 'да').id,
     light: items.find(i => i.kind === 'trip' && i.max_kg === '30').id,
     oneway: items.find(i => i.kind === 'trip' && i.oneway === 'да').id,
     lift: items.find(i => i.kind === 'lift').id
@@ -106,7 +105,7 @@ function row(res, clientId) {
 
 function kindTotals(bi, inv) {
   const kindById = {
-    [bi.light]: 'trip', [bi.trip]: 'trip', [bi.oneway]: 'trip', [bi.lift]: 'lift'
+    [bi.light]: 'trip', [bi.oneway]: 'trip', [bi.lift]: 'lift'
   };
   let trips = 0, lifts = 0;
   inv.lines.forEach(l => {
@@ -204,7 +203,7 @@ test('объёмы клиента и итоги totals (washes/weight_kg/items_t
   ctx.api.saveTariff(owner, '', bi.weight, 50);
   addWash(ctx, { client_id: 'cli_a', wash_date: '2026-08-03', status: 'done', kg: 100 });
   const w2 = addWash(ctx, { client_id: 'cli_a', wash_date: '2026-08-10', status: 'stored', kg: 50 });
-  ctx.api.saveTariff(owner, '', bi.trip, 300);
+  // Рейс 50 кг ≥ N=30 — не тарифицируется (P2.2, позиции plain-trip больше нет)
   addVisit(ctx, { client_id: 'cli_a', date: '2026-08-03', picked_at: '2026-08-03 10:00:00', delivered_at: '2026-08-03 12:00:00' });
   addDirtyStorage(ctx, 'cli_a', '2026-08-03', w2);
 

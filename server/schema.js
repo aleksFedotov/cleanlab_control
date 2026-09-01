@@ -1,7 +1,7 @@
 // Схема данных CleanLab Control — порт src/Schema.gs.
 // Таблицы SQLite = листам Sheets, колонки = HEADERS. Все значения храним как TEXT
 // (даты — строками формата схемы), как и в Sheets.
-const SCHEMA_VERSION = 5;
+const SCHEMA_VERSION = 6;
 
 const SHEETS = {
   SETTINGS: 'Settings',
@@ -87,12 +87,14 @@ const START_ITEM_TYPES = [
 
 // Стартовый прайс прачки (P2, тикет в docs/tickets.md): сидится миграцией v4
 // на каждую существующую прачку. name — как в счёте. Порядок = sort.
+// P2.2: логистические позиции фиксированы (создание trip/lift закрыто), позиция
+// «Доставка» (рейс без яруса) удалена миграцией v6 — доставка от N кг бесплатна.
+// Пороговая позиция — единственная trip с max_kg и oneway ≠ да.
 const START_BILLING_ITEMS = [
   { name: 'Услуги прачечной (постельное бельё)', unit: 'кг', kind: 'wash_weight' },
   { name: 'Услуги прачечной (Халат)', unit: 'шт', kind: 'wash_pcs' },
   { name: 'Услуги прачечной (Подушка, Одеяло, Наматрасник)', unit: 'шт', kind: 'wash_pcs' },
   { name: 'Услуги прачечной (Штора)', unit: 'шт', kind: 'wash_pcs' },
-  { name: 'Доставка', unit: 'рейс', kind: 'trip' },
   { name: 'Доставка менее 30 кг', unit: 'рейс', kind: 'trip', max_kg: '30' },
   { name: 'Доставка в одну сторону/Забор', unit: 'рейс', kind: 'trip', oneway: 'да' },
   { name: 'Подъём на этаж', unit: 'этаж', kind: 'lift', per_floor: 'да' }

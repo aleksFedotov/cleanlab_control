@@ -28,6 +28,13 @@ import styles from './refs.module.css';
 type RefsTab = 'clients' | 'types' | 'price';
 type ClientFilter = 'all' | 'active' | 'archived';
 
+// P2.2: позиции доставки/подъёма — фиксированный блок, свободные — только стирка
+const isLogistics = (b: BillingItem) => b.kind === 'trip' || b.kind === 'lift';
+
+// Пороговая позиция — единственная trip с max_kg и oneway ≠ да (P2.2)
+const isThresholdTrip = (b: BillingItem) =>
+  b.kind === 'trip' && !!b.max_kg && b.oneway !== 'да';
+
 const BILLING_KIND_LABELS: Record<string, string> = {
   wash_weight: 'Стирка по весу',
   wash_pcs: 'Поштучно',
@@ -57,6 +64,70 @@ function DefaultPriceCell({ item, price }: { item: BillingItem; price: string })
         save.mutate(['', item.id, v]);
       }}
       aria-label={`Дефолтная цена: ${item.name}`}
+    />
+  );
+}
+
+// Инлайн-редактор кода НФ системной позиции (P2.2) — saveBillingItem с id.
+function ExtCodeCell({ item }: { item: BillingItem }) {
+  const [value, setValue] = useState(item.ext_code || '');
+  const save = useApiMutation('saveBillingItem', {
+    invalidate: ['billingItems'],
+    onSuccess: () => useUiStore.getState().toast('Код НФ сохранён'),
+  });
+  return (
+    <input
+      className={styles.priceInput}
+      type="text"
+      placeholder="—"
+      value={value}
+      onClick={(e) => e.stopPropagation()}
+      onChange={(e) => setValue(e.target.value)}
+      onBlur={() => {
+        const v = value.trim();
+        if (v === (item.ext_code || '')) return;
+        save.mutate({ id: item.id, kind: item.kind, ext_code: v });
+      }}
+      aria-label={`Код НФ: ${item.name}`}
+    />
+  );
+}
+
+// Инлайн-поле порога платной доставки N (P2.2): число > 0 с подтверждением;
+// имя позиции в счёте генерируется сервером («Доставка менее N кг»).
+function ThresholdCell({ item }: { item: BillingItem }) {
+  const [value, setValue] = useState(item.max_kg || '');
+  const toast = useUiStore((s) => s.toast);
+  const save = useApiMutation('saveBillingItem', {
+    invalidate: ['billingItems'],
+    onSuccess: () => useUiStore.getState().toast('Порог сохранён'),
+  });
+  return (
+    <input
+      className={styles.priceInput}
+      type="text"
+      inputMode="numeric"
+      value={value}
+      onClick={(e) => e.stopPropagation()}
+      onChange={(e) => setValue(e.target.value)}
+      onBlur={() => {
+        const v = value.trim();
+        if (v === item.max_kg) return;
+        const n = Number(v);
+        if (!Number.isInteger(n) || n <= 0) {
+          toast('Порог — целое число больше 0', 'err');
+          setValue(item.max_kg || '');
+          return;
+        }
+        if (!window.confirm(
+          `Сделать платной доставку менее ${n} кг? Прошлые периоды в счетах и «Финансах» пересчитаются.`
+        )) {
+          setValue(item.max_kg || '');
+          return;
+        }
+        save.mutate({ id: item.id, kind: item.kind, max_kg: String(n) });
+      }}
+      aria-label="Порог платной доставки, кг"
     />
   );
 }
@@ -159,7 +230,11 @@ export default function RefsPage() {
   );
 
   const visiblePriceItems = useMemo(
-    () => billingItems.filter((b) => !q || b.name.toLowerCase().includes(q)),
+    () => billingItems.filter((b) => !isLogistics(b) && (!q || b.name.toLowerCase().includes(q))),
+    [billingItems, q]
+  );
+  const logisticsItems = useMemo(
+    () => billingItems.filter((b) => isLogistics(b) && (!q || b.name.toLowerCase().includes(q))),
     [billingItems, q]
   );
 
@@ -286,9 +361,6 @@ export default function RefsPage() {
     { key: 'kind', title: 'Тип', render: (b: BillingItem) => BILLING_KIND_LABELS[b.kind] || b.kind },
     { key: 'unit', title: 'Ед.' },
     { key: 'ext_code', title: 'Код НФ', render: (b: BillingItem) => b.ext_code || '—' },
-    { key: 'max_kg', title: 'Ярус, кг', align: 'right', mono: true, render: (b: BillingItem) => b.max_kg || '—' },
-    { key: 'oneway', title: 'В одну сторону', render: (b: BillingItem) => b.oneway === 'да' ? 'да' : '—' },
-    { key: 'per_floor', title: 'За этаж', render: (b: BillingItem) => b.per_floor === 'да' ? 'да' : '—' },
     {
       key: 'price',
       title: 'Цена по умолч.',
@@ -328,6 +400,70 @@ export default function RefsPage() {
           )}
         </span>
       ),
+    },
+  ];
+
+  // Фиксированный блок «Доставка и подъём» (P2.2): без удаления, активности
+  // и параметров; у пороговой — инлайн-порог N, у всех — цена и код НФ.
+  // Legacy-позиции (созданные до запрета) — только архивация/возврат.
+  const logisticsColumns: DataTableColumn[] = [
+    {
+      key: 'name',
+      title: 'Название',
+      render: (b: BillingItem) => (
+        <span className={b.active !== 'да' ? styles.muted : ''}>
+          <span className={styles.cellName}>{b.name}</span>
+          {b.active !== 'да' && <span className={styles.sub}> (архив)</span>}
+        </span>
+      ),
+    },
+    {
+      key: 'max_kg',
+      title: 'Порог, кг',
+      align: 'right',
+      mono: true,
+      render: (b: BillingItem) =>
+        isThresholdTrip(b) ? <ThresholdCell item={b} /> : (b.max_kg || '—'),
+    },
+    {
+      key: 'ext_code',
+      title: 'Код НФ',
+      render: (b: BillingItem) => <ExtCodeCell item={b} />,
+    },
+    {
+      key: 'price',
+      title: 'Цена по умолч.',
+      align: 'right',
+      render: (b: BillingItem) => <DefaultPriceCell item={b} price={defaultPrices[b.id] || ''} />,
+    },
+    {
+      key: 'actions',
+      title: '',
+      align: 'right',
+      render: (b: BillingItem) =>
+        // legacy (не из системного набора): только архивация/возврат
+        !isThresholdTrip(b) && !(b.kind === 'trip' && b.oneway === 'да') && !(b.kind === 'lift' && b.per_floor === 'да') ? (
+          <span className={styles.rowActions}>
+            {b.active === 'да' ? (
+              <Button
+                variant="subtle"
+                size="sm"
+                icon={<Trash2 size={15} />}
+                aria-label="Архивировать"
+                onClick={() => setConfirm({ kind: 'price', row: b })}
+              />
+            ) : (
+              <Button
+                variant="subtle"
+                size="sm"
+                icon={<RotateCcw size={15} />}
+                aria-label="Вернуть"
+                busy={togglePrice.isPending}
+                onClick={() => togglePrice.mutate({ id: b.id, kind: b.kind, active: 'да' })}
+              />
+            )}
+          </span>
+        ) : null,
     },
   ];
 
@@ -448,6 +584,7 @@ export default function RefsPage() {
           />
         ) : (
           <>
+            <div className={styles.hint}>Стирка</div>
             <DataTable
               columns={priceColumns}
               rows={visiblePriceItems}
@@ -472,6 +609,17 @@ export default function RefsPage() {
             <div className={styles.hint}>
               В счёте должна быть ровно одна активная весовая позиция — в неё идёт всё бельё без штучной привязки.
             </div>
+            {logisticsItems.length > 0 && (
+              <>
+                <div className={styles.hint}>Доставка и подъём</div>
+                <DataTable columns={logisticsColumns} rows={logisticsItems} keyField="id" />
+                <div className={styles.hint}>
+                  Позиции фиксированы: редактируются только цены и коды НФ, у «Доставки менее N кг» —
+                  ещё и порог N (прошлые периоды пересчитаются). Доставка от N кг — бесплатно;
+                  цены для конкретного клиента — в карточке клиента.
+                </div>
+              </>
+            )}
           </>
         )}
       </>

@@ -1168,7 +1168,6 @@ function getRefs(token) {
 // --- Прайс и счета (P2, docs/tickets.md). Owner-only, события в Log ---
 
 const BILLING_KINDS = ['wash_weight', 'wash_pcs', 'trip', 'lift'];
-const BILLING_UNITS = ['кг', 'шт', 'рейс', 'этаж'];
 
 function billingItems_(laundryId) {
   return db.readAllByTenant_(SHEETS.BILLING_ITEMS, laundryId)
@@ -1189,8 +1188,18 @@ function saveBillingItem(token, item) {
     item = item || {};
     const kind = BILLING_KINDS.indexOf(item.kind) !== -1 ? item.kind : '';
     if (!kind) return err_('Неизвестный вид позиции');
-    const unit = BILLING_UNITS.indexOf(item.unit) !== -1 ? item.unit : '';
-    if (!unit) return err_('Неизвестная единица');
+    // P2.2: позиции доставки и подъёма фиксированы — свободное создание
+    // только для стирки (по весу / поштучно).
+    if (!item.id && (kind === 'trip' || kind === 'lift')) {
+      return err_('Позиции доставки и подъёма фиксированы');
+    }
+    if (item.id) {
+      const found = findTenantRow_(SHEETS.BILLING_ITEMS, item.id, laundryId);
+      if (!found) return err_('Позиция прайса не найдена');
+      if (found.obj.kind === 'trip' || found.obj.kind === 'lift') {
+        return saveLogisticsItem_(session, found, item, laundryId);
+      }
+    }
     const name = String(item.name || '').trim();
     if (!name) return err_('Укажите название позиции');
     const active = item.active === 'нет' ? 'нет' : 'да';
@@ -1202,17 +1211,14 @@ function saveBillingItem(token, item) {
       if (dup) return err_('Активная весовая позиция уже есть: ' + dup.name);
     }
     const normalized = {
-      name: name, unit: unit, kind: kind,
-      oneway: kind === 'trip' && item.oneway === 'да' ? 'да' : '',
-      max_kg: Number(item.max_kg) > 0 ? String(Number(item.max_kg)) : '',
-      per_floor: kind === 'lift' && item.per_floor === 'да' ? 'да' : '',
+      name: name, unit: kind === 'wash_weight' ? 'кг' : 'шт', kind: kind,
+      oneway: '', max_kg: '', per_floor: '',
       ext_code: String(item.ext_code || '').trim(),
       active: active
     };
     let saved;
     if (item.id) {
       const found = findTenantRow_(SHEETS.BILLING_ITEMS, item.id, laundryId);
-      if (!found) return err_('Позиция прайса не найдена');
       Object.keys(normalized).forEach(function (k) { found.obj[k] = normalized[k]; });
       if (Number(item.sort) > 0) found.obj.sort = String(Number(item.sort));
       db.updateRow_(SHEETS.BILLING_ITEMS, found.rowNumber, found.obj);
@@ -1231,6 +1237,60 @@ function saveBillingItem(token, item) {
   });
 }
 
+// Правка фиксированных логистических позиций (P2.2).
+// Системный набор: пороговая (trip с max_kg, oneway ≠ да), oneway-trip, lift per_floor.
+// Пороговой разрешены max_kg и ext_code (имя генерируется из N); oneway/lift —
+// только ext_code; legacy (созданные до запрета) — только архивация (active).
+function saveLogisticsItem_(session, found, item, laundryId) {
+  const it = found.obj;
+  const isThreshold = it.kind === 'trip' && it.max_kg && it.oneway !== 'да';
+  const isSystem = isThreshold
+    || (it.kind === 'trip' && it.oneway === 'да')
+    || (it.kind === 'lift' && it.per_floor === 'да');
+  const attempt = function (field, val) {
+    return val !== undefined && String(val) !== String(it[field] || '');
+  };
+  if (!isSystem) {
+    // legacy: только активность
+    const locked = ['name', 'unit', 'kind', 'oneway', 'max_kg', 'per_floor', 'ext_code']
+      .some(function (f) { return attempt(f, item[f]); });
+    if (locked) return err_('Позиция устарела: можно только архивировать');
+    it.active = item.active === 'нет' ? 'нет' : 'да';
+    db.updateRow_(SHEETS.BILLING_ITEMS, found.rowNumber, it);
+    logEvent(actorOf_(session), 'billing_item_save', it.id,
+      { name: it.name, kind: it.kind, active: it.active }, laundryId);
+    return ok_({ item: it });
+  }
+  if (isThreshold) {
+    const prevThreshold = it.max_kg;
+    if (item.max_kg !== undefined) {
+      const n = Number(item.max_kg);
+      if (!Number.isInteger(n) || n <= 0) return err_('Порог доставки — целое число больше 0');
+      it.max_kg = String(n);
+    }
+    if (item.ext_code !== undefined) it.ext_code = String(item.ext_code).trim();
+    // Имя позиции в счёте генерируется из порога N
+    it.name = 'Доставка менее ' + it.max_kg + ' кг';
+    db.updateRow_(SHEETS.BILLING_ITEMS, found.rowNumber, it);
+    logEvent(actorOf_(session), 'billing_item_save', it.id, {
+      name: it.name, kind: it.kind, active: it.active,
+      max_kg: prevThreshold !== it.max_kg ? { was: prevThreshold, now: it.max_kg } : it.max_kg
+    }, laundryId);
+    return ok_({ item: it });
+  }
+  // Системные oneway-trip и lift: только код НФ
+  if (attempt('name', item.name) || attempt('active', item.active)
+    || attempt('oneway', item.oneway) || attempt('max_kg', item.max_kg)
+    || attempt('per_floor', item.per_floor)) {
+    return err_('Название, параметры и активность системной позиции зафиксированы');
+  }
+  if (item.ext_code !== undefined) it.ext_code = String(item.ext_code).trim();
+  db.updateRow_(SHEETS.BILLING_ITEMS, found.rowNumber, it);
+  logEvent(actorOf_(session), 'billing_item_save', it.id,
+    { name: it.name, kind: it.kind, active: it.active }, laundryId);
+  return ok_({ item: it });
+}
+
 // Удаление запрещено, если позиция используется в тарифах, привязках клиентов
 // или типах белья — только архивация (active=нет), чтобы не ломать историю счетов.
 function deleteBillingItem(token, itemId) {
@@ -1240,6 +1300,10 @@ function deleteBillingItem(token, itemId) {
   return withLock_(function () {
     const found = findTenantRow_(SHEETS.BILLING_ITEMS, itemId, laundryId);
     if (!found) return err_('Позиция прайса не найдена');
+    // P2.2: логистические позиции (системные и legacy) удалять нельзя
+    if (found.obj.kind === 'trip' || found.obj.kind === 'lift') {
+      return err_('Позиции доставки и подъёма удалять нельзя');
+    }
     const inTariffs = db.findRowsByTenant_(SHEETS.CLIENT_TARIFFS, function (t) {
       return t.billing_item_id === itemId;
     }, 100, laundryId).length;

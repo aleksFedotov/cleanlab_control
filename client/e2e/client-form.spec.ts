@@ -74,7 +74,7 @@ test.describe.serial('форма клиента (P2.1)', () => {
     const bindingsAcc = dialog.getByRole('button', { name: /Привязка видов белья/ });
     await expect(pricesAcc).toHaveAttribute('aria-expanded', 'false');
     await expect(bindingsAcc).toHaveAttribute('aria-expanded', 'false');
-    await expect(pricesAcc).toContainText('7 без цены');
+    await expect(pricesAcc).toContainText('6 без цены');
     await expect(bindingsAcc).toContainText('все по весу / как у типа');
 
     // Мгновенное сохранение текстового поля
@@ -92,7 +92,7 @@ test.describe.serial('форма клиента (P2.1)', () => {
     await expect(dialog.getByText('Услуги прачечной (Халат)')).toBeVisible();
     await expect(dialog.getByText('не задана').first()).toBeVisible();
     await expect(dialog.getByText('Услуги прачечной (постельное бельё)')).toHaveCount(0);
-    await dialog.getByRole('button', { name: 'Показать все позиции (8)' }).click();
+    await dialog.getByRole('button', { name: 'Показать все позиции (7)' }).click();
     await expect(dialog.getByText('Услуги прачечной (постельное бельё)')).toBeVisible();
     await expect(dialog.getByText('наследовано')).toBeVisible();
 

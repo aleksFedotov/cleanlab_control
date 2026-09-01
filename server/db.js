@@ -27,6 +27,7 @@ function open(dbPath = DB_PATH) {
   migrateToV2_(db);
   migrateToV3_(db);
   migrateToV4_(db);
+  migrateToV6_(db);
   return db;
 }
 
@@ -38,6 +39,7 @@ function openTest(dbPath = ':memory:') {
   migrateToV2_(testDb);
   migrateToV3_(testDb);
   migrateToV4_(testDb);
+  migrateToV6_(testDb);
   return testDb;
 }
 
@@ -134,6 +136,23 @@ function migrateToV4_(d = db) {
         active: 'да'
       }, d);
     });
+  });
+}
+
+// Миграция v6 (P2.2): удаление позиции «Доставка» (trip без max_kg и без
+// oneway) — доставка от N кг становится бесплатной, pickByTier_ вернёт null.
+// Заодно удаляются её строки из ClientTariffs. Self-made trip/lift позиции,
+// созданные до запрета, не трогаем — они становятся замороженными legacy.
+// Идемпотентно: без совпадений ничего не делает. Чтение по всей таблице
+// (rowid нужен для удаления).
+function migrateToV6_(d = db) {
+  const plainTrips = d.prepare(
+    `SELECT rowid AS _rowid, id FROM "BillingItems"
+     WHERE kind = 'trip' AND (max_kg IS NULL OR max_kg = '') AND (oneway IS NULL OR oneway != 'да')`
+  ).all();
+  plainTrips.forEach(function (t) {
+    d.prepare(`DELETE FROM "ClientTariffs" WHERE billing_item_id = ?`).run(t.id);
+    d.prepare(`DELETE FROM "BillingItems" WHERE rowid = ?`).run(t._rowid);
   });
 }
 
@@ -343,6 +362,6 @@ module.exports = {
   readAll_, readTail_, appendRow_, nextId_, findRowsBy_, findById_,
   updateRow_, deleteRow_, parseJsonList_,
   readAllByTenant_, readTailByTenant_, findRowsByTenant_, appendRowTenant_,
-  setTenantSetting_, migrateToV2_, migrateToV3_, migrateToV4_,
+  setTenantSetting_, migrateToV2_, migrateToV3_, migrateToV4_, migrateToV6_,
   invalidateRefCache_, getSettings_, getClients_, getItemTypes_
 };

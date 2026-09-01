@@ -7,7 +7,8 @@ const { makeCtx, loginOwner, loginWorker, loginDriver } = require('./helpers/ser
 const FROM = '2026-08-01';
 const TO = '2026-08-31';
 
-// Контекст + id стартовых позиций прайса (сид миграции v4).
+// Контекст + id стартовых позиций прайса (сид миграции v4, P2.2 — 7 позиций,
+// plain-trip «Доставка» удалена миграцией v6).
 function mkBillingCtx() {
   const ctx = makeCtx();
   const owner = loginOwner();
@@ -17,7 +18,6 @@ function mkBillingCtx() {
     robe: items.find(i => i.name.indexOf('Халат') !== -1).id,
     pillow: items.find(i => i.name.indexOf('Подушка') !== -1).id,
     curtain: items.find(i => i.name.indexOf('Штора') !== -1).id,
-    trip: items.find(i => i.kind === 'trip' && !i.max_kg && i.oneway !== 'да').id,
     light: items.find(i => i.kind === 'trip' && i.max_kg === '30').id,
     oneway: items.find(i => i.kind === 'trip' && i.oneway === 'да').id,
     lift: items.find(i => i.kind === 'lift').id
@@ -232,40 +232,44 @@ test('per-клиентская привязка: халат по умолчан�
 
 // --- Рейсы и подъём ---
 
-test('ярусы: <30 кг, обычная, доставка наследует ярус забора, одна нога → oneway', () => {
+test('ярусы: <30 кг — платно ×2, от 30 кг — бесплатно, одна нога → oneway', () => {
   const { ctx, owner, bi } = mkBillingCtx();
   addClient(ctx, 'cli_t');
-  [bi.light, bi.trip, bi.oneway].forEach(id => ctx.api.saveTariff(owner, '', id, 300));
+  [bi.light, bi.oneway].forEach(id => ctx.api.saveTariff(owner, '', id, 300));
 
   // Двуногий визит, партия 29 кг → обе ноги «менее 30 кг»
   const w1 = addWash(ctx, { client_id: 'cli_t', wash_date: '2026-08-03', status: 'issued', kg: 29, issued_at: '2026-08-04 12:00:00' });
   addVisit(ctx, { client_id: 'cli_t', date: '2026-08-04', picked_at: '2026-08-04 10:00:00', delivered_at: '2026-08-04 12:00:00' });
   addDirtyStorage(ctx, 'cli_t', '2026-08-04', w1);
 
-  // Двуногий визит, партия 31 кг → обе ноги обычные
+  // Двуногий визит, партия 31 кг → обе ноги бесплатны (доставка от N кг не тарифицируется)
   const w2 = addWash(ctx, { client_id: 'cli_t', wash_date: '2026-08-05', status: 'issued', kg: 31, issued_at: '2026-08-06 12:00:00' });
   addVisit(ctx, { client_id: 'cli_t', date: '2026-08-06', picked_at: '2026-08-06 10:00:00', delivered_at: '2026-08-06 12:00:00' });
   addDirtyStorage(ctx, 'cli_t', '2026-08-06', w2);
 
-  // Только забор → oneway (нога одна, хотя партия лёгкая)
+  // Только забор → oneway (нога одна, независимо от веса)
   const w3 = addWash(ctx, { client_id: 'cli_t', wash_date: '2026-08-08', status: 'planned', kg: 20 });
   addVisit(ctx, { client_id: 'cli_t', date: '2026-08-08', picked_at: '2026-08-08 10:00:00' });
   addDirtyStorage(ctx, 'cli_t', '2026-08-08', w3);
 
-  // Только доставка → тоже oneway
+  // Только доставка → тоже oneway, хотя партия 25 кг < N
   addWash(ctx, { client_id: 'cli_t', wash_date: '2026-08-08', status: 'issued', kg: 25, issued_at: '2026-08-09 12:00:00' });
   addVisit(ctx, { client_id: 'cli_t', date: '2026-08-09', delivered_at: '2026-08-09 12:00:00' });
 
   const inv = invoice(ctx, owner, 'cli_t');
   assert.strictEqual(line(inv, bi.light).qty, 2, '29 кг: обе ноги лёгкие');
-  assert.strictEqual(line(inv, bi.trip).qty, 2, '31 кг: обе ноги обычные');
-  assert.strictEqual(line(inv, bi.oneway).qty, 2, 'одноногие визиты → oneway');
+  assert.strictEqual(line(inv, bi.oneway).qty, 2, 'одноногие визиты → oneway независимо от веса');
+  const tripLines = inv.lines.filter(l => {
+    const item = ctx.api.listBillingItems(owner).items.find(i => i.id === l.billing_item_id);
+    return item && item.kind === 'trip';
+  });
+  assert.strictEqual(tripLines.length, 2, 'тяжёлый рейс 31 кг строк не даёт — только лёгкий ярус и oneway');
 });
 
 test('ярус определяется весом грязного, а не чистого', () => {
   const { ctx, owner, bi } = mkBillingCtx();
   addClient(ctx, 'cli_t');
-  [bi.light, bi.trip].forEach(id => ctx.api.saveTariff(owner, '', id, 300));
+  [bi.light].forEach(id => ctx.api.saveTariff(owner, '', id, 300));
   // Партия принята 29 кг грязного → доставка того же цикла лёгкая
   const w = addWash(ctx, { client_id: 'cli_t', wash_date: '2026-08-03', status: 'issued', kg: 29, issued_at: '2026-08-05 12:00:00' });
   addVisit(ctx, { client_id: 'cli_t', date: '2026-08-03', picked_at: '2026-08-03 10:00:00' });
@@ -299,13 +303,19 @@ test('подъём: пусто/1/2 без доплаты; 3-й → 1 шт, 4-й 
   inv = invoice(ctx, owner, 'cli_l');
   assert.strictEqual(line(inv, bi.lift).qty, 2);
 
-  // Режим «за факт подъёма» (per_floor пусто): любой этаж = 1 шт за визит
-  const liftItem = ctx.api.listBillingItems(owner).items.find(i => i.id === bi.lift);
-  assert.ok(ctx.api.saveBillingItem(owner, {
-    id: bi.lift, name: liftItem.name, unit: liftItem.unit, kind: 'lift', per_floor: ''
-  }).ok);
+  // P2.2: параметры системной позиции зафиксированы — per_floor сменить нельзя
+  assert.strictEqual(ctx.api.saveBillingItem(owner, {
+    id: bi.lift, kind: 'lift', per_floor: ''
+  }).ok, false);
+  assert.strictEqual(ctx.api.saveBillingItem(owner, {
+    id: bi.lift, kind: 'lift', name: 'Подъём', active: 'нет'
+  }).ok, false);
+  // Разрешён только код НФ
+  assert.ok(ctx.api.saveBillingItem(owner, { id: bi.lift, kind: 'lift', ext_code: 'LIFT-1' }).ok);
+  assert.strictEqual(
+    ctx.api.listBillingItems(owner).items.find(i => i.id === bi.lift).ext_code, 'LIFT-1');
   inv = invoice(ctx, owner, 'cli_l');
-  assert.strictEqual(line(inv, bi.lift).qty, 1, 'остался один визит с этажом > 2');
+  assert.strictEqual(line(inv, bi.lift).qty, 2, 'расчёт не изменился');
 });
 
 test('подъём не на каждом визите и не свойство клиента', () => {
@@ -433,11 +443,44 @@ test('эталон 3: 422×75 + халаты 10×155 + «менее 30 кг» 14
 test('миграция v4: стартовый прайс сидится один раз (идемпотентно)', () => {
   const { ctx, owner } = mkBillingCtx();
   const before = ctx.api.listBillingItems(owner).items;
-  assert.strictEqual(before.length, 8);
+  assert.strictEqual(before.length, 7, 'P2.2: 7 позиций, без plain-trip «Доставка»');
   assert.strictEqual(before.filter(i => i.kind === 'wash_weight' && i.active === 'да').length, 1);
   ctx.db.migrateToV4_();
   ctx.db.migrateToV4_();
-  assert.strictEqual(ctx.api.listBillingItems(owner).items.length, 8);
+  assert.strictEqual(ctx.api.listBillingItems(owner).items.length, 7);
+});
+
+test('миграция v6: «Доставка» и её тарифы удалены, идемпотентно, чужие прачки не тронуты', () => {
+  const { ctx, owner, bi } = mkBillingCtx();
+  // Вторая прачка со «старым» прайсом: досидим вручную как было до v6
+  ctx.db.appendRow_('Laundries', { id: '2', name: 'П2', active: 'да' });
+  ctx.db.appendRowTenant_('BillingItems', {
+    id: 'bi_old_trip', name: 'Доставка', unit: 'рейс', kind: 'trip',
+    oneway: '', max_kg: '', per_floor: '', ext_code: '', sort: '5', active: 'да'
+  }, '2');
+  ctx.db.appendRowTenant_('ClientTariffs', {
+    id: 'ct_old', client_id: '', billing_item_id: 'bi_old_trip', price: '300'
+  }, '2');
+  ctx.db.appendRowTenant_('BillingItems', {
+    id: 'bi_old_light', name: 'Доставка менее 30 кг', unit: 'рейс', kind: 'trip',
+    oneway: '', max_kg: '30', per_floor: '', ext_code: '', sort: '6', active: 'да'
+  }, '2');
+
+  ctx.db.migrateToV6_();
+  let items2 = ctx.db.readAllByTenant_('BillingItems', '2');
+  assert.strictEqual(items2.find(i => i.id === 'bi_old_trip'), undefined, 'plain-trip удалена');
+  assert.ok(items2.find(i => i.id === 'bi_old_light'), 'пороговая на месте');
+  assert.strictEqual(
+    ctx.db.readAllByTenant_('ClientTariffs', '2').filter(t => t.billing_item_id === 'bi_old_trip').length,
+    0, 'тарифы удалённой позиции удалены');
+  // Прачка 1 (уже на v6) не тронута
+  assert.strictEqual(ctx.api.listBillingItems(owner).items.length, 7);
+  // Повторный запуск — без изменений
+  ctx.db.migrateToV6_();
+  assert.strictEqual(ctx.db.readAllByTenant_('BillingItems', '2').length, items2.length);
+  assert.strictEqual(ctx.api.listBillingItems(owner).items.length, 7);
+  // Пороговая позиция прачки 1 — та же, что в хелпере
+  assert.ok(ctx.api.listBillingItems(owner).items.find(i => i.id === bi.light));
 });
 
 test('ровно одна активная весовая позиция на прачку', () => {
@@ -480,23 +523,75 @@ test('deleteBillingItem: запрет при использовании, раз�
   assert.strictEqual(items.find(i => i.id === bi.robe), undefined);
 });
 
-test('saveBillingItem: валидация вида/единицы/названия', () => {
+test('saveBillingItem: валидация вида/названия; единица выводится из kind', () => {
   const { ctx, owner } = mkBillingCtx();
-  assert.strictEqual(ctx.api.saveBillingItem(owner, { name: 'X', unit: 'шт', kind: 'bogus' }).ok, false);
-  assert.strictEqual(ctx.api.saveBillingItem(owner, { name: 'X', unit: 'тонны', kind: 'wash_pcs' }).ok, false);
-  assert.strictEqual(ctx.api.saveBillingItem(owner, { name: '  ', unit: 'шт', kind: 'wash_pcs' }).ok, false);
+  assert.strictEqual(ctx.api.saveBillingItem(owner, { name: 'X', kind: 'bogus' }).ok, false);
+  assert.strictEqual(ctx.api.saveBillingItem(owner, { name: '  ', kind: 'wash_pcs' }).ok, false);
+  const r = ctx.api.saveBillingItem(owner, { name: 'Услуги (Махра)', kind: 'wash_pcs' });
+  assert.ok(r.ok, r.error);
+  assert.strictEqual(r.item.unit, 'шт', 'единица выставлена по kind, селекта единицы больше нет');
+});
+
+test('saveBillingItem/deleteBillingItem: trip и lift фиксированы (P2.2)', () => {
+  const { ctx, owner, bi } = mkBillingCtx();
+  // Создание закрыто
+  assert.strictEqual(ctx.api.saveBillingItem(owner, { name: 'Рейс', kind: 'trip' }).ok, false);
+  assert.strictEqual(ctx.api.saveBillingItem(owner, { name: 'Подъём', kind: 'lift' }).ok, false);
+  // Удаление закрыто (системные)
+  assert.strictEqual(ctx.api.deleteBillingItem(owner, bi.light).ok, false);
+  assert.strictEqual(ctx.api.deleteBillingItem(owner, bi.oneway).ok, false);
+  assert.strictEqual(ctx.api.deleteBillingItem(owner, bi.lift).ok, false);
+  // Переименование/деактивация системной oneway — ошибка
+  assert.strictEqual(ctx.api.saveBillingItem(owner, {
+    id: bi.oneway, kind: 'trip', name: 'Забор'
+  }).ok, false);
+  assert.strictEqual(ctx.api.saveBillingItem(owner, {
+    id: bi.oneway, kind: 'trip', active: 'нет'
+  }).ok, false);
+  // Код НФ — разрешён
+  assert.ok(ctx.api.saveBillingItem(owner, { id: bi.oneway, kind: 'trip', ext_code: 'DLV-1' }).ok);
+});
+
+test('пороговая позиция: смена порога 30 → 20 пересчитывает счёт и имя', () => {
+  const { ctx, owner, bi } = mkBillingCtx();
+  addClient(ctx, 'cli_th');
+  ctx.api.saveTariff(owner, '', bi.light, 300);
+
+  // Двуногие визиты 25 кг и 15 кг
+  const w25 = addWash(ctx, { client_id: 'cli_th', wash_date: '2026-08-03', status: 'issued', kg: 25, issued_at: '2026-08-04 12:00:00' });
+  addVisit(ctx, { client_id: 'cli_th', date: '2026-08-04', picked_at: '2026-08-04 10:00:00', delivered_at: '2026-08-04 12:00:00' });
+  addDirtyStorage(ctx, 'cli_th', '2026-08-04', w25);
+  const w15 = addWash(ctx, { client_id: 'cli_th', wash_date: '2026-08-05', status: 'issued', kg: 15, issued_at: '2026-08-06 12:00:00' });
+  addVisit(ctx, { client_id: 'cli_th', date: '2026-08-06', picked_at: '2026-08-06 10:00:00', delivered_at: '2026-08-06 12:00:00' });
+  addDirtyStorage(ctx, 'cli_th', '2026-08-06', w15);
+
+  let inv = invoice(ctx, owner, 'cli_th');
+  assert.strictEqual(line(inv, bi.light).qty, 4, 'при N=30 обе партии тарифицируются');
+  assert.strictEqual(line(inv, bi.light).name, 'Доставка менее 30 кг');
+
+  // Порог 0 / не число — ошибка
+  assert.strictEqual(ctx.api.saveBillingItem(owner, { id: bi.light, kind: 'trip', max_kg: '0' }).ok, false);
+  assert.strictEqual(ctx.api.saveBillingItem(owner, { id: bi.light, kind: 'trip', max_kg: 'abc' }).ok, false);
+
+  // 30 → 20: 25 кг перестаёт тарифицироваться, 15 кг — остаётся
+  const r = ctx.api.saveBillingItem(owner, { id: bi.light, kind: 'trip', max_kg: '20' });
+  assert.ok(r.ok, r.error);
+  assert.strictEqual(r.item.name, 'Доставка менее 20 кг', 'имя генерируется из N');
+  inv = invoice(ctx, owner, 'cli_th');
+  assert.strictEqual(line(inv, bi.light).qty, 2, 'только партия 15 кг × 2 ноги');
+  assert.strictEqual(line(inv, bi.light).name, 'Доставка менее 20 кг');
 });
 
 test('migrateToV4_: повторный запуск не дублирует прайс (страж по всей таблице)', () => {
-  const { ctx } = mkBillingCtx(); // прачка 1 уже имеет 8 позиций из openTest
+  const { ctx } = mkBillingCtx(); // прачка 1 уже имеет 7 позиций из openTest
   // Три прачки: при хвостовом LIMIT-страже позиции первой «терялись» в хвосте
   // и каждый перезапуск сидил её заново (баг «прайс дублируется»).
   ctx.db.appendRow_('Laundries', { id: '2', name: 'П2', active: 'да' });
   ctx.db.appendRow_('Laundries', { id: '3', name: 'П3', active: 'да' });
   ctx.db.migrateToV4_(); // досидит прачки 2 и 3
-  assert.strictEqual(ctx.db.readAll_('BillingItems').length, 24, '3 прачки × 8 позиций');
+  assert.strictEqual(ctx.db.readAll_('BillingItems').length, 21, '3 прачки × 7 позиций');
   ctx.db.migrateToV4_(); // повторно — ничего не добавляет
-  assert.strictEqual(ctx.db.readAll_('BillingItems').length, 24);
+  assert.strictEqual(ctx.db.readAll_('BillingItems').length, 21);
 });
 
 // --- Этаж от водителя ---
