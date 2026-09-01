@@ -6,6 +6,7 @@
 // или удаление совсем (deleteClient=архив / purgeClient, saveItemType /
 // deleteItemType, saveBillingItem / deleteBillingItem).
 import { useEffect, useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import {
   Plus, Pencil, Trash2, RotateCcw, Search, Users, Shirt, TriangleAlert, ReceiptText,
 } from 'lucide-react';
@@ -21,7 +22,7 @@ import { useUiStore } from '@/stores/ui';
 import { OPERATIONAL_PREFIXES } from '@/lib/query-keys';
 import { plural } from '@/lib/format';
 import type { BillingItem, Client, ItemType } from '@/types/api';
-import { ClientForm } from './client-form';
+import { ClientCreateModal } from './client-create-modal';
 import { TypeForm } from './type-form';
 import { PriceItemForm } from './price-item-form';
 import { parseItemTypes } from './refs-utils';
@@ -156,12 +157,13 @@ export default function RefsPage() {
   const billing = useBillingItems();
   const tariffsQ = useTariffs();
   const toast = useUiStore((s) => s.toast);
+  const router = useRouter();
 
   const [tab, setTab] = useState<RefsTab>('clients');
   const [filter, setFilter] = useState<StatusFilter>('active');
   const [typeSort, setTypeSort] = useState<TypeSort>('nameAsc');
   const [search, setSearch] = useState('');
-  const [clientForm, setClientForm] = useState<Client | 'new' | null>(null);
+  const [clientForm, setClientForm] = useState(false);
   const [typeForm, setTypeForm] = useState<ItemType | 'new' | null>(null);
   const [priceForm, setPriceForm] = useState<BillingItem | 'new' | null>(null);
   const [confirm, setConfirm] = useState<
@@ -341,16 +343,6 @@ export default function RefsPage() {
       align: 'right',
       render: (c: Client) => (
         <span className={styles.rowActions}>
-          <Button
-            variant="subtle"
-            size="sm"
-            icon={<Pencil size={15} />}
-            aria-label="Изменить"
-            onClick={(e) => {
-              e.stopPropagation();
-              setClientForm(c);
-            }}
-          />
           {c.active === 'да' ? (
             <Button
               variant="subtle"
@@ -567,7 +559,7 @@ export default function RefsPage() {
   ];
 
   const addButton = (
-    <Button icon={<Plus size={16} />} onClick={() => (tab === 'clients' ? setClientForm('new') : tab === 'types' ? setTypeForm('new') : setPriceForm('new'))}>
+    <Button icon={<Plus size={16} />} onClick={() => (tab === 'clients' ? setClientForm(true) : tab === 'types' ? setTypeForm('new') : setPriceForm('new'))}>
       {tab === 'clients' ? 'Добавить клиента' : tab === 'types' ? 'Добавить вид' : 'Добавить позицию'}
     </Button>
   );
@@ -634,7 +626,7 @@ export default function RefsPage() {
               columns={clientColumns}
               rows={visibleClients}
               keyField="id"
-              onRowClick={(c: Client) => setClientForm(c)}
+              onRowClick={(c: Client) => router.push(`/refs/clients/${c.id}`)}
               empty={
                 q ? (
                   <Empty icon={<Search size={26} />} title="Ничего не найдено" hint={`По запросу «${search.trim()}» клиентов нет`} />
@@ -645,7 +637,7 @@ export default function RefsPage() {
                     hint={filter === 'archived' ? 'Архивированные клиенты появятся здесь' : 'Добавьте первого клиента'}
                     action={
                       filter !== 'archived' ? (
-                        <Button icon={<Plus size={16} />} onClick={() => setClientForm('new')}>
+                        <Button icon={<Plus size={16} />} onClick={() => setClientForm(true)}>
                           Добавить клиента
                         </Button>
                       ) : undefined
@@ -747,17 +739,7 @@ export default function RefsPage() {
       <PageHeader title="Справочники" actions={refs.data ? addButton : undefined} />
       <div className={styles.page}>{body}</div>
 
-      {clientForm !== null && (
-        <ClientForm
-          client={clientForm === 'new' ? null : clientForm}
-          itemTypes={itemTypes}
-          onClose={() => setClientForm(null)}
-          onArchive={(c) => {
-            setClientForm(null);
-            setConfirm({ kind: 'client', row: c });
-          }}
-        />
-      )}
+      {clientForm && <ClientCreateModal onClose={() => setClientForm(false)} />}
 
       {typeForm !== null && (
         <TypeForm type={typeForm === 'new' ? null : typeForm} onClose={() => setTypeForm(null)} />
