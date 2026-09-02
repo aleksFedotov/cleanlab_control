@@ -45,6 +45,8 @@ export interface DayWash extends Wash {
   prev_bags?: number | '';
   // Состав постиранного у завершённых (done/stored/partial/ready_clean) — для правки
   items?: { item_type_id: string; qty: number; item_name?: string }[];
+  // Типы белья клиента, идущие в счёт поштучно (P2) — «отобрать до взвешивания»
+  piece_types?: string[];
 }
 
 export interface Shift {
@@ -82,6 +84,8 @@ export interface ItemType {
   name: string;
   sort: number | string;
   active: string;
+  // Позиция прайса (BillingItems kind=wash_pcs), '' = в счёт по весу
+  billing_item_id: string;
 }
 
 export interface Visit {
@@ -100,6 +104,7 @@ export interface Visit {
   picked_at: string;
   dirty_handed_at: string;
   pickup_only: string; // '' | 'да'
+  lift_floor: string; // этаж подъёма; пусто/1/2 = без доплаты
   laundry_id: string;
 }
 
@@ -222,27 +227,39 @@ export interface DayReportRes {
   shift: Shift | null;
 }
 
-export interface SummaryReportItem {
-  item_type_id: string;
-  item_name: string;
+// --- Финансы (P4): начисления по клиентам за период (getFinanceSummary) ---
+
+// Строка счёта внутри клиента — тот же формат, что InvoiceLine
+export interface FinanceSummaryLine {
+  billing_item_id: string;
+  name: string;
+  ext_code: string;
+  unit: string;
   qty: number;
+  price: number | null;
+  amount: number | null;
 }
 
-export interface SummaryReportClient {
+export interface FinanceSummaryClient {
   client_id: string;
   client_name: string;
   washes: number;
   bags: number;
   weight_kg: number;
   items_total: number;
-  items: SummaryReportItem[];
+  trips: number;
+  lifts: number;
+  amount: number;
+  missing_prices: number; // позиций без цены — сумма занижена
+  lines: FinanceSummaryLine[];
 }
 
-export interface SummaryReportRes {
+export interface FinanceSummaryRes {
   ok: true;
   from: string;
   to: string;
-  clients: SummaryReportClient[];
+  clients: FinanceSummaryClient[];
+  totals: { washes: number; weight_kg: number; items_total: number; amount: number };
 }
 
 export interface RefsRes {
@@ -266,6 +283,8 @@ export interface DriverRouteRes {
   date: string;
   laundryName: string;
   cargo: { clean_bags: number; clean_points: number; dirty_points: number };
+  // Статистика дня (P2): посещённые точки и доплата за подъём выше 2-го этажа
+  stats: { visited: number; lift_qty: number; lift_total: number; lift_missing: boolean };
   visits: Array<DecoratedVisit & { address: string }>;
 }
 
@@ -308,4 +327,193 @@ export interface DeliveryPointStatsRes {
   from: string;
   to: string;
   days: DeliveryPointStatsDay[];
+}
+
+// --- Прайс и авторасчёт счетов (P2, owner-only) ---
+
+export type BillingKind = 'wash_weight' | 'wash_pcs' | 'trip' | 'lift';
+
+export interface BillingItem {
+  id: string;
+  laundry_id: string;
+  name: string;
+  unit: string; // 'кг' | 'шт' | 'рейс' | 'этаж'
+  kind: BillingKind;
+  oneway: string; // '' | 'да'
+  max_kg: string; // ярус, число строкой или ''
+  per_floor: string; // '' | 'да'
+  ext_code: string;
+  sort: string;
+  active: string; // 'да' | 'нет'
+}
+
+export interface BillingItemsRes {
+  ok: true;
+  items: BillingItem[];
+}
+
+export interface Tariff {
+  id: string;
+  client_id: string; // '' = дефолт прачки
+  billing_item_id: string;
+  price: string;
+  laundry_id: string;
+}
+
+export interface TariffsRes {
+  ok: true;
+  tariffs: Tariff[];
+}
+
+export interface ClientItemBinding {
+  id: string;
+  client_id: string;
+  item_type_id: string;
+  billing_item_id: string; // '' = «этот тип в весе»
+  laundry_id: string;
+}
+
+export interface ClientItemBillingRes {
+  ok: true;
+  bindings: ClientItemBinding[];
+}
+
+export interface InvoiceLine {
+  billing_item_id: string;
+  name: string;
+  ext_code: string;
+  unit: string;
+  qty: number;
+  price: number | null;
+  amount: number | null;
+}
+
+export interface Invoice {
+  client: Client;
+  from: string;
+  to: string;
+  lines: InvoiceLine[];
+  total: number;
+  missing_prices: string[];
+}
+
+export interface InvoiceRes {
+  ok: true;
+  invoice: Invoice;
+}
+
+// --- Зарплаты (P3): форматы — server/payroll.js ---
+
+// Разбивка начислений по дню (в amount уже включены корректировки дня)
+export interface PayrollDay {
+  date: string;
+  points: number;
+  lift_floors: number;
+  hours: number;
+  amount: number;
+}
+
+export interface PayrollEmployee {
+  user_id: string;
+  name: string;
+  role: string; // 'driver' | 'worker'
+  points: number;
+  lift_floors: number;
+  hours: number;
+  point_rate: number; // ставки уже разрешены сервером (PayRates → Settings → дефолт)
+  lift_floor_rate: number;
+  shift_base: number;
+  shift_norm_hours: number;
+  amount_points: number;
+  amount_lifts: number;
+  amount_shift: number;
+  adjustments_total: number; // только сумма: детали корректировок сервер не возвращает
+  total: number;
+  rate_missing: boolean; // стёртый дефолт в Settings без override — ставка 0
+  days: PayrollDay[];
+}
+
+export interface PayrollRes {
+  ok: true;
+  from: string;
+  to: string;
+  employees: PayrollEmployee[];
+}
+
+export interface PayRate {
+  id: string;
+  user_id: string;
+  name: string;
+  point_rate: string; // '' = дефолт прачки
+  lift_floor_rate: string;
+  shift_base: string;
+  shift_norm_hours: string;
+}
+
+export interface PayRatesRes {
+  ok: true;
+  rates: PayRate[];
+}
+
+// Дефолтные ставки прачки (P3.1): действующие значения (Settings → встроенный дефолт)
+export interface PaySettings {
+  point_rate: number;
+  lift_floor_rate: number;
+  shift_base: number;
+  shift_norm_hours: number;
+}
+
+export interface PaySettingsRes {
+  ok: true;
+  settings: PaySettings;
+}
+
+export interface PayAdjustment {
+  id: string;
+  user_id: string;
+  date: string;
+  amount: string; // со знаком: премия + / штраф −
+  comment: string;
+  created_by: string;
+  created_at: string;
+}
+
+// Ответ savePayAdjustment
+export interface PayAdjustmentRes {
+  ok: true;
+  adjustment: PayAdjustment;
+}
+
+// getMyPayroll (driver): свой авто-отчёт за период
+export interface MyPayrollRes {
+  ok: true;
+  from: string;
+  to: string;
+  points: number;
+  lift_floors: number;
+  point_rate: number;
+  lift_floor_rate: number;
+  amount_points: number;
+  amount_lifts: number;
+  adjustments_total: number;
+  total: number;
+  rate_missing: boolean;
+  days: PayrollDay[];
+}
+
+// Элемент списка listPayAdjustments (amount — число, в отличие от PayAdjustment)
+export interface PayAdjustmentListItem {
+  id: string;
+  user_id: string;
+  name: string;
+  date: string;
+  amount: number;
+  comment: string;
+  created_by: string;
+  created_at: string;
+}
+
+export interface PayAdjustmentsListRes {
+  ok: true;
+  adjustments: PayAdjustmentListItem[];
 }

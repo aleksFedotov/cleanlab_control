@@ -122,3 +122,10 @@ a {
     animation: none !important;
   }
 }
+
+/* Печать (печатный вид счёта /invoice): элементы с .no-print скрываются */
+@media print {
+  .no-print {
+    display: none !important;
+  }
+}

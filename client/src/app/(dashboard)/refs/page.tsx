@@ -2,30 +2,151 @@
 
 // Справочники (owner): клиенты + виды белья. Перенос renderRefs/renderRefsBody
 // из legacy server/public/index.html:2272-2372. Подвкладки, поиск, фильтр
-// все/активные/архив; архивация — через ConfirmDialog (deleteClient / saveItemType).
+// все/активные/архив (на всех трёх вкладках); корзина открывает диалог выбора: архив (обратимо)
+// или удаление совсем (deleteClient=архив / purgeClient, saveItemType /
+// deleteItemType, saveBillingItem / deleteBillingItem).
 import { useEffect, useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import {
-  Plus, Pencil, Trash2, RotateCcw, Search, Users, Shirt, TriangleAlert,
+  Plus, Pencil, Trash2, RotateCcw, Search, Users, Shirt, TriangleAlert, ReceiptText,
 } from 'lucide-react';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Button } from '@/components/ui/Button';
 import { DataTable, DataTableColumn } from '@/components/ui/DataTable';
 import { FilterPills } from '@/components/ui/FilterPills';
 import { Empty } from '@/components/ui/Empty';
-import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { Modal } from '@/components/ui/Modal';
 import { Skeleton } from '@/components/ui/Skeleton';
-import { useRefs, useApiMutation } from '@/hooks/use-api';
+import { useRefs, useBillingItems, useTariffs, useApiMutation } from '@/hooks/use-api';
 import { useUiStore } from '@/stores/ui';
 import { OPERATIONAL_PREFIXES } from '@/lib/query-keys';
 import { plural } from '@/lib/format';
-import type { Client, ItemType } from '@/types/api';
-import { ClientForm } from './client-form';
+import type { BillingItem, Client, ItemType } from '@/types/api';
+import { ClientCreateModal } from './client-create-modal';
 import { TypeForm } from './type-form';
+import { PriceItemForm } from './price-item-form';
 import { parseItemTypes } from './refs-utils';
 import styles from './refs.module.css';
 
-type RefsTab = 'clients' | 'types';
-type ClientFilter = 'all' | 'active' | 'archived';
+type RefsTab = 'clients' | 'types' | 'price';
+type StatusFilter = 'all' | 'active' | 'archived';
+type TypeSort = 'nameAsc' | 'nameDesc' | 'usage';
+
+const TYPE_SORT_PILLS = [
+  { key: 'nameAsc', label: 'Название А–Я' },
+  { key: 'nameDesc', label: 'Название Я–А' },
+  { key: 'usage', label: 'По клиентам' },
+];
+
+const STATUS_PILLS = [
+  { key: 'all', label: 'Все' },
+  { key: 'active', label: 'Активные' },
+  { key: 'archived', label: 'Архив' },
+];
+
+// P2.2: позиции доставки/подъёма — фиксированный блок, свободные — только стирка
+const isLogistics = (b: BillingItem) => b.kind === 'trip' || b.kind === 'lift';
+
+// Пороговая позиция — единственная trip с max_kg и oneway ≠ да (P2.2)
+const isThresholdTrip = (b: BillingItem) =>
+  b.kind === 'trip' && !!b.max_kg && b.oneway !== 'да';
+
+const BILLING_KIND_LABELS: Record<string, string> = {
+  wash_weight: 'Стирка по весу',
+  wash_pcs: 'Поштучно',
+  trip: 'Рейс',
+  lift: 'Подъём',
+};
+
+// Инлайн-редактор дефолтной цены позиции (saveTariff с clientId='' — дефолт прачки)
+function DefaultPriceCell({ item, price }: { item: BillingItem; price: string }) {
+  const [value, setValue] = useState(price);
+  const save = useApiMutation('saveTariff', {
+    invalidate: ['tariffs'],
+    onSuccess: () => useUiStore.getState().toast('Цена сохранена'),
+  });
+  return (
+    <input
+      className={styles.priceInput}
+      type="text"
+      inputMode="decimal"
+      placeholder="—"
+      value={value}
+      onClick={(e) => e.stopPropagation()}
+      onChange={(e) => setValue(e.target.value)}
+      onBlur={() => {
+        const v = value.trim().replace(',', '.');
+        if (v === price) return;
+        save.mutate(['', item.id, v]);
+      }}
+      aria-label={`Дефолтная цена: ${item.name}`}
+    />
+  );
+}
+
+// Инлайн-редактор кода НФ системной позиции (P2.2) — saveBillingItem с id.
+function ExtCodeCell({ item }: { item: BillingItem }) {
+  const [value, setValue] = useState(item.ext_code || '');
+  const save = useApiMutation('saveBillingItem', {
+    invalidate: ['billingItems'],
+    onSuccess: () => useUiStore.getState().toast('Код НФ сохранён'),
+  });
+  return (
+    <input
+      className={styles.priceInput}
+      type="text"
+      placeholder="—"
+      value={value}
+      onClick={(e) => e.stopPropagation()}
+      onChange={(e) => setValue(e.target.value)}
+      onBlur={() => {
+        const v = value.trim();
+        if (v === (item.ext_code || '')) return;
+        save.mutate({ id: item.id, kind: item.kind, ext_code: v });
+      }}
+      aria-label={`Код НФ: ${item.name}`}
+    />
+  );
+}
+
+// Инлайн-поле порога платной доставки N (P2.2): число > 0 с подтверждением;
+// имя позиции в счёте генерируется сервером («Доставка менее N кг»).
+function ThresholdCell({ item }: { item: BillingItem }) {
+  const [value, setValue] = useState(item.max_kg || '');
+  const toast = useUiStore((s) => s.toast);
+  const save = useApiMutation('saveBillingItem', {
+    invalidate: ['billingItems'],
+    onSuccess: () => useUiStore.getState().toast('Порог сохранён'),
+  });
+  return (
+    <input
+      className={styles.priceInput}
+      type="text"
+      inputMode="numeric"
+      value={value}
+      onClick={(e) => e.stopPropagation()}
+      onChange={(e) => setValue(e.target.value)}
+      onBlur={() => {
+        const v = value.trim();
+        if (v === item.max_kg) return;
+        const n = Number(v);
+        if (!Number.isInteger(n) || n <= 0) {
+          toast('Порог — целое число больше 0', 'err');
+          setValue(item.max_kg || '');
+          return;
+        }
+        if (!window.confirm(
+          `Сделать платной доставку менее ${n} кг? Прошлые периоды в счетах и «Финансах» пересчитаются.`
+        )) {
+          setValue(item.max_kg || '');
+          return;
+        }
+        save.mutate({ id: item.id, kind: item.kind, max_kg: String(n) });
+      }}
+      aria-label="Порог платной доставки, кг"
+    />
+  );
+}
 
 // Клиенты/виды белья видны на операционных экранах (стирка, развоз, склад) —
 // инвалидируем refs + все операционные чтения.
@@ -33,15 +154,20 @@ const REFS_INVALIDATE = ['refs', ...OPERATIONAL_PREFIXES];
 
 export default function RefsPage() {
   const refs = useRefs();
+  const billing = useBillingItems();
+  const tariffsQ = useTariffs();
   const toast = useUiStore((s) => s.toast);
+  const router = useRouter();
 
   const [tab, setTab] = useState<RefsTab>('clients');
-  const [filter, setFilter] = useState<ClientFilter>('active');
+  const [filter, setFilter] = useState<StatusFilter>('active');
+  const [typeSort, setTypeSort] = useState<TypeSort>('nameAsc');
   const [search, setSearch] = useState('');
-  const [clientForm, setClientForm] = useState<Client | 'new' | null>(null);
+  const [clientForm, setClientForm] = useState(false);
   const [typeForm, setTypeForm] = useState<ItemType | 'new' | null>(null);
+  const [priceForm, setPriceForm] = useState<BillingItem | 'new' | null>(null);
   const [confirm, setConfirm] = useState<
-    { kind: 'client'; row: Client } | { kind: 'type'; row: ItemType } | null
+    { kind: 'client'; row: Client } | { kind: 'type'; row: ItemType } | { kind: 'price'; row: BillingItem } | null
   >(null);
 
   // §7: ошибка API — тост; на месте контента «Повторить», если данных нет
@@ -58,6 +184,21 @@ export default function RefsPage() {
     },
   });
 
+  // Возврат клиента из архива — saveClient с active=да (сервер мержит поля)
+  const restoreClient = useApiMutation('saveClient', {
+    invalidate: REFS_INVALIDATE,
+    onSuccess: () => toast('Клиент возвращён из архива'),
+  });
+
+  // Удаление клиента совсем; сервер откажет, если есть стирки/визиты (ошибка → тост)
+  const purgeClientM = useApiMutation('purgeClient', {
+    invalidate: REFS_INVALIDATE,
+    onSuccess: () => {
+      setConfirm(null);
+      toast('Клиент удалён');
+    },
+  });
+
   // Архивация/возврат вида белья — saveItemType с переключением active (legacy data-ttoggle)
   const toggleType = useApiMutation('saveItemType', {
     invalidate: REFS_INVALIDATE,
@@ -67,8 +208,45 @@ export default function RefsPage() {
     },
   });
 
+  // Удаление вида белья совсем; сервер откажет, если вид используется у клиентов
+  const deleteTypeM = useApiMutation('deleteItemType', {
+    invalidate: REFS_INVALIDATE,
+    onSuccess: () => {
+      setConfirm(null);
+      toast('Вид белья удалён');
+    },
+  });
+
+  // Архивация/возврат позиции прайса — saveBillingItem с переключением active.
+  // Удаление почти всегда запрещено сервером (используется в тарифах/привязках), поэтому архивируем.
+  const togglePrice = useApiMutation('saveBillingItem', {
+    invalidate: ['billingItems', 'tariffs'],
+    onSuccess: () => {
+      setConfirm(null);
+      toast('Сохранено');
+    },
+  });
+
+  // Удаление позиции прайса совсем (только стирка; сервер проверяет использование)
+  const deletePriceM = useApiMutation('deleteBillingItem', {
+    invalidate: ['billingItems', 'tariffs'],
+    onSuccess: () => {
+      setConfirm(null);
+      toast('Позиция удалена');
+    },
+  });
+
   const clients = useMemo(() => refs.data?.clients || [], [refs.data]);
   const itemTypes = useMemo(() => refs.data?.itemTypes || [], [refs.data]);
+  const billingItems = useMemo(() => billing.data?.items || [], [billing.data]);
+  // Дефолтные цены прачки (client_id='') по позиции
+  const defaultPrices = useMemo(() => {
+    const m: Record<string, string> = {};
+    (tariffsQ.data?.tariffs || []).forEach((t) => {
+      if (!t.client_id) m[t.billing_item_id] = t.price;
+    });
+    return m;
+  }, [tariffsQ.data]);
 
   const q = search.trim().toLowerCase();
 
@@ -98,8 +276,43 @@ export default function RefsPage() {
   );
 
   const visibleTypes = useMemo(
-    () => itemTypes.filter((t) => !q || t.name.toLowerCase().includes(q)),
-    [itemTypes, q]
+    () =>
+      itemTypes
+        .filter((t) => {
+          if (filter === 'active' && t.active !== 'да') return false;
+          if (filter === 'archived' && t.active === 'да') return false;
+          return !q || t.name.toLowerCase().includes(q);
+        })
+        .sort((a, b) => {
+          if (typeSort === 'usage') {
+            const d = (typeUsage[b.id] || 0) - (typeUsage[a.id] || 0);
+            return d || a.name.localeCompare(b.name, 'ru');
+          }
+          const d = a.name.localeCompare(b.name, 'ru');
+          return typeSort === 'nameAsc' ? d : -d;
+        }),
+    [itemTypes, filter, q, typeSort, typeUsage]
+  );
+
+  const visiblePriceItems = useMemo(
+    () =>
+      billingItems.filter((b) => {
+        if (isLogistics(b)) return false;
+        if (filter === 'active' && b.active !== 'да') return false;
+        if (filter === 'archived' && b.active === 'да') return false;
+        return !q || b.name.toLowerCase().includes(q);
+      }),
+    [billingItems, filter, q]
+  );
+  const logisticsItems = useMemo(
+    () =>
+      billingItems.filter((b) => {
+        if (!isLogistics(b)) return false;
+        if (filter === 'active' && b.active !== 'да') return false;
+        if (filter === 'archived' && b.active === 'да') return false;
+        return !q || b.name.toLowerCase().includes(q);
+      }),
+    [billingItems, filter, q]
   );
 
   const clientColumns: DataTableColumn[] = [
@@ -130,17 +343,7 @@ export default function RefsPage() {
       align: 'right',
       render: (c: Client) => (
         <span className={styles.rowActions}>
-          <Button
-            variant="subtle"
-            size="sm"
-            icon={<Pencil size={15} />}
-            aria-label="Изменить"
-            onClick={(e) => {
-              e.stopPropagation();
-              setClientForm(c);
-            }}
-          />
-          {c.active === 'да' && (
+          {c.active === 'да' ? (
             <Button
               variant="subtle"
               size="sm"
@@ -151,6 +354,30 @@ export default function RefsPage() {
                 setConfirm({ kind: 'client', row: c });
               }}
             />
+          ) : (
+            <>
+              <Button
+                variant="subtle"
+                size="sm"
+                icon={<RotateCcw size={15} />}
+                aria-label="Вернуть из архива"
+                busy={restoreClient.isPending}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  restoreClient.mutate({ id: c.id, active: 'да' });
+                }}
+              />
+              <Button
+                variant="subtle"
+                size="sm"
+                icon={<Trash2 size={15} />}
+                aria-label="Удалить совсем"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setConfirm({ kind: 'client', row: c });
+                }}
+              />
+            </>
           )}
         </span>
       ),
@@ -211,9 +438,129 @@ export default function RefsPage() {
     },
   ];
 
+  const priceColumns: DataTableColumn[] = [
+    {
+      key: 'name',
+      title: 'Название',
+      render: (b: BillingItem) => (
+        <span className={b.active !== 'да' ? styles.muted : ''}>
+          <span className={styles.cellName}>{b.name}</span>
+          {b.active !== 'да' && <span className={styles.sub}> (архив)</span>}
+        </span>
+      ),
+    },
+    { key: 'kind', title: 'Тип', render: (b: BillingItem) => BILLING_KIND_LABELS[b.kind] || b.kind },
+    { key: 'unit', title: 'Ед.' },
+    { key: 'ext_code', title: 'Код НФ', render: (b: BillingItem) => b.ext_code || '—' },
+    {
+      key: 'price',
+      title: 'Цена по умолч.',
+      align: 'right',
+      render: (b: BillingItem) => <DefaultPriceCell item={b} price={defaultPrices[b.id] || ''} />,
+    },
+    {
+      key: 'actions',
+      title: '',
+      align: 'right',
+      render: (b: BillingItem) => (
+        <span className={styles.rowActions}>
+          <Button
+            variant="subtle"
+            size="sm"
+            icon={<Pencil size={15} />}
+            aria-label="Изменить"
+            onClick={() => setPriceForm(b)}
+          />
+          {b.active === 'да' ? (
+            <Button
+              variant="subtle"
+              size="sm"
+              icon={<Trash2 size={15} />}
+              aria-label="Архивировать"
+              onClick={() => setConfirm({ kind: 'price', row: b })}
+            />
+          ) : (
+            <Button
+              variant="subtle"
+              size="sm"
+              icon={<RotateCcw size={15} />}
+              aria-label="Вернуть"
+              busy={togglePrice.isPending}
+              onClick={() => togglePrice.mutate({ ...b, active: 'да' })}
+            />
+          )}
+        </span>
+      ),
+    },
+  ];
+
+  // Фиксированный блок «Доставка и подъём» (P2.2): без удаления, активности
+  // и параметров; у пороговой — инлайн-порог N, у всех — цена и код НФ.
+  // Legacy-позиции (созданные до запрета) — только архивация/возврат.
+  const logisticsColumns: DataTableColumn[] = [
+    {
+      key: 'name',
+      title: 'Название',
+      render: (b: BillingItem) => (
+        <span className={b.active !== 'да' ? styles.muted : ''}>
+          <span className={styles.cellName}>{b.name}</span>
+          {b.active !== 'да' && <span className={styles.sub}> (архив)</span>}
+        </span>
+      ),
+    },
+    {
+      key: 'max_kg',
+      title: 'Порог, кг',
+      align: 'right',
+      mono: true,
+      render: (b: BillingItem) =>
+        isThresholdTrip(b) ? <ThresholdCell item={b} /> : (b.max_kg || '—'),
+    },
+    {
+      key: 'ext_code',
+      title: 'Код НФ',
+      render: (b: BillingItem) => <ExtCodeCell item={b} />,
+    },
+    {
+      key: 'price',
+      title: 'Цена по умолч.',
+      align: 'right',
+      render: (b: BillingItem) => <DefaultPriceCell item={b} price={defaultPrices[b.id] || ''} />,
+    },
+    {
+      key: 'actions',
+      title: '',
+      align: 'right',
+      render: (b: BillingItem) =>
+        // legacy (не из системного набора): только архивация/возврат
+        !isThresholdTrip(b) && !(b.kind === 'trip' && b.oneway === 'да') && !(b.kind === 'lift' && b.per_floor === 'да') ? (
+          <span className={styles.rowActions}>
+            {b.active === 'да' ? (
+              <Button
+                variant="subtle"
+                size="sm"
+                icon={<Trash2 size={15} />}
+                aria-label="Архивировать"
+                onClick={() => setConfirm({ kind: 'price', row: b })}
+              />
+            ) : (
+              <Button
+                variant="subtle"
+                size="sm"
+                icon={<RotateCcw size={15} />}
+                aria-label="Вернуть"
+                busy={togglePrice.isPending}
+                onClick={() => togglePrice.mutate({ id: b.id, kind: b.kind, active: 'да' })}
+              />
+            )}
+          </span>
+        ) : null,
+    },
+  ];
+
   const addButton = (
-    <Button icon={<Plus size={16} />} onClick={() => (tab === 'clients' ? setClientForm('new') : setTypeForm('new'))}>
-      {tab === 'clients' ? 'Добавить клиента' : 'Добавить вид'}
+    <Button icon={<Plus size={16} />} onClick={() => (tab === 'clients' ? setClientForm(true) : tab === 'types' ? setTypeForm('new') : setPriceForm('new'))}>
+      {tab === 'clients' ? 'Добавить клиента' : tab === 'types' ? 'Добавить вид' : 'Добавить позицию'}
     </Button>
   );
 
@@ -249,6 +596,7 @@ export default function RefsPage() {
           options={[
             { key: 'clients', label: 'Клиенты' },
             { key: 'types', label: 'Виды белья' },
+            { key: 'price', label: 'Прайс' },
           ]}
           active={tab}
           onChange={(k) => {
@@ -261,7 +609,7 @@ export default function RefsPage() {
           <input
             className={styles.search}
             placeholder={
-              tab === 'clients' ? 'Поиск по названию, адресу, контакту…' : 'Поиск вида белья…'
+              tab === 'clients' ? 'Поиск по названию, адресу, контакту…' : tab === 'types' ? 'Поиск вида белья…' : 'Поиск позиции прайса…'
             }
             value={search}
             onChange={(e) => setSearch(e.target.value)}
@@ -270,19 +618,15 @@ export default function RefsPage() {
         {tab === 'clients' ? (
           <>
             <FilterPills
-              options={[
-                { key: 'all', label: 'Все' },
-                { key: 'active', label: 'Активные' },
-                { key: 'archived', label: 'Архив' },
-              ]}
+              options={STATUS_PILLS}
               active={filter}
-              onChange={(k) => setFilter(k as ClientFilter)}
+              onChange={(k) => setFilter(k as StatusFilter)}
             />
             <DataTable
               columns={clientColumns}
               rows={visibleClients}
               keyField="id"
-              onRowClick={(c: Client) => setClientForm(c)}
+              onRowClick={(c: Client) => router.push(`/refs/clients/${c.id}`)}
               empty={
                 q ? (
                   <Empty icon={<Search size={26} />} title="Ничего не найдено" hint={`По запросу «${search.trim()}» клиентов нет`} />
@@ -293,7 +637,7 @@ export default function RefsPage() {
                     hint={filter === 'archived' ? 'Архивированные клиенты появятся здесь' : 'Добавьте первого клиента'}
                     action={
                       filter !== 'archived' ? (
-                        <Button icon={<Plus size={16} />} onClick={() => setClientForm('new')}>
+                        <Button icon={<Plus size={16} />} onClick={() => setClientForm(true)}>
                           Добавить клиента
                         </Button>
                       ) : undefined
@@ -303,28 +647,88 @@ export default function RefsPage() {
               }
             />
           </>
+        ) : tab === 'types' ? (
+          <>
+            <FilterPills
+              options={STATUS_PILLS}
+              active={filter}
+              onChange={(k) => setFilter(k as StatusFilter)}
+            />
+            <FilterPills
+              options={TYPE_SORT_PILLS}
+              active={typeSort}
+              onChange={(k) => setTypeSort(k as TypeSort)}
+            />
+            <DataTable
+              columns={typeColumns}
+              rows={visibleTypes}
+              keyField="id"
+              empty={
+                q ? (
+                  <Empty icon={<Search size={26} />} title="Ничего не найдено" hint={`По запросу «${search.trim()}» видов белья нет`} />
+                ) : (
+                  <Empty
+                    icon={<Shirt size={28} />}
+                    title={filter === 'archived' ? 'Архив пуст' : 'Видов белья пока нет'}
+                    hint={filter === 'archived' ? 'Архивированные виды белья появятся здесь' : 'Добавьте первый вид белья'}
+                    action={
+                      filter !== 'archived' ? (
+                        <Button icon={<Plus size={16} />} onClick={() => setTypeForm('new')}>
+                          Добавить вид
+                        </Button>
+                      ) : undefined
+                    }
+                  />
+                )
+              }
+            />
+          </>
         ) : (
-          <DataTable
-            columns={typeColumns}
-            rows={visibleTypes}
-            keyField="id"
-            empty={
-              q ? (
-                <Empty icon={<Search size={26} />} title="Ничего не найдено" hint={`По запросу «${search.trim()}» видов белья нет`} />
-              ) : (
-                <Empty
-                  icon={<Shirt size={28} />}
-                  title="Видов белья пока нет"
-                  hint="Добавьте первый вид белья"
-                  action={
-                    <Button icon={<Plus size={16} />} onClick={() => setTypeForm('new')}>
-                      Добавить вид
-                    </Button>
-                  }
-                />
-              )
-            }
-          />
+          <>
+            <FilterPills
+              options={STATUS_PILLS}
+              active={filter}
+              onChange={(k) => setFilter(k as StatusFilter)}
+            />
+            <div className={styles.hint}>Стирка</div>
+            <DataTable
+              columns={priceColumns}
+              rows={visiblePriceItems}
+              keyField="id"
+              empty={
+                q ? (
+                  <Empty icon={<Search size={26} />} title="Ничего не найдено" hint={`По запросу «${search.trim()}» позиций прайса нет`} />
+                ) : (
+                  <Empty
+                    icon={<ReceiptText size={28} />}
+                    title={filter === 'archived' ? 'Архив пуст' : 'Позиций прайса пока нет'}
+                    hint={filter === 'archived' ? 'Архивированные позиции появятся здесь' : 'Добавьте первую позицию прайса'}
+                    action={
+                      filter !== 'archived' ? (
+                        <Button icon={<Plus size={16} />} onClick={() => setPriceForm('new')}>
+                          Добавить позицию
+                        </Button>
+                      ) : undefined
+                    }
+                  />
+                )
+              }
+            />
+            <div className={styles.hint}>
+              В счёте должна быть ровно одна активная весовая позиция — в неё идёт всё бельё без штучной привязки.
+            </div>
+            {logisticsItems.length > 0 && (
+              <>
+                <div className={styles.hint}>Доставка и подъём</div>
+                <DataTable columns={logisticsColumns} rows={logisticsItems} keyField="id" />
+                <div className={styles.hint}>
+                  Позиции фиксированы: редактируются только цены и коды НФ, у «Доставки менее N кг» —
+                  ещё и порог N (прошлые периоды пересчитаются). Доставка от N кг — бесплатно;
+                  цены для конкретного клиента — в карточке клиента.
+                </div>
+              </>
+            )}
+          </>
         )}
       </>
     );
@@ -335,41 +739,79 @@ export default function RefsPage() {
       <PageHeader title="Справочники" actions={refs.data ? addButton : undefined} />
       <div className={styles.page}>{body}</div>
 
-      {clientForm !== null && (
-        <ClientForm
-          client={clientForm === 'new' ? null : clientForm}
-          itemTypes={itemTypes}
-          onClose={() => setClientForm(null)}
-          onArchive={(c) => {
-            setClientForm(null);
-            setConfirm({ kind: 'client', row: c });
-          }}
-        />
-      )}
+      {clientForm && <ClientCreateModal onClose={() => setClientForm(false)} />}
 
       {typeForm !== null && (
         <TypeForm type={typeForm === 'new' ? null : typeForm} onClose={() => setTypeForm(null)} />
       )}
 
-      <ConfirmDialog
-        open={confirm !== null}
-        onClose={() => setConfirm(null)}
-        danger
-        okLabel={confirm?.kind === 'type' ? 'Архивировать' : 'В архив'}
-        busy={archiveClient.isPending || toggleType.isPending}
-        text={
+      {priceForm !== null && (
+        <PriceItemForm item={priceForm === 'new' ? null : priceForm} onClose={() => setPriceForm(null)} />
+      )}
+
+      {(() => {
+        const canDelete = !!confirm && !(confirm.kind === 'price' && isLogistics(confirm.row));
+        const canArchive = !!confirm && confirm.row.active === 'да';
+        const busy =
+          archiveClient.isPending || toggleType.isPending || togglePrice.isPending ||
+          purgeClientM.isPending || deleteTypeM.isPending || deletePriceM.isPending;
+        const name = confirm?.row.name || '';
+        const text =
           confirm?.kind === 'client'
-            ? `Клиент «${confirm.row.name}» уйдёт в архив: пропадёт из списков для новых стирок и визитов.`
+            ? `Клиент «${name}»: архив — обратимо, пропадёт из списков для новых стирок и визитов. Удаление совсем возможно, только если у клиента ещё не было стирок и визитов.`
             : confirm?.kind === 'type'
-              ? `Вид белья «${confirm.row.name}» будет архивирован и пропадёт из форм стирки.`
-              : ''
-        }
-        onConfirm={() => {
-          if (!confirm) return;
-          if (confirm.kind === 'client') archiveClient.mutate(confirm.row.id);
-          else toggleType.mutate({ id: confirm.row.id, active: 'нет' });
-        }}
-      />
+              ? `Вид белья «${name}»: архив — обратимо, пропадёт из форм стирки. Удалить совсем можно, только если вид не привязан ни у одного клиента.`
+              : confirm?.kind === 'price'
+                ? isLogistics(confirm.row)
+                  ? `Позиция прайса «${name}» будет архивирована и перестанет попадать в новые счета.`
+                  : `Позиция прайса «${name}»: архив — обратимо, позиция перестанет попадать в новые счета. Удалить совсем можно, только если позиция не используется в тарифах и привязках.`
+                : '';
+        return (
+          <Modal
+            open={confirm !== null}
+            onClose={() => setConfirm(null)}
+            title="Подтверждение"
+            footer={
+              <>
+                <Button variant="subtle" onClick={() => setConfirm(null)} disabled={busy}>
+                  Отмена
+                </Button>
+                {canArchive && (
+                  <Button
+                    busy={archiveClient.isPending || toggleType.isPending || togglePrice.isPending}
+                    disabled={busy}
+                    onClick={() => {
+                      if (!confirm) return;
+                      if (confirm.kind === 'client') archiveClient.mutate(confirm.row.id);
+                      else if (confirm.kind === 'type') toggleType.mutate({ id: confirm.row.id, active: 'нет' });
+                      else togglePrice.mutate({ ...confirm.row, active: 'нет' });
+                    }}
+                  >
+                    В архив
+                  </Button>
+                )}
+                {canDelete && (
+                  <Button
+                    variant="danger"
+                    busy={purgeClientM.isPending || deleteTypeM.isPending || deletePriceM.isPending}
+                    disabled={busy}
+                    onClick={() => {
+                      if (!confirm) return;
+                      if (confirm.kind === 'client') purgeClientM.mutate(confirm.row.id);
+                      else if (confirm.kind === 'type') deleteTypeM.mutate(confirm.row.id);
+                      else deletePriceM.mutate(confirm.row.id);
+                    }}
+                  >
+                    Удалить совсем
+                  </Button>
+                )}
+              </>
+            }
+          >
+            {text}
+          </Modal>
+        );
+      })()}
     </>
   );
 }

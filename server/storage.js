@@ -1,5 +1,6 @@
 // Складские записи (таблица Storage) — порт src/Storage.gs.
-// kind: dirty — грязное от водителя (без веса), clean — результат стирки (вес + позиции).
+// kind: dirty — грязное от водителя (без веса; при уходе в стирку проставляется
+// wash_id — связь партии для яруса рейса-забора в счёте P2), clean — результат стирки.
 // Пустой consumed_at = запись на складе.
 // laundryId обязателен: записи и выборки всегда в рамках одной прачки.
 const { SHEETS } = require('./schema');
@@ -27,10 +28,12 @@ function openStorage_(clientId, kind, laundryId) {
 }
 
 // Расходовать все открытые записи клиента данного вида.
-function consumeStorage_(clientId, kind, laundryId) {
+// washId — обратная связь «какая стирка забрала партию» (для биллинга P2).
+function consumeStorage_(clientId, kind, laundryId, washId) {
   const rows = openStorage_(clientId, kind, laundryId);
   rows.forEach(function (r) {
     r.obj.consumed_at = nowStr_();
+    if (washId) r.obj.wash_id = washId;
     db.updateRow_(SHEETS.STORAGE, r.rowNumber, r.obj);
   });
   return rows.length;

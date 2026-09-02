@@ -50,6 +50,11 @@ export function StartWashModal({ w, onClose }: StartWashModalProps) {
       }
     >
       <div className={styles.form}>
+        {!!w.piece_types?.length && (
+          <div className={styles.plaque}>
+            Отобрать до взвешивания: {w.piece_types.join(', ')}
+          </div>
+        )}
         <label className={styles.field}>
           <span className={styles.fieldLabel}>Вес грязного белья, кг</span>
           <input

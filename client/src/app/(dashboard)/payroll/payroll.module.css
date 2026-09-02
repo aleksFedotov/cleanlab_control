@@ -1,0 +1,158 @@
+/* Стили страницы «Зарплата». Цвета/радиусы — только токены globals.css. */
+
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap);
+}
+
+/* --- Навигация по месяцам (как в timesheet.module.css) --- */
+
+.periodRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.periodLabel {
+  font-size: 14px;
+  font-weight: 600;
+  min-width: 130px;
+  text-align: center;
+}
+
+.navBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-s);
+  background: var(--surface);
+  color: var(--text-2);
+}
+
+.navBtn:hover {
+  border-color: var(--bluing-border);
+  color: var(--bluing);
+  background: var(--bluing-soft);
+}
+
+.spacer {
+  flex: 1;
+}
+
+/* --- Сотрудник --- */
+
+.nameWrap {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.sub {
+  color: var(--text-4);
+  font-size: 12px;
+}
+
+/* «Стёртый дефолт» в Settings без override — ставка 0, надо заметно */
+.miss {
+  display: inline-block;
+  padding: 3px 9px;
+  border-radius: var(--radius-pill);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.2;
+  white-space: nowrap;
+  color: var(--danger);
+  background: var(--danger-bg, #fdecec);
+}
+
+/* --- Раскрытая строка: начисления по дням --- */
+
+.days {
+  border-collapse: collapse;
+  font-size: 12.5px;
+  min-width: 320px;
+}
+
+.days th,
+.days td {
+  padding: 4px 14px 4px 0;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.days th {
+  font-weight: 600;
+  color: var(--text-3);
+  border-bottom: 1px solid var(--border);
+}
+
+.days td {
+  color: var(--text-2);
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+.days td:first-child {
+  font-family: inherit;
+}
+
+.detailEmpty {
+  font-size: 13px;
+  color: var(--text-3);
+}
+
+.adjTitle {
+  margin-top: 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-3);
+}
+
+.adjComment {
+  white-space: normal;
+  font-family: inherit;
+  color: var(--text-3);
+}
+
+/* --- Блок «Ставки по умолчанию» (P3.1) --- */
+
+.settingsForm {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.settingsGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+}
+
+.settingsField {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.settingsLabel {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-3);
+}
+
+.settingsActions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.settingsHint {
+  font-size: 12px;
+  color: var(--text-3);
+  line-height: 1.45;
+}

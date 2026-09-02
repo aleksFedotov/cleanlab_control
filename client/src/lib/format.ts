@@ -28,3 +28,9 @@ export function plural(n: number, one: string, few: string, many: string): strin
   if (d === 1) return one;
   return many;
 }
+
+// «1 234,56 ₽»; null/пустое значение → '—'
+export function money(v: number | null | undefined): string {
+  if (v === null || v === undefined) return '—';
+  return v.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}

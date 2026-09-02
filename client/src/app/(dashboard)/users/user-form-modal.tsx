@@ -7,7 +7,7 @@ import { useEffect, useMemo } from 'react';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { useApiMutation } from '@/hooks/use-api';
+import { useApiMutation, usePayRates, useSavePayRate } from '@/hooks/use-api';
 import { useUiStore } from '@/stores/ui';
 import { getSession } from '@/lib/session';
 import { roleLabel } from '@/lib/dicts';
@@ -24,7 +24,17 @@ interface FormValues {
   login: string;
   password: string;
   clientId: string;
+  pointRate: string;
+  liftRate: string;
+  shiftBase: string;
+  shiftNorm: string;
 }
+
+// Ставка: пусто (= дефолт прачки) или неотрицательное число — как в savePayRate
+const rateField = z.string().refine(
+  (v) => v.trim() === '' || (isFinite(Number(v)) && Number(v) >= 0),
+  'Ставка: неотрицательное число или пусто'
+);
 
 export interface UserFormModalProps {
   open: boolean;
@@ -46,6 +56,10 @@ export function UserFormModal({ open, editing, clients, onClose }: UserFormModal
           login: z.string().trim().min(1, 'Укажите логин'),
           password: z.string(),
           clientId: z.string(),
+          pointRate: rateField,
+          liftRate: rateField,
+          shiftBase: rateField,
+          shiftNorm: rateField,
         })
         .superRefine((v, ctx) => {
           if (!editing && !v.password) {
@@ -66,8 +80,18 @@ export function UserFormModal({ open, editing, clients, onClose }: UserFormModal
     formState: { errors },
   } = useForm<FormValues>({
     resolver: zodResolver(schema),
-    defaultValues: { name: '', role: 'worker', login: '', password: '', clientId: '' },
+    defaultValues: {
+      name: '', role: 'worker', login: '', password: '', clientId: '',
+      pointRate: '', liftRate: '', shiftBase: '', shiftNorm: '',
+    },
   });
+
+  // Текущие переопределения ставок редактируемого сотрудника ('' = дефолт прачки)
+  const ratesQ = usePayRates();
+  const rateRow = useMemo(
+    () => (editing ? (ratesQ.data?.rates || []).find((r) => r.user_id === editing.id) : undefined),
+    [editing, ratesQ.data]
+  );
 
   // Заполнение формы при открытии (legacy enterEdit) / сброс при добавлении
   useEffect(() => {
@@ -78,8 +102,12 @@ export function UserFormModal({ open, editing, clients, onClose }: UserFormModal
       login: editing?.login || '',
       password: '',
       clientId: editing?.client_id || clients[0]?.id || '',
+      pointRate: rateRow?.point_rate || '',
+      liftRate: rateRow?.lift_floor_rate || '',
+      shiftBase: rateRow?.shift_base || '',
+      shiftNorm: rateRow?.shift_norm_hours || '',
     });
-  }, [open, editing, clients, reset]);
+  }, [open, editing, clients, rateRow, reset]);
 
   const role = watch('role');
 
@@ -89,7 +117,9 @@ export function UserFormModal({ open, editing, clients, onClose }: UserFormModal
   };
   const createMut = useApiMutation('createUser', { invalidate: ['users'], onSuccess: onSaved });
   const updateMut = useApiMutation('updateUser', { invalidate: ['users'], onSuccess: onSaved });
-  const busy = createMut.isPending || updateMut.isPending;
+  // Ставки сохраняем только для существующего сотрудника (при создании id ещё нет)
+  const rateMut = useSavePayRate();
+  const busy = createMut.isPending || updateMut.isPending || rateMut.isPending;
 
   const submit = handleSubmit((v) => {
     if (editing) {
@@ -100,7 +130,21 @@ export function UserFormModal({ open, editing, clients, onClose }: UserFormModal
         login: v.login,
       };
       if (v.role === 'client') payload.clientId = v.clientId;
-      updateMut.mutate(payload);
+      updateMut.mutate(payload, {
+        onSuccess: () => {
+          if (v.role === 'driver' || v.role === 'worker') {
+            rateMut.mutate([
+              editing.id,
+              {
+                point_rate: v.pointRate.trim(),
+                lift_floor_rate: v.liftRate.trim(),
+                shift_base: v.shiftBase.trim(),
+                shift_norm_hours: v.shiftNorm.trim(),
+              },
+            ]);
+          }
+        },
+      });
     } else {
       const payload: Record<string, string> = {
         laundryId: getSession()?.laundryId || '',
@@ -172,6 +216,39 @@ export function UserFormModal({ open, editing, clients, onClose }: UserFormModal
             </select>
             {errors.clientId && <span className={styles.err}>{errors.clientId.message}</span>}
           </label>
+        )}
+        {editing && (role === 'driver' || role === 'worker') && (
+          <>
+            <span className={styles.label}>Ставки оплаты (пусто = дефолт прачки)</span>
+            {role === 'driver' && (
+              <div className={styles.formRow}>
+                <label className={styles.field}>
+                  <span className={styles.label}>За точку, ₽</span>
+                  <input type="number" min="0" step="any" {...register('pointRate')} />
+                  {errors.pointRate && <span className={styles.err}>{errors.pointRate.message}</span>}
+                </label>
+                <label className={styles.field}>
+                  <span className={styles.label}>За этаж подъёма, ₽</span>
+                  <input type="number" min="0" step="any" {...register('liftRate')} />
+                  {errors.liftRate && <span className={styles.err}>{errors.liftRate.message}</span>}
+                </label>
+              </div>
+            )}
+            {role === 'worker' && (
+              <div className={styles.formRow}>
+                <label className={styles.field}>
+                  <span className={styles.label}>Ставка смены, ₽</span>
+                  <input type="number" min="0" step="any" {...register('shiftBase')} />
+                  {errors.shiftBase && <span className={styles.err}>{errors.shiftBase.message}</span>}
+                </label>
+                <label className={styles.field}>
+                  <span className={styles.label}>Норма часов смены</span>
+                  <input type="number" min="0" step="any" {...register('shiftNorm')} />
+                  {errors.shiftNorm && <span className={styles.err}>{errors.shiftNorm.message}</span>}
+                </label>
+              </div>
+            )}
+          </>
         )}
       </form>
     </Modal>

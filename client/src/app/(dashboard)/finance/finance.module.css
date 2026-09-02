@@ -1,0 +1,144 @@
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap);
+}
+
+/* --- Выбор периода --- */
+
+.periodRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.periodLabel {
+  font-size: 14px;
+  font-weight: 600;
+  min-width: 130px;
+  text-align: center;
+}
+
+.navBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-s);
+  background: var(--surface);
+  color: var(--text-2);
+}
+
+.navBtn:hover {
+  border-color: var(--bluing-border);
+  color: var(--bluing);
+  background: var(--bluing-soft);
+}
+
+.dateInput {
+  height: 32px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-s);
+  background: var(--surface);
+  color: var(--text-2);
+  font-size: 13px;
+}
+
+.dateInput:focus {
+  outline: none;
+  border-color: var(--bluing-border);
+}
+
+.dash {
+  color: var(--text-3);
+}
+
+/* --- Начислено: подсветка неполных цен --- */
+
+.amountCell {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.warnBadge {
+  display: inline-block;
+  padding: 3px 9px;
+  border-radius: var(--radius-pill);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.2;
+  white-space: nowrap;
+  font-family: inherit;
+  color: var(--warn);
+  background: var(--warn-bg);
+}
+
+/* --- Раскрытие клиента: строки счёта + ссылка на печатный счёт --- */
+
+.detail {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 4px 0;
+}
+
+.detailMeta {
+  font-size: 13px;
+  color: var(--text-2);
+}
+
+.lines {
+  border-collapse: collapse;
+  font-size: 12.5px;
+  min-width: 320px;
+}
+
+.lines th,
+.lines td {
+  padding: 4px 14px 4px 0;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.lines th {
+  font-weight: 600;
+  color: var(--text-3);
+  border-bottom: 1px solid var(--border);
+}
+
+.lines td {
+  color: var(--text-2);
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+.lines td:first-child {
+  font-family: inherit;
+}
+
+.noPrice {
+  font-family: inherit;
+  color: var(--warn);
+  font-weight: 600;
+}
+
+.invoiceLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--bluing);
+  text-decoration: none;
+}
+
+.invoiceLink:hover {
+  text-decoration: underline;
+}

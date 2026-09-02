@@ -15,6 +15,9 @@ interface UiState {
   washViewMode: 'board' | 'list';
   toggleSidebar: () => void;
   setWashViewMode: (m: 'board' | 'list') => void;
+  // Состояние аккордеонов по id (где раскрыл — там и откроется)
+  accordions: Record<string, boolean>;
+  toggleAccordion: (id: string, defaultOpen: boolean) => void;
   // не-persist
   sidebarOpenMobile: boolean;
   setSidebarOpenMobile: (v: boolean) => void;
@@ -38,6 +41,13 @@ export const useUiStore = create<UiState>()(
       toggleSidebar: () => set({ sidebarCollapsed: !get().sidebarCollapsed }),
       setWashViewMode: (m) => set({ washViewMode: m }),
 
+      accordions: {},
+      toggleAccordion: (id, defaultOpen) => {
+        const cur = get().accordions[id];
+        const open = cur === undefined ? defaultOpen : cur;
+        set({ accordions: { ...get().accordions, [id]: !open } });
+      },
+
       sidebarOpenMobile: false,
       setSidebarOpenMobile: (v) => set({ sidebarOpenMobile: v }),
 
@@ -59,7 +69,11 @@ export const useUiStore = create<UiState>()(
     }),
     {
       name: 'cl_ui',
-      partialize: (s) => ({ sidebarCollapsed: s.sidebarCollapsed, washViewMode: s.washViewMode }),
+      partialize: (s) => ({
+        sidebarCollapsed: s.sidebarCollapsed,
+        washViewMode: s.washViewMode,
+        accordions: s.accordions,
+      }),
     }
   )
 );

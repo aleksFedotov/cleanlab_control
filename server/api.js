@@ -13,11 +13,12 @@ const core = require('./core');
 const {
   addDaysStr_, mondayOf_, checkTransition_, applyDefer_, canEditWashData_,
   isDayWash_, sortDayList_, shiftBlockers_, buildDayReport_, completionStatus_,
-  err_, ok_, round1_, clientName_
+  err_, ok_, round1_, clientName_, resolveBillingItemForType_
 } = core;
 const { addStorageEntry_, openStorage_, consumeStorage_, storageSummaryByClient_ } = require('./storage');
 const deliveries = require('./deliveries');
 const workhours = require('./workhours');
+const payroll = require('./payroll');
 const { getVisitsByDate_, getVisitsByWeek_, decorateVisit_, isOpenVisit_, ensureVisit_ } = deliveries;
 
 // Замена LockService.getScriptLock(): синхронные операции атомарны в одном процессе.
@@ -119,6 +120,24 @@ function getDayList(token, date) {
       });
     const types = {};
     db.getItemTypes_().forEach(function (t) { types[t.id] = t.name; });
+    // P2: типы белья, идущие в счёт поштучно — работник должен отобрать их до взвешивания.
+    // Эффективная привязка: ClientItemBilling ?? ItemTypes.billing_item_id (core.resolveBillingItemForType_).
+    const itemTypesById = {};
+    db.getItemTypes_().forEach(function (t) { itemTypesById[t.id] = t; });
+    const pieceBillingById = {};
+    db.readAll_(SHEETS.BILLING_ITEMS).forEach(function (b) {
+      if (b.kind === 'wash_pcs' && b.active === 'да') pieceBillingById[b.id] = true;
+    });
+    const clientBindings = db.findRowsByTenant_(SHEETS.CLIENT_ITEM_BILLING, function () { return true; }, 10000, laundryId)
+      .map(function (r) { return r.obj; });
+    const pieceTypesFor_ = function (clientId, typeIds) {
+      const out = [];
+      typeIds.forEach(function (tid) {
+        const bid = resolveBillingItemForType_(clientId, tid, clientBindings, itemTypesById);
+        if (bid && pieceBillingById[bid] && itemTypesById[tid]) out.push(itemTypesById[tid].name);
+      });
+      return out;
+    };
     const mapItem = function (wi) {
       return {
         item_type_id: wi.item_type_id,
@@ -139,6 +158,9 @@ function getDayList(token, date) {
         const cl = clients[w.client_id] || {};
         w.client_item_types = db.parseJsonList_(cl.item_types);
         w.client_accounting = cl.accounting === 'weight' || cl.accounting === 'count' ? cl.accounting : 'both';
+        // Пустой список типов у клиента = все типы (как в формах стирки)
+        w.piece_types = pieceTypesFor_(w.client_id,
+          w.client_item_types && w.client_item_types.length ? w.client_item_types : Object.keys(itemTypesById));
         // Остаток частичной стирки: показываем, что часть уже постирана
         const prev = prevItems[w.id];
         if (prev && prev.length) {
@@ -178,8 +200,9 @@ function startWash(token, washId, weightKg) {
     // Вес необязателен на старте: основное взвешивание — при завершении (чистый вес)
     if (Number(weightKg) > 0) w.dirty_weight_kg = round1_(weightKg);
     db.updateRow_(SHEETS.WASHES, found.rowNumber, w);
-    // Грязное бельё клиента уходит со склада в стирку
-    consumeStorage_(w.client_id, 'dirty', laundryId);
+    // Грязное бельё клиента уходит со склада в стирку; wash_id на израсходованных
+    // записях — связь партии для веса ноги-забора в счёте (P2)
+    consumeStorage_(w.client_id, 'dirty', laundryId, w.id);
     ensureShift_(w.wash_date, laundryId);
     logEvent(actorOf_(session), 'wash_start', washId, { weight: w.dirty_weight_kg }, laundryId);
     return ok_({ wash: w });
@@ -931,6 +954,100 @@ function getSummaryReport(token, from, to) {
   return ok_({ from: from, to: to, clients: result });
 }
 
+// Финансовая сводка (P4): объёмы getSummaryReport + денежный слой buildInvoice_
+// по каждому активному клиенту прачки. Read-only, один проход по данным.
+function getFinanceSummary(token, from, to) {
+  const session = requireRole_(token, ['owner']);
+  if (!session) return err_('Нет доступа');
+  const laundryId = session.laundryId;
+  const re = /^\d{4}-\d{2}-\d{2}$/;
+  if (!re.test(from || '') || !re.test(to || '') || from > to) {
+    return err_('Некорректный период');
+  }
+  const inPeriod = function (ts) {
+    const d = String(ts || '').slice(0, 10);
+    return d >= from && d <= to;
+  };
+  const DONE = core.DONE_STATUSES;
+  // Стирки: постиранные в периоде (DONE_STATUSES, для объёмов и строк счёта)
+  // ИЛИ выданные в периоде (для веса ноги-доставки в buildInvoice_)
+  const washes = db.findRowsByTenant_(SHEETS.WASHES, function (w) {
+    return (w.wash_date >= from && w.wash_date <= to && DONE.indexOf(w.status) !== -1) ||
+      inPeriod(w.issued_at);
+  }, 100000, laundryId).map(function (r) { return r.obj; });
+  const washIds = {};
+  washes.forEach(function (w) { washIds[w.id] = true; });
+  const washItems = db.findRowsBy_(SHEETS.WASH_ITEMS, function (wi) {
+    return !!washIds[wi.wash_id];
+  }, 100000).map(function (r) { return r.obj; });
+  const visits = db.findRowsByTenant_(SHEETS.DELIVERIES, function (v) {
+    return inPeriod(v.date);
+  }, 100000, laundryId).map(function (r) { return r.obj; });
+  const storageRows = db.findRowsByTenant_(SHEETS.STORAGE, function (s) {
+    return s.kind === 'dirty' && inPeriod(s.created_at);
+  }, 100000, laundryId).map(function (r) { return r.obj; });
+  const itemTypes = db.getItemTypes_();
+  const clientItemBilling = db.findRowsByTenant_(SHEETS.CLIENT_ITEM_BILLING, function () {
+    return true;
+  }, 100000, laundryId).map(function (r) { return r.obj; });
+  const billingItems = billingItems_();
+  // kind позиции прайса по id: у строк счёта buildInvoice_ поля kind нет
+  const kindByBillingId = {};
+  billingItems.forEach(function (b) { kindByBillingId[b.id] = b.kind; });
+  const tariffs = core.effectiveTariffs_(db.readAll_(SHEETS.CLIENT_TARIFFS), laundryId);
+  const clients = {};
+  db.getClients_(laundryId).forEach(function (c) { clients[c.id] = c; });
+  // Объёмы: только стирки по wash_date со статусами DONE_STATUSES (как getSummaryReport)
+  const byClient = {};
+  washes.forEach(function (w) {
+    if (!(w.wash_date >= from && w.wash_date <= to && DONE.indexOf(w.status) !== -1)) return;
+    const s = byClient[w.client_id] || (byClient[w.client_id] = {
+      client_id: w.client_id, client_name: clientName_(w.client_id, clients),
+      washes: 0, bags: 0, weight_kg: 0, items_total: 0
+    });
+    s.washes++;
+    s.bags += Number(w.bags) || 0;
+    s.weight_kg = round1_(s.weight_kg + (Number(w.dirty_weight_kg) || 0));
+    s.items_total += Number(w.items_total) || 0;
+  });
+  const totals = { washes: 0, weight_kg: 0, items_total: 0, amount: 0 };
+  const result = Object.keys(byClient).map(function (cid) {
+    const s = byClient[cid];
+    const clientWashes = washes.filter(function (w) { return w.client_id === cid; });
+    const clientWashIds = {};
+    clientWashes.forEach(function (w) { clientWashIds[w.id] = true; });
+    const invoice = core.buildInvoice_({
+      // Клиент мог быть удалён вне purgeClient (старые данные): счёт всё равно строим
+      client: clients[cid] || { id: cid, name: s.client_name, active: 'нет' }, from: from, to: to,
+      washes: clientWashes,
+      washItems: washItems.filter(function (wi) { return !!clientWashIds[wi.wash_id]; }),
+      itemTypes: itemTypes,
+      clientItemBilling: clientItemBilling.filter(function (r) { return r.client_id === cid; }),
+      billingItems: billingItems,
+      tariffs: tariffs,
+      visits: visits.filter(function (v) { return v.client_id === cid; }),
+      storageRows: storageRows.filter(function (s2) { return s2.client_id === cid; })
+    });
+    let trips = 0, lifts = 0;
+    invoice.lines.forEach(function (l) {
+      const kind = kindByBillingId[l.billing_item_id];
+      if (kind === 'trip') trips += l.qty;
+      if (kind === 'lift') lifts += l.qty;
+    });
+    totals.washes += s.washes;
+    totals.weight_kg = round1_(totals.weight_kg + s.weight_kg);
+    totals.items_total += s.items_total;
+    totals.amount = Math.round((totals.amount + invoice.total) * 100) / 100;
+    return {
+      client_id: cid, client_name: s.client_name,
+      washes: s.washes, bags: s.bags, weight_kg: s.weight_kg, items_total: s.items_total,
+      trips: trips, lifts: lifts, amount: invoice.total,
+      missing_prices: invoice.missing_prices.length, lines: invoice.lines
+    };
+  }).sort(function (a, b) { return a.client_name < b.client_name ? -1 : 1; });
+  return ok_({ from: from, to: to, clients: result, totals: totals });
+}
+
 // --- Справочники (owner). Записи сбрасывают кэш (spec §10) ---
 
 function saveClient(token, client) {
@@ -985,11 +1102,54 @@ function deleteClient(token, clientId) {
   });
 }
 
+// Физическое удаление клиента. Стирки/визиты блокируют (история счетов);
+// тарифы и привязки клиента чистятся каскадно — без клиента они мусор.
+function purgeClient(token, clientId) {
+  const session = requireRole_(token, ['owner']);
+  if (!session) return err_('Нет доступа');
+  const laundryId = session.laundryId;
+  return withLock_(function () {
+    const found = findTenantRow_(SHEETS.CLIENTS, clientId, laundryId);
+    if (!found) return err_('Клиент не найден');
+    const used = db.findRowsByTenant_(SHEETS.WASHES, function (w) {
+      return w.client_id === clientId;
+    }, 1, laundryId).length
+      || db.findRowsByTenant_(SHEETS.DELIVERIES, function (d) {
+        return d.client_id === clientId;
+      }, 1, laundryId).length;
+    if (used) return err_('Клиент используется в стирках или визитах — можно только архивировать');
+    db.findRowsByTenant_(SHEETS.CLIENT_TARIFFS, function (t) {
+      return t.client_id === clientId;
+    }, 1000, laundryId).forEach(function (t) {
+      db.deleteRow_(SHEETS.CLIENT_TARIFFS, t.rowNumber);
+    });
+    db.findRowsByTenant_(SHEETS.CLIENT_ITEM_BILLING, function (r) {
+      return r.client_id === clientId;
+    }, 1000, laundryId).forEach(function (r) {
+      db.deleteRow_(SHEETS.CLIENT_ITEM_BILLING, r.rowNumber);
+    });
+    db.deleteRow_(SHEETS.CLIENTS, found.rowNumber);
+    db.invalidateRefCache_();
+    logEvent(actorOf_(session), 'client_purge', clientId, { name: found.obj.name }, laundryId);
+    return ok_({});
+  });
+}
+
 // Создавать новый тип («Другое…») может и работник с экрана стирки;
 // переименование существующего — только владелец.
+// billing_item_id — позиция в счёте (только штучная wash_pcs, пусто = в счёт по весу).
 function saveItemType(token, itemType) {
   const roles = itemType && itemType.id ? ['owner'] : ['owner', 'worker'];
-  if (!requireRole_(token, roles)) return err_('Нет доступа');
+  const session = requireRole_(token, roles);
+  if (!session) return err_('Нет доступа');
+  if (itemType.billing_item_id !== undefined) {
+    const bid = String(itemType.billing_item_id || '');
+    if (bid) {
+      const bi = db.findById_(SHEETS.BILLING_ITEMS, bid);
+      if (!bi || bi.obj.kind !== 'wash_pcs') return err_('Позиция в счёте должна быть штучной');
+    }
+    itemType.billing_item_id = bid;
+  }
   return withLock_(function () {
     let saved;
     if (itemType.id) {
@@ -1003,7 +1163,7 @@ function saveItemType(token, itemType) {
       db.getItemTypes_().forEach(function (t) { maxSort = Math.max(maxSort, Number(t.sort) || 0); });
       saved = {
         id: db.nextId_(SHEETS.ITEM_TYPES, 'itm'), name: itemType.name || '',
-        sort: maxSort + 1, active: 'да'
+        sort: maxSort + 1, active: 'да', billing_item_id: itemType.billing_item_id || ''
       };
       db.appendRow_(SHEETS.ITEM_TYPES, saved);
     }
@@ -1032,11 +1192,347 @@ function rememberClientItemType(token, clientId, itemTypeId) {
   });
 }
 
+// Физическое удаление вида белья. Блокируется, если вид привязан
+// у клиента (item_types) или есть per-клиентская привязка к позиции счёта —
+// иначе только архивация (active=нет). ItemTypes — глобальный справочник
+// (без laundry_id), клиентов проверяем только своей прачки.
+function deleteItemType(token, itemTypeId) {
+  const session = requireRole_(token, ['owner']);
+  if (!session) return err_('Нет доступа');
+  const laundryId = session.laundryId;
+  return withLock_(function () {
+    const found = db.findById_(SHEETS.ITEM_TYPES, itemTypeId);
+    if (!found) return err_('Тип не найден');
+    const inClients = db.getClients_(laundryId).some(function (c) {
+      return (db.parseJsonList_(c.item_types) || []).indexOf(itemTypeId) !== -1;
+    });
+    const inBindings = db.findRowsByTenant_(SHEETS.CLIENT_ITEM_BILLING, function (r) {
+      return r.item_type_id === itemTypeId;
+    }, 1, laundryId).length;
+    if (inClients || inBindings) {
+      return err_('Вид белья используется у клиентов — можно только архивировать');
+    }
+    db.deleteRow_(SHEETS.ITEM_TYPES, found.rowNumber);
+    db.invalidateRefCache_();
+    logEvent(actorOf_(session), 'item_type_delete', itemTypeId, { name: found.obj.name }, laundryId);
+    return ok_({});
+  });
+}
+
 // Полные справочники для экрана владельца (включая архивные).
 function getRefs(token) {
   const session = requireRole_(token, ['owner']);
   if (!session) return err_('Нет доступа');
   return ok_({ clients: db.getClients_(session.laundryId), itemTypes: db.getItemTypes_() });
+}
+
+// --- Прайс и счета (P2, docs/tickets.md). Owner-only, события в Log ---
+
+const BILLING_KINDS = ['wash_weight', 'wash_pcs', 'trip', 'lift'];
+
+// Прайс глобальный (v7): laundry_id у позиций пуст, список общий для всех прачек.
+function billingItems_() {
+  return db.readAll_(SHEETS.BILLING_ITEMS)
+    .sort(function (a, b) { return (Number(a.sort) || 0) - (Number(b.sort) || 0); });
+}
+
+function listBillingItems(token) {
+  const session = requireRole_(token, ['owner']);
+  if (!session) return err_('Нет доступа');
+  return ok_({ items: billingItems_() });
+}
+
+function saveBillingItem(token, item) {
+  const session = requireRole_(token, ['owner']);
+  if (!session) return err_('Нет доступа');
+  const laundryId = session.laundryId;
+  return withLock_(function () {
+    item = item || {};
+    const kind = BILLING_KINDS.indexOf(item.kind) !== -1 ? item.kind : '';
+    if (!kind) return err_('Неизвестный вид позиции');
+    // P2.2: позиции доставки и подъёма фиксированы — свободное создание
+    // только для стирки (по весу / поштучно).
+    if (!item.id && (kind === 'trip' || kind === 'lift')) {
+      return err_('Позиции доставки и подъёма фиксированы');
+    }
+    if (item.id) {
+      const found = db.findById_(SHEETS.BILLING_ITEMS, item.id);
+      if (!found) return err_('Позиция прайса не найдена');
+      if (found.obj.kind === 'trip' || found.obj.kind === 'lift') {
+        return saveLogisticsItem_(session, found, item, laundryId);
+      }
+    }
+    const name = String(item.name || '').trim();
+    if (!name) return err_('Укажите название позиции');
+    const active = item.active === 'нет' ? 'нет' : 'да';
+    // Ровно одна активная весовая позиция на весь глобальный прайс (весовая по умолчанию)
+    if (kind === 'wash_weight' && active === 'да') {
+      const dup = billingItems_().filter(function (b) {
+        return b.kind === 'wash_weight' && b.active === 'да' && b.id !== item.id;
+      })[0];
+      if (dup) return err_('Активная весовая позиция уже есть: ' + dup.name);
+    }
+    const normalized = {
+      name: name, unit: kind === 'wash_weight' ? 'кг' : 'шт', kind: kind,
+      oneway: '', max_kg: '', per_floor: '',
+      ext_code: String(item.ext_code || '').trim(),
+      active: active
+    };
+    let saved;
+    if (item.id) {
+      const found = db.findById_(SHEETS.BILLING_ITEMS, item.id);
+      Object.keys(normalized).forEach(function (k) { found.obj[k] = normalized[k]; });
+      if (Number(item.sort) > 0) found.obj.sort = String(Number(item.sort));
+      db.updateRow_(SHEETS.BILLING_ITEMS, found.rowNumber, found.obj);
+      saved = found.obj;
+    } else {
+      let maxSort = 0;
+      billingItems_().forEach(function (b) { maxSort = Math.max(maxSort, Number(b.sort) || 0); });
+      saved = Object.assign({
+        id: db.nextId_(SHEETS.BILLING_ITEMS, 'bi'), laundry_id: '', sort: String(maxSort + 1)
+      }, normalized);
+      db.appendRow_(SHEETS.BILLING_ITEMS, saved);
+    }
+    logEvent(actorOf_(session), 'billing_item_save', saved.id,
+      { name: saved.name, kind: saved.kind, active: saved.active }, laundryId);
+    return ok_({ item: saved });
+  });
+}
+
+// Правка фиксированных логистических позиций (P2.2).
+// Системный набор: пороговая (trip с max_kg, oneway ≠ да), oneway-trip, lift per_floor.
+// Пороговой разрешены max_kg и ext_code (имя генерируется из N); oneway/lift —
+// только ext_code; legacy (созданные до запрета) — только архивация (active).
+function saveLogisticsItem_(session, found, item, laundryId) {
+  const it = found.obj;
+  const isThreshold = it.kind === 'trip' && it.max_kg && it.oneway !== 'да';
+  const isSystem = isThreshold
+    || (it.kind === 'trip' && it.oneway === 'да')
+    || (it.kind === 'lift' && it.per_floor === 'да');
+  const attempt = function (field, val) {
+    return val !== undefined && String(val) !== String(it[field] || '');
+  };
+  if (!isSystem) {
+    // legacy: только активность
+    const locked = ['name', 'unit', 'kind', 'oneway', 'max_kg', 'per_floor', 'ext_code']
+      .some(function (f) { return attempt(f, item[f]); });
+    if (locked) return err_('Позиция устарела: можно только архивировать');
+    it.active = item.active === 'нет' ? 'нет' : 'да';
+    db.updateRow_(SHEETS.BILLING_ITEMS, found.rowNumber, it);
+    logEvent(actorOf_(session), 'billing_item_save', it.id,
+      { name: it.name, kind: it.kind, active: it.active }, laundryId);
+    return ok_({ item: it });
+  }
+  if (isThreshold) {
+    const prevThreshold = it.max_kg;
+    if (item.max_kg !== undefined) {
+      const n = Number(item.max_kg);
+      if (!Number.isInteger(n) || n <= 0) return err_('Порог доставки — целое число больше 0');
+      it.max_kg = String(n);
+    }
+    if (item.ext_code !== undefined) it.ext_code = String(item.ext_code).trim();
+    // Имя позиции в счёте генерируется из порога N
+    it.name = 'Доставка менее ' + it.max_kg + ' кг';
+    db.updateRow_(SHEETS.BILLING_ITEMS, found.rowNumber, it);
+    logEvent(actorOf_(session), 'billing_item_save', it.id, {
+      name: it.name, kind: it.kind, active: it.active,
+      max_kg: prevThreshold !== it.max_kg ? { was: prevThreshold, now: it.max_kg } : it.max_kg
+    }, laundryId);
+    return ok_({ item: it });
+  }
+  // Системные oneway-trip и lift: только код НФ
+  if (attempt('name', item.name) || attempt('active', item.active)
+    || attempt('oneway', item.oneway) || attempt('max_kg', item.max_kg)
+    || attempt('per_floor', item.per_floor)) {
+    return err_('Название, параметры и активность системной позиции зафиксированы');
+  }
+  if (item.ext_code !== undefined) it.ext_code = String(item.ext_code).trim();
+  db.updateRow_(SHEETS.BILLING_ITEMS, found.rowNumber, it);
+  logEvent(actorOf_(session), 'billing_item_save', it.id,
+    { name: it.name, kind: it.kind, active: it.active }, laundryId);
+  return ok_({ item: it });
+}
+
+// Удаление запрещено, если позиция используется в тарифах, привязках клиентов
+// или типах белья — только архивация (active=нет), чтобы не ломать историю счетов.
+function deleteBillingItem(token, itemId) {
+  const session = requireRole_(token, ['owner']);
+  if (!session) return err_('Нет доступа');
+  const laundryId = session.laundryId;
+  return withLock_(function () {
+    const found = db.findById_(SHEETS.BILLING_ITEMS, itemId);
+    if (!found) return err_('Позиция прайса не найдена');
+    // P2.2: логистические позиции (системные и legacy) удалять нельзя
+    if (found.obj.kind === 'trip' || found.obj.kind === 'lift') {
+      return err_('Позиции доставки и подъёма удалять нельзя');
+    }
+    // Позиция глобальная — использование проверяем по всем прачкам
+    const inTariffs = db.findRowsBy_(SHEETS.CLIENT_TARIFFS, function (t) {
+      return t.billing_item_id === itemId;
+    }, 10000).length;
+    const inBindings = db.findRowsBy_(SHEETS.CLIENT_ITEM_BILLING, function (r) {
+      return r.billing_item_id === itemId;
+    }, 10000).length;
+    const inTypes = db.getItemTypes_().filter(function (t) {
+      return t.billing_item_id === itemId;
+    }).length;
+    if (inTariffs || inBindings || inTypes) {
+      return err_('Позиция используется (тарифы, привязки или типы белья) — можно только архивировать');
+    }
+    db.deleteRow_(SHEETS.BILLING_ITEMS, found.rowNumber);
+    logEvent(actorOf_(session), 'billing_item_delete', itemId, { name: found.obj.name }, laundryId);
+    return ok_({});
+  });
+}
+
+// Тарифы прачки: глобальные дефолты (client_id='') + переопределения её клиентов.
+// С clientId — дефолты + переопределения этого клиента.
+function listTariffs(token, clientId) {
+  const session = requireRole_(token, ['owner']);
+  if (!session) return err_('Нет доступа');
+  const rows = core.effectiveTariffs_(db.readAll_(SHEETS.CLIENT_TARIFFS), session.laundryId)
+    .filter(function (t) { return !clientId || !t.client_id || t.client_id === clientId; });
+  return ok_({ tariffs: rows });
+}
+
+// Upsert по (client_id, billing_item_id); price=''/null — снять переопределение.
+// clientId пусто = глобальный дефолт (общий для всех прачек, laundry_id='').
+function saveTariff(token, clientId, billingItemId, price) {
+  const session = requireRole_(token, ['owner']);
+  if (!session) return err_('Нет доступа');
+  const laundryId = session.laundryId;
+  return withLock_(function () {
+    if (!db.findById_(SHEETS.BILLING_ITEMS, billingItemId)) {
+      return err_('Позиция прайса не найдена');
+    }
+    clientId = clientId || '';
+    if (clientId && !findTenantRow_(SHEETS.CLIENTS, clientId, laundryId)) {
+      return err_('Клиент не найден');
+    }
+    // Дефолт глобальный — ищем среди дефолтов любой прачки; клиентское
+    // переопределение — только в своей прачке.
+    const existing = db.findRowsBy_(SHEETS.CLIENT_TARIFFS, function (t) {
+      if (t.client_id !== clientId || t.billing_item_id !== billingItemId) return false;
+      return clientId ? String(t.laundry_id) === String(laundryId) : true;
+    }, 10000)[0];
+    if (price === '' || price === null || price === undefined) {
+      if (existing) {
+        db.deleteRow_(SHEETS.CLIENT_TARIFFS, existing.rowNumber);
+        logEvent(actorOf_(session), 'tariff_set', billingItemId,
+          { client_id: clientId, price: '', removed: true }, laundryId);
+      }
+      return ok_({});
+    }
+    const p = Number(price);
+    if (!(p >= 0)) return err_('Некорректная цена');
+    let saved;
+    if (existing) {
+      existing.obj.price = String(p);
+      db.updateRow_(SHEETS.CLIENT_TARIFFS, existing.rowNumber, existing.obj);
+      saved = existing.obj;
+    } else {
+      saved = {
+        id: db.nextId_(SHEETS.CLIENT_TARIFFS, 'trf'),
+        laundry_id: clientId ? String(laundryId) : '',
+        client_id: clientId, billing_item_id: billingItemId, price: String(p)
+      };
+      db.appendRow_(SHEETS.CLIENT_TARIFFS, saved);
+    }
+    logEvent(actorOf_(session), 'tariff_set', billingItemId,
+      { client_id: clientId, price: saved.price }, laundryId);
+    return ok_({ tariff: saved });
+  });
+}
+
+// Per-клиентская привязка типа белья к позиции счёта (upsert по client_id+item_type_id).
+// billingItemId '' — «у этого клиента тип идёт в вес»; null — удалить строку
+// (вернуться к дефолтной привязке из ItemTypes).
+function saveClientItemBilling(token, clientId, itemTypeId, billingItemId) {
+  const session = requireRole_(token, ['owner']);
+  if (!session) return err_('Нет доступа');
+  const laundryId = session.laundryId;
+  return withLock_(function () {
+    if (!findTenantRow_(SHEETS.CLIENTS, clientId, laundryId)) return err_('Клиент не найден');
+    if (!db.findById_(SHEETS.ITEM_TYPES, itemTypeId)) return err_('Тип белья не найден');
+    if (billingItemId) {
+      const bi = db.findById_(SHEETS.BILLING_ITEMS, billingItemId);
+      if (!bi || bi.obj.kind !== 'wash_pcs') return err_('Привязка возможна только к штучной позиции прайса');
+    }
+    const existing = db.findRowsByTenant_(SHEETS.CLIENT_ITEM_BILLING, function (r) {
+      return r.client_id === clientId && r.item_type_id === itemTypeId;
+    }, 100, laundryId)[0];
+    if (billingItemId === null) {
+      if (existing) db.deleteRow_(SHEETS.CLIENT_ITEM_BILLING, existing.rowNumber);
+      logEvent(actorOf_(session), 'client_item_billing', itemTypeId,
+        { client_id: clientId, billing_item_id: null, removed: true }, laundryId);
+      return ok_({});
+    }
+    let saved;
+    if (existing) {
+      existing.obj.billing_item_id = billingItemId || '';
+      db.updateRow_(SHEETS.CLIENT_ITEM_BILLING, existing.rowNumber, existing.obj);
+      saved = existing.obj;
+    } else {
+      saved = {
+        id: db.nextId_(SHEETS.CLIENT_ITEM_BILLING, 'cib'),
+        client_id: clientId, item_type_id: itemTypeId,
+        billing_item_id: billingItemId || ''
+      };
+      db.appendRowTenant_(SHEETS.CLIENT_ITEM_BILLING, saved, laundryId);
+    }
+    logEvent(actorOf_(session), 'client_item_billing', itemTypeId,
+      { client_id: clientId, billing_item_id: saved.billing_item_id }, laundryId);
+    return ok_({ binding: saved });
+  });
+}
+
+function listClientItemBilling(token, clientId) {
+  const session = requireRole_(token, ['owner']);
+  if (!session) return err_('Нет доступа');
+  const rows = db.findRowsByTenant_(SHEETS.CLIENT_ITEM_BILLING, function (r) {
+    return r.client_id === clientId;
+  }, 1000, session.laundryId).map(function (r) { return r.obj; });
+  return ok_({ bindings: rows });
+}
+
+// Счёт клиента за период: сбор данных и чистый расчёт buildInvoice_ (core.js).
+function getClientInvoice(token, clientId, from, to) {
+  const session = requireRole_(token, ['owner']);
+  if (!session) return err_('Нет доступа');
+  const laundryId = session.laundryId;
+  const found = findTenantRow_(SHEETS.CLIENTS, clientId, laundryId);
+  if (!found) return err_('Клиент не найден');
+  if (!from || !to) return err_('Укажите период');
+  const inPeriod = function (ts) {
+    const d = String(ts || '').slice(0, 10);
+    return d >= from && d <= to;
+  };
+  // Стирки: постиранные в периоде ИЛИ выданные в периоде (для веса ноги-доставки)
+  const washes = db.findRowsByTenant_(SHEETS.WASHES, function (w) {
+    return w.client_id === clientId && (inPeriod(w.wash_date) || inPeriod(w.issued_at));
+  }, 5000, laundryId).map(function (r) { return r.obj; });
+  const washIds = {};
+  washes.forEach(function (w) { washIds[w.id] = true; });
+  const washItems = db.findRowsBy_(SHEETS.WASH_ITEMS, function (wi) {
+    return !!washIds[wi.wash_id];
+  }, 20000).map(function (r) { return r.obj; });
+  const visits = db.findRowsByTenant_(SHEETS.DELIVERIES, function (v) {
+    return v.client_id === clientId && inPeriod(v.date);
+  }, 5000, laundryId).map(function (r) { return r.obj; });
+  const storageRows = db.findRowsByTenant_(SHEETS.STORAGE, function (s) {
+    return s.client_id === clientId && s.kind === 'dirty' && inPeriod(s.created_at);
+  }, 5000, laundryId).map(function (r) { return r.obj; });
+  const invoice = core.buildInvoice_({
+    client: found.obj, from: from, to: to,
+    washes: washes, washItems: washItems, itemTypes: db.getItemTypes_(),
+    clientItemBilling: db.findRowsByTenant_(SHEETS.CLIENT_ITEM_BILLING, function (r) {
+      return r.client_id === clientId;
+    }, 1000, laundryId).map(function (r) { return r.obj; }),
+    billingItems: billingItems_(),
+    tariffs: core.effectiveTariffs_(db.readAll_(SHEETS.CLIENT_TARIFFS), laundryId),
+    visits: visits, storageRows: storageRows
+  });
+  return ok_({ invoice: invoice });
 }
 
 // --- Прачки (owner): вкладка «Прачки» ---
@@ -1327,8 +1823,10 @@ const api = {
   getShiftCloseState, closeShift,
   getDeliveryPlan, addToDelivery, cancelWash, deleteWash, confirmStorageCheck, markIssued, updateIssueDate,
   getWeekPlan, addWeekCard, moveWeekCard, removeWeekCard,
-  getStorage, getDayReport, getSummaryReport,
-  saveClient, deleteClient, saveItemType, rememberClientItemType, getRefs,
+  getStorage, getDayReport, getSummaryReport, getFinanceSummary,
+  saveClient, deleteClient, purgeClient, saveItemType, deleteItemType, rememberClientItemType, getRefs,
+  listBillingItems, saveBillingItem, deleteBillingItem,
+  listTariffs, saveTariff, saveClientItemBilling, listClientItemBilling, getClientInvoice,
   listUsers, createUser, updateUser, resetUserPassword, deactivateUser, reactivateUser, deleteUser, makeTelegramBindCode,
   getTvData,
   // Развозы и водитель (логика в deliveries.js)
@@ -1341,10 +1839,21 @@ const api = {
   driverTakeAllClean: deliveries.driverTakeAllClean,
   driverAction: deliveries.driverAction,
   driverHandover: deliveries.driverHandover,
+  setVisitLiftFloor: deliveries.setVisitLiftFloor,
   // Табель: часы работников и статистика развозов (логика в workhours.js)
   setWorkHours: workhours.setWorkHours,
   getWorkHours: workhours.getWorkHours,
-  getDeliveryPointStats: workhours.getDeliveryPointStats
+  getDeliveryPointStats: workhours.getDeliveryPointStats,
+  // Зарплаты (логика в payroll.js)
+  getPayroll: payroll.getPayroll,
+  getMyPayroll: payroll.getMyPayroll,
+  listPayRates: payroll.listPayRates,
+  savePayRate: payroll.savePayRate,
+  savePayAdjustment: payroll.savePayAdjustment,
+  deletePayAdjustment: payroll.deletePayAdjustment,
+  listPayAdjustments: payroll.listPayAdjustments,
+  listPaySettings: payroll.listPaySettings,
+  savePaySettings: payroll.savePaySettings
 };
 
 function mountApi(app) {
@@ -1371,8 +1880,10 @@ module.exports = {
   getShiftCloseState, closeShift,
   getDeliveryPlan, addToDelivery, cancelWash, deleteWash, confirmStorageCheck, markIssued, updateIssueDate,
   getWeekPlan, addWeekCard, moveWeekCard, removeWeekCard,
-  getStorage, getDayReport, getSummaryReport,
-  saveClient, deleteClient, saveItemType, rememberClientItemType, getRefs,
+  getStorage, getDayReport, getSummaryReport, getFinanceSummary,
+  saveClient, deleteClient, purgeClient, saveItemType, deleteItemType, rememberClientItemType, getRefs,
+  listBillingItems, saveBillingItem, deleteBillingItem,
+  listTariffs, saveTariff, saveClientItemBilling, listClientItemBilling, getClientInvoice,
   listUsers, createUser, updateUser, resetUserPassword, deactivateUser, reactivateUser, deleteUser, makeTelegramBindCode,
   consumeTelegramBindCode_, getTvData,
   getDeliveryVisits: deliveries.getDeliveryVisits,
@@ -1384,7 +1895,17 @@ module.exports = {
   driverTakeAllClean: deliveries.driverTakeAllClean,
   driverAction: deliveries.driverAction,
   driverHandover: deliveries.driverHandover,
+  setVisitLiftFloor: deliveries.setVisitLiftFloor,
   setWorkHours: workhours.setWorkHours,
   getWorkHours: workhours.getWorkHours,
-  getDeliveryPointStats: workhours.getDeliveryPointStats
+  getDeliveryPointStats: workhours.getDeliveryPointStats,
+  getPayroll: payroll.getPayroll,
+  getMyPayroll: payroll.getMyPayroll,
+  listPayRates: payroll.listPayRates,
+  savePayRate: payroll.savePayRate,
+  savePayAdjustment: payroll.savePayAdjustment,
+  deletePayAdjustment: payroll.deletePayAdjustment,
+  listPayAdjustments: payroll.listPayAdjustments,
+  listPaySettings: payroll.listPaySettings,
+  savePaySettings: payroll.savePaySettings
 };

@@ -114,3 +114,31 @@
 .matrixTotal:hover {
   background: none;
 }
+
+.spacer {
+  flex: 1;
+}
+
+/* «Стёртый дефолт» в Settings без override — ставка 0, надо заметно (как в payroll) */
+.miss {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.2;
+  white-space: nowrap;
+  font-family: inherit;
+  color: var(--danger);
+  background: var(--danger-bg, #fdecec);
+}
+
+/* --- Развозы водителя: итог начислений за месяц (P3/P4) --- */
+
+.driverTotal {
+  font-size: 13px;
+  color: var(--text-2);
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+}

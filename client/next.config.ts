@@ -4,6 +4,10 @@ const nextConfig: NextConfig = {
   // API живёт на Express — в dev проксируем /api/* туда.
   // В проде /api разводит Caddy, rewrite не задействуется.
   // API_ORIGIN нужен E2E (Playwright поднимает Express на отдельном порту).
+  // «Сводный отчёт» переехал во вкладку «Финансы» (P4)
+  redirects() {
+    return [{ source: "/summary", destination: "/finance", permanent: true }];
+  },
   rewrites() {
     const origin = process.env.API_ORIGIN || "http://localhost:3100";
     return [

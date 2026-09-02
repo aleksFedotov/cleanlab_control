@@ -11,7 +11,7 @@ test('логин владельца и выход', async ({ page }) => {
   // Сайдбар с навигацией владельца
   await expect(page.getByRole('link', { name: 'Сегодня' })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Стирка' })).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Отчёт' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Отчёт', exact: true })).toBeVisible();
 
   // Выход через сайдбар
   await page.getByRole('button', { name: 'Выход' }).click();

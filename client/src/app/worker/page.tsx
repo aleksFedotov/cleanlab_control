@@ -123,6 +123,9 @@ function QueuedWashCard({
           {w.prev_kg} кг, {w.prev_bags} мешк. — остаток грязный
         </div>
       )}
+      {/* {!!w.piece_types?.length && (
+        <div className={styles.plaque}>Отобрать до взвешивания: {w.piece_types.join(', ')}</div>
+      )} */}
       <div className={styles.washActions}>
         {dirtyOk && (
           <Button variant="ghost" className={styles.bigBtn} onClick={onStart}>

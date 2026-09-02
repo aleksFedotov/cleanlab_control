@@ -5,7 +5,7 @@
 const { SHEETS } = require('./schema');
 const db = require('./db');
 const { nowStr_, todayStr_, logEvent, actorOf_ } = require('./audit');
-const { addDaysStr_, err_, ok_, clientName_ } = require('./core');
+const { addDaysStr_, err_, ok_, clientName_, resolvePrice_, effectiveTariffs_ } = require('./core');
 const { requireRole_ } = require('./auth');
 const { addStorageEntry_, openStorage_, storageSummaryByClient_ } = require('./storage');
 
@@ -15,6 +15,13 @@ function withLock_(fn) { return fn(); }
 const VISIT_FINAL = ['delivered', 'picked', 'both', 'empty'];
 
 function isOpenVisit_(v) { return v.status === 'planned'; }
+
+// Этаж подъёма (P2): пусто/1/2 = без доплаты; доплачивается всё выше 2-го.
+function normalizeLiftFloor_(floor) {
+  if (floor === undefined || floor === null || floor === '') return '';
+  const n = Math.floor(Number(floor));
+  return n > 2 ? String(n) : '';
+}
 
 // Визиты на дату (без отменённых), по порядку ord.
 function getVisitsByDate_(date, laundryId) {
@@ -177,6 +184,33 @@ function driverCargo_(laundryId) {
   return cargo;
 }
 
+// Статистика дня водителя: сколько точек посещено (любой финальный статус,
+// включая empty — водитель до точки доехал) и доплата за подъём (P2).
+// Этаж выше 2-го: per_floor=да — за каждый этаж выше 2-го, иначе за факт.
+// Цена — как в счёте: тариф клиента → дефолт прачки; без цены — lift_missing.
+function driverDayStats_(visits, laundryId) {
+  const stats = {
+    visited: visits.filter(function (v) { return VISIT_FINAL.indexOf(v.status) >= 0; }).length,
+    lift_qty: 0, lift_total: 0, lift_missing: false
+  };
+  // Прайс и дефолтные тарифы глобальны (v7)
+  const lift = db.readAll_(SHEETS.BILLING_ITEMS)
+    .filter(function (b) { return b.kind === 'lift' && b.active !== 'нет'; })[0];
+  if (!lift) return stats;
+  const tariffs = effectiveTariffs_(db.readAll_(SHEETS.CLIENT_TARIFFS), laundryId);
+  visits.forEach(function (v) {
+    const floor = Math.floor(Number(v.lift_floor) || 0);
+    if (floor <= 2) return;
+    const qty = lift.per_floor === 'да' ? floor - 2 : 1;
+    stats.lift_qty += qty;
+    const price = resolvePrice_(tariffs, v.client_id, lift.id);
+    if (price === null) stats.lift_missing = true;
+    else stats.lift_total += qty * price;
+  });
+  stats.lift_total = Math.round(stats.lift_total * 100) / 100;
+  return stats;
+}
+
 // Точки на дату: визиты + состояние склада клиента + груз водителя.
 function getDriverRoute(token, date) {
   const session = requireRole_(token, ['driver', 'owner']);
@@ -186,11 +220,13 @@ function getDriverRoute(token, date) {
   const clients = {};
   db.getClients_(laundryId).forEach(function (c) { clients[c.id] = c; });
   const storage = storageSummaryByClient_(laundryId);
+  const visits = getVisitsByDate_(date, laundryId);
   return ok_({
     date: date,
     laundryName: db.getSettings_(laundryId).LAUNDRY_NAME || 'CleanLab Pro',
     cargo: driverCargo_(laundryId),
-    visits: getVisitsByDate_(date, laundryId).map(function (v) {
+    stats: driverDayStats_(visits, laundryId),
+    visits: visits.map(function (v) {
       const c = clients[v.client_id] || {};
       v.address = c.address || '';
       return decorateVisit_(v, clients, storage);
@@ -246,7 +282,7 @@ function driverTakeAllClean(token, date) {
   });
 }
 
-function driverAction(token, visitId, action) {
+function driverAction(token, visitId, action, liftFloor) {
   const session = requireRole_(token, ['driver', 'owner']);
   if (!session) return err_('Нет доступа');
   const laundryId = session.laundryId;
@@ -257,6 +293,9 @@ function driverAction(token, visitId, action) {
     if (!found) return err_('Визит не найден');
     const v = found.obj;
     if (VISIT_FINAL.indexOf(v.status) !== -1) return err_('Визит уже закрыт');
+
+    // Этаж подъёма при подтверждении визита (P2): пусто/1/2 = без доплаты
+    if (liftFloor !== undefined) v.lift_floor = normalizeLiftFloor_(liftFloor);
 
     if (action === 'take_clean') {
       if (v.clean_taken_at) return err_('Чистое уже взято');
@@ -309,7 +348,26 @@ function driverAction(token, visitId, action) {
 
     db.updateRow_(SHEETS.DELIVERIES, found.rowNumber, v);
     logEvent(actorOf_(session), 'visit_' + action, visitId, { client_id: v.client_id, date: v.date }, laundryId);
+    if (liftFloor !== undefined) {
+      logEvent(actorOf_(session), 'visit_lift', visitId, { floor: v.lift_floor || '—' }, laundryId);
+    }
     return ok_({ visit: v, cargo: driverCargo_(laundryId) });
+  });
+}
+
+// Правка этажа подъёма владельцем задним числом (P2): счёт пересчитывается,
+// т.к. строится по текущему lift_floor визита.
+function setVisitLiftFloor(token, visitId, floor) {
+  const session = requireRole_(token, ['owner']);
+  if (!session) return err_('Нет доступа');
+  const laundryId = session.laundryId;
+  return withLock_(function () {
+    const found = findTenantVisit_(visitId, laundryId);
+    if (!found) return err_('Визит не найден');
+    found.obj.lift_floor = normalizeLiftFloor_(floor);
+    db.updateRow_(SHEETS.DELIVERIES, found.rowNumber, found.obj);
+    logEvent(actorOf_(session), 'visit_lift', visitId, { floor: found.obj.lift_floor || '—' }, laundryId);
+    return ok_({ visit: found.obj });
   });
 }
 
@@ -388,5 +446,6 @@ module.exports = {
   VISIT_FINAL, isOpenVisit_, getVisitsByDate_, getVisitsByWeek_, decorateVisit_, ensureVisit_,
   getDeliveryVisits, addDeliveryVisit, moveDeliveryVisit, removeDeliveryVisit, setPickupOnly,
   driverCargo_, getDriverRoute, takeCleanForVisit_, driverTakeAllClean,
-  driverAction, driverHandover, migrateWashesToVisits, migrateIssueDatesToVisits
+  driverAction, driverHandover, setVisitLiftFloor, normalizeLiftFloor_,
+  migrateWashesToVisits, migrateIssueDatesToVisits
 };

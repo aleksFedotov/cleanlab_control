@@ -8,9 +8,11 @@ import { getSession } from '@/lib/session';
 import { qk, OPERATIONAL_PREFIXES } from '@/lib/query-keys';
 import { useUiStore } from '@/stores/ui';
 import type {
-  DayListRes, DeliveryVisitsRes, WeekPlanRes, StorageRes, DayReportRes, SummaryReportRes,
+  DayListRes, DeliveryVisitsRes, WeekPlanRes, StorageRes, DayReportRes, FinanceSummaryRes,
   RefsRes, UsersRes, LaundriesRes, DriverRouteRes, ShiftCloseStateRes,
   WorkHoursRes, DeliveryPointStatsRes,
+  BillingItemsRes, TariffsRes, ClientItemBillingRes, InvoiceRes,
+  PayrollRes, PayRatesRes, PaySettingsRes, MyPayrollRes, PayAdjustmentRes, PayAdjustmentsListRes,
 } from '@/types/api';
 
 function token(): string {
@@ -59,10 +61,11 @@ export function useDayReport(date: string) {
   });
 }
 
-export function useSummaryReport(from: string, to: string) {
+// Начисления по клиентам за период (P4, owner-only)
+export function useFinanceSummary(from: string, to: string) {
   return useQuery({
-    queryKey: qk.summaryReport(from, to),
-    queryFn: () => api<SummaryReportRes>('getSummaryReport', token(), from, to),
+    queryKey: qk.financeSummary(from, to),
+    queryFn: () => api<FinanceSummaryRes>('getFinanceSummary', token(), from, to),
     enabled: !!token() && !!from && !!to,
   });
 }
@@ -124,6 +127,88 @@ export function useDeliveryPointStats(from: string, to: string) {
   });
 }
 
+// --- Прайс и счета (P2, owner-only) ---
+
+export function useBillingItems() {
+  return useQuery({
+    queryKey: qk.billingItems(),
+    queryFn: () => api<BillingItemsRes>('listBillingItems', token()),
+    enabled: !!token(),
+  });
+}
+
+// Без clientId — все тарифы; с clientId — дефолты + переопределения клиента
+export function useTariffs(clientId?: string) {
+  return useQuery({
+    queryKey: qk.tariffs(clientId),
+    queryFn: () => api<TariffsRes>('listTariffs', token(), clientId),
+    enabled: !!token(),
+  });
+}
+
+export function useClientItemBilling(clientId: string) {
+  return useQuery({
+    queryKey: qk.clientItemBilling(clientId),
+    queryFn: () => api<ClientItemBillingRes>('listClientItemBilling', token(), clientId),
+    enabled: !!token() && !!clientId,
+  });
+}
+
+export function useClientInvoice(clientId: string, from: string, to: string) {
+  return useQuery({
+    queryKey: qk.invoice(clientId, from, to),
+    queryFn: () => api<InvoiceRes>('getClientInvoice', token(), clientId, from, to),
+    enabled: !!token() && !!clientId && !!from && !!to,
+  });
+}
+
+// --- Зарплаты (P3) ---
+
+// Расчёт по всем сотрудникам прачки (owner); enabled — чтобы не грузить в режимах, где не нужен
+export function usePayroll(from: string, to: string, enabled = true) {
+  return useQuery({
+    queryKey: qk.payroll(from, to),
+    queryFn: () => api<PayrollRes>('getPayroll', token(), from, to),
+    enabled: enabled && !!token() && !!from && !!to,
+  });
+}
+
+// Переопределения ставок сотрудников (owner)
+export function usePayRates() {
+  return useQuery({
+    queryKey: qk.payRates(),
+    queryFn: () => api<PayRatesRes>('listPayRates', token()),
+    enabled: !!token(),
+  });
+}
+
+// Свой авто-отчёт водителя за период
+export function useMyPayroll(from: string, to: string) {
+  return useQuery({
+    queryKey: qk.myPayroll(from, to),
+    queryFn: () => api<MyPayrollRes>('getMyPayroll', token(), from, to),
+    enabled: !!token() && !!from && !!to,
+  });
+}
+
+// Дефолтные ставки прачки (P3.1, owner)
+export function usePaySettings() {
+  return useQuery({
+    queryKey: qk.paySettings(),
+    queryFn: () => api<PaySettingsRes>('listPaySettings', token()),
+    enabled: !!token(),
+  });
+}
+
+// Корректировки зарплаты (owner); пустые фильтры = все за прачку
+export function usePayAdjustments(userId?: string, from?: string, to?: string) {
+  return useQuery({
+    queryKey: qk.payAdjustments(userId, from, to),
+    queryFn: () => api<PayAdjustmentsListRes>('listPayAdjustments', token(), userId || '', from || '', to || ''),
+    enabled: !!token(),
+  });
+}
+
 // --- Мутации ---
 
 // Инвалидирует операционные чтения (стирка/развоз/неделя/склад/отчёт взаимосвязаны).
@@ -155,5 +240,39 @@ export function useApiMutation<TRes = any>(
       opts?.onSuccess?.(res);
     },
     onError: (e: Error) => toast(e.message || 'Ошибка сервера', 'err'),
+  });
+}
+
+// --- Зарплаты (P3): мутации owner ---
+
+// Upsert переопределения ставок сотрудника: mutate([userId, fields])
+export function useSavePayRate(onSuccess?: () => void) {
+  return useApiMutation('savePayRate', {
+    invalidate: ['payroll', 'payRates', 'myPayroll'],
+    onSuccess,
+  });
+}
+
+// Дефолтные ставки прачки (P3.1): mutate(fields); пустое поле = встроенный дефолт
+export function useSavePaySettings(onSuccess?: () => void) {
+  return useApiMutation('savePaySettings', {
+    invalidate: ['payroll', 'payRates', 'myPayroll', 'paySettings'],
+    onSuccess,
+  });
+}
+
+// Ручная корректировка (премия/штраф): mutate([userId, date, amount, comment])
+export function useSavePayAdjustment(onSuccess?: (res: PayAdjustmentRes) => void) {
+  return useApiMutation<PayAdjustmentRes>('savePayAdjustment', {
+    invalidate: ['payroll', 'myPayroll', 'payAdjustments'],
+    onSuccess,
+  });
+}
+
+// Удаление корректировки: mutate(adjId)
+export function useDeletePayAdjustment(onSuccess?: () => void) {
+  return useApiMutation('deletePayAdjustment', {
+    invalidate: ['payroll', 'myPayroll', 'payAdjustments'],
+    onSuccess,
   });
 }
