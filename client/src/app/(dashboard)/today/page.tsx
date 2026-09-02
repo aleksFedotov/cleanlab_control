@@ -160,21 +160,11 @@ export default function TodayDashboard() {
             <div className={styles.emptyLine}>Стирок нет</div>
           ) : (
             <>
-              {inProgress.map((w) => (
+              {[...inProgress, ...queue, ...doneList].map((w, i) => (
                 <button key={w.id} className={styles.row} onClick={() => router.push('/wash')}>
-                  <span className={styles.rowName}>{w.client_name}</span>
-                  <StatusBadge status={w.status} size="sm" />
-                </button>
-              ))}
-              {queue.map((w) => (
-                <button key={w.id} className={styles.row} onClick={() => router.push('/wash')}>
-                  <span className={styles.rowName}>{w.client_name}</span>
-                  <StatusBadge status={w.status} size="sm" />
-                </button>
-              ))}
-              {doneList.map((w) => (
-                <button key={w.id} className={styles.row} onClick={() => router.push('/wash')}>
-                  <span className={styles.rowName}>{w.client_name}</span>
+                  <span className={styles.rowName}>
+                    {i + 1}. {w.client_name}
+                  </span>
                   <StatusBadge status={w.status} size="sm" />
                 </button>
               ))}
@@ -187,11 +177,13 @@ export default function TodayDashboard() {
           {visits.length === 0 ? (
             <div className={styles.emptyLine}>Визитов нет</div>
           ) : (
-            visits.map((v) => {
+            visits.map((v, i) => {
               const st = visitState(v, reasonByClient.get(v.client_id), today);
               return (
                 <button key={v.id} className={styles.row} onClick={() => router.push('/delivery')}>
-                  <span className={styles.rowName}>{v.client_name}</span>
+                  <span className={styles.rowName}>
+                    {i + 1}. {v.client_name}
+                  </span>
                   {st.badgeKey ? (
                     <StatusBadge status={st.badgeKey} size="sm" />
                   ) : (
