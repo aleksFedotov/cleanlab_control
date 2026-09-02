@@ -8,7 +8,7 @@ import type { DriverRouteRes } from '@/types/api';
 import { useDriverRoute, useApiMutation } from '@/hooks/use-api';
 import { useRequireRole, useLogout } from '@/hooks/use-session';
 import { useUiStore } from '@/stores/ui';
-import { todayStr, shiftDateStr, formatDateRu, timeOf } from '@/lib/dates';
+import { todayStr, formatDateRu, timeOf } from '@/lib/dates';
 import { num, bags, money } from '@/lib/format';
 import { roleLabel } from '@/lib/dicts';
 import { MobileLayout, MobileSection } from '@/components/layout/MobileLayout';
@@ -19,6 +19,7 @@ import { Modal } from '@/components/ui/Modal';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { Empty } from '@/components/ui/Empty';
 import { Skeleton } from '@/components/ui/Skeleton';
+import { DateNav } from '@/components/ui/DateNav';
 import styles from './driver.module.css';
 
 type RouteVisit = DriverRouteRes['visits'][number] & { contact?: string };
@@ -68,9 +69,8 @@ export default function DriverPage() {
   const toast = useUiStore((s) => s.toast);
 
   const [tab, setTab] = useState<'route' | 'history' | 'profile'>('route');
-  // «Маршрут» — всегда сегодня; «История» — выбранная дата (в legacy — навигация ‹ › по дням)
-  const [histDate, setHistDate] = useState(todayStr());
-  const date = tab === 'history' ? histDate : todayStr();
+  // Выбранная дата — общая для «Маршрута» и «Истории», листается через DateNav
+  const [date, setDate] = useState(todayStr());
 
   const query = useDriverRoute(date);
   useEffect(() => {
@@ -191,6 +191,7 @@ export default function DriverPage() {
       {/* ===== Маршрут ===== */}
       {route && tab === 'route' && (
         <>
+          <DateNav date={date} onChange={setDate} />
           {/* Мой груз: бельё, которое физически у водителя (по всем дням) */}
           {(cargo.clean_points > 0 || cargo.dirty_points > 0) && (
             <MobileSection label="Мой груз">
@@ -315,17 +316,8 @@ export default function DriverPage() {
 
       {/* ===== История ===== */}
       {route && tab === 'history' && (
-        <MobileSection label={`Выполненные · ${formatDateRu(histDate, false)}`}>
-          <div className={styles.dateNav}>
-            <Button variant="ghost" size="sm" onClick={() => setHistDate(shiftDateStr(histDate, -1))}>‹</Button>
-            <span className={styles.dateNavLabel}>{formatDateRu(histDate)}</span>
-            <Button variant="ghost" size="sm" onClick={() => setHistDate(shiftDateStr(histDate, 1))}>›</Button>
-          </div>
-          {histDate !== todayStr() && (
-            <div className={styles.todayWrap}>
-              <Button variant="subtle" size="sm" onClick={() => setHistDate(todayStr())}>Сегодня</Button>
-            </div>
-          )}
+        <MobileSection label={`Выполненные · ${formatDateRu(date, false)}`}>
+          <DateNav date={date} onChange={setDate} />
           {doneVisits.length === 0 && <Empty title="Адресов нет" hint="На эту дату выполненных визитов нет" />}
           {doneVisits.map((v) => (
             <Card key={v.id} className={styles.compactCard}>

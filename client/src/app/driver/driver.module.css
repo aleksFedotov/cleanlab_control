@@ -128,27 +128,6 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* Навигация по датам в истории */
-.dateNav {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  margin-bottom: 10px;
-}
-
-.dateNavLabel {
-  font-size: 14px;
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-}
-
-.todayWrap {
-  display: flex;
-  justify-content: center;
-  margin-bottom: 10px;
-}
-
 /* Профиль */
 .profileName {
   font-size: 17px;
