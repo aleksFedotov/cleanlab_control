@@ -3,7 +3,7 @@
 // Экран водителя: маршрут дня, история, профиль.
 // Порт legacy renderDriver + openDriverVisit (server/public/index.html:1103-1301).
 import { useEffect, useMemo, useState } from 'react';
-import { Truck, History, User, MapPin, Phone, LogOut } from 'lucide-react';
+import { Truck, History, User, MapPin, Phone, LogOut, KeyRound } from 'lucide-react';
 import type { DriverRouteRes } from '@/types/api';
 import { useDriverRoute, useApiMutation } from '@/hooks/use-api';
 import { useRequireRole, useLogout } from '@/hooks/use-session';
@@ -22,7 +22,7 @@ import { Skeleton } from '@/components/ui/Skeleton';
 import { DateNav } from '@/components/ui/DateNav';
 import styles from './driver.module.css';
 
-type RouteVisit = DriverRouteRes['visits'][number] & { contact?: string };
+type RouteVisit = DriverRouteRes['visits'][number];
 type DriverAction = 'take_clean' | 'deliver_clean' | 'pickup_dirty' | 'both' | 'empty';
 
 // Действия по состоянию точки — 1:1 из legacy openDriverVisit
@@ -99,6 +99,7 @@ export default function DriverPage() {
 
   // --- Локальное состояние диалогов ---
   const [visitTarget, setVisitTarget] = useState<RouteVisit | null>(null); // модал действий по точке
+  const [noteOpen, setNoteOpen] = useState(false); // инлайн-блок «Как пройти» в модале точки (P2.4)
   const [floor, setFloor] = useState(1); // этаж подъёма в модале (P2); сбрасывается при смене visitTarget
   const [takeConfirm, setTakeConfirm] = useState<null | { visitId: string; floor: number | null }>(null); // «Чистое бельё взято со склада?»
   const [takeAllOpen, setTakeAllOpen] = useState(false);
@@ -110,6 +111,7 @@ export default function DriverPage() {
   const openVisit = (v: RouteVisit) => {
     setVisitTarget(v);
     setFloor(Math.max(1, Math.floor(num(v.lift_floor)) || 1));
+    setNoteOpen(false);
   };
 
   const runAction = (visitId: string, act: DriverAction) => {
@@ -131,8 +133,7 @@ export default function DriverPage() {
   );
   const totalStockBags = toTake.reduce((s, v) => s + num(v.clean_stock_bags), 0);
 
-  // contact в контракте API не задан, но может прийти от сервера — типизируем локально
-  const visits = (route?.visits || []) as RouteVisit[];
+  const visits = route?.visits || [];
   const planned = visits.filter((v) => v.status === 'planned');
   const doneVisits = visits.filter((v) => v.status !== 'planned');
   // const nextVisit = planned[0];
@@ -245,7 +246,10 @@ export default function DriverPage() {
           <MobileSection label={`Адреса (${planned.length})`}>
             {planned.map((v) => (
               <Card key={v.id} interactive className={styles.compactCard} onClick={() => openVisit(v)}>
-                <div className={styles.cardName}>{v.client_name}</div>
+                <div className={styles.cardName}>
+                  {v.client_name}
+                  {v.access_note && <KeyRound size={14} className={styles.inlineIcon} />}
+                </div>
                 <div className={styles.metaDim}>{visitMeta(v, false).join(' · ')}</div>
               </Card>
             ))}
@@ -353,10 +357,30 @@ export default function DriverPage() {
       {/* ===== Диалоги ===== */}
 
       {/* Действия по точке (порт openDriverVisit) */}
-      <Modal open={!!visitTarget} onClose={() => setVisitTarget(null)} title={visitTarget?.client_name || ''}>
+      <Modal
+        open={!!visitTarget}
+        onClose={() => {
+          setVisitTarget(null);
+          setNoteOpen(false);
+        }}
+        title={visitTarget?.client_name || ''}
+      >
         {visitTarget && (
           <>
             <div className={styles.metaDim}>{visitMeta(visitTarget, false).join(' · ')}</div>
+            {visitTarget.access_note && (
+              <>
+                <Button
+                  variant="ghost"
+                  className={styles.bigBtn}
+                  icon={<KeyRound size={16} />}
+                  onClick={() => setNoteOpen((o) => !o)}
+                >
+                  Как пройти
+                </Button>
+                {noteOpen && <div className={styles.accessNote}>{visitTarget.access_note}</div>}
+              </>
+            )}
             <div className={styles.floorRow}>
               <span className={styles.floorLabel}>Этаж</span>
               <Button

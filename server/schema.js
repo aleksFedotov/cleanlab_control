@@ -1,7 +1,7 @@
 // Схема данных CleanLab Control — порт src/Schema.gs.
 // Таблицы SQLite = листам Sheets, колонки = HEADERS. Все значения храним как TEXT
 // (даты — строками формата схемы), как и в Sheets.
-const SCHEMA_VERSION = 7;
+const SCHEMA_VERSION = 8;
 
 const SHEETS = {
   SETTINGS: 'Settings',
@@ -32,7 +32,7 @@ const SHEETS = {
 // клиентские переопределения цен остаются per-прачка.
 const HEADERS = {
   Settings: ['key', 'value', 'laundry_id'],
-  Clients: ['id', 'name', 'contact', 'address', 'type', 'active', 'comment', 'item_types', 'accounting', 'inn', 'kpp', 'legal_address', 'laundry_id'],
+  Clients: ['id', 'name', 'contact', 'address', 'type', 'active', 'comment', 'item_types', 'accounting', 'inn', 'kpp', 'legal_address', 'laundry_id', 'access_note'],
   // billing_item_id — позиция прайса (BillingItems kind=wash_pcs), пусто = в счёт по весу.
   ItemTypes: ['id', 'name', 'sort', 'active', 'billing_item_id'],
   Washes: ['id', 'client_id', 'wash_date', 'issue_date', 'status',

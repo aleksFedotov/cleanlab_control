@@ -229,6 +229,7 @@ function getDriverRoute(token, date) {
     visits: visits.map(function (v) {
       const c = clients[v.client_id] || {};
       v.address = c.address || '';
+      v.access_note = c.access_note || '';
       return decorateVisit_(v, clients, storage);
     })
   });

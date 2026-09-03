@@ -77,6 +77,8 @@ export interface Client {
   kpp: string;
   legal_address: string;
   laundry_id: string;
+  // «Как добраться» — подсказка для водителей (P2.4), до 2000 символов
+  access_note: string;
 }
 
 export interface ItemType {
@@ -285,7 +287,7 @@ export interface DriverRouteRes {
   cargo: { clean_bags: number; clean_points: number; dirty_points: number };
   // Статистика дня (P2): посещённые точки и доплата за подъём выше 2-го этажа
   stats: { visited: number; lift_qty: number; lift_total: number; lift_missing: boolean };
-  visits: Array<DecoratedVisit & { address: string }>;
+  visits: Array<DecoratedVisit & { address: string; access_note: string; contact?: string }>;
 }
 
 export interface ShiftCloseStateRes {

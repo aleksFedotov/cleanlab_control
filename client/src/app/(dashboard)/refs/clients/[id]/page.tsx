@@ -64,6 +64,7 @@ function ProfileTab({
     inn: client.inn || '',
     kpp: client.kpp || '',
     legal_address: client.legal_address || '',
+    access_note: client.access_note || '',
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
   // Режим «Виды белья»: null — из данных ([] = все виды), локальный override —
@@ -99,7 +100,7 @@ function ProfileTab({
   }
 
   // Текст: сохранение по onBlur, только если изменилось
-  function blur(field: 'name' | 'address' | 'contact' | 'comment' | 'inn' | 'kpp' | 'legal_address') {
+  function blur(field: 'name' | 'address' | 'contact' | 'comment' | 'inn' | 'kpp' | 'legal_address' | 'access_note') {
     return () => {
       const initial: Record<string, string> = {
         name: client.name || '',
@@ -109,6 +110,7 @@ function ProfileTab({
         inn: client.inn || '',
         kpp: client.kpp || '',
         legal_address: client.legal_address || '',
+        access_note: client.access_note || '',
       };
       if (String(fields[field]) === initial[field]) return;
       saveField(field, fields[field]);
@@ -153,6 +155,17 @@ function ProfileTab({
           onChange={(e) => setFields({ ...fields, address: e.target.value })}
           onBlur={blur('address')}
         />
+      </div>
+      <div className={styles.fieldRow}>
+        <textarea
+          rows={3}
+          maxLength={2000}
+          placeholder="Арка со двора, код замка 4321, 2-й подъезд…"
+          value={fields.access_note}
+          onChange={(e) => setFields({ ...fields, access_note: e.target.value })}
+          onBlur={blur('access_note')}
+        />
+        <div className={styles.hint}>Видят водители этой прачки</div>
       </div>
       <div className={styles.fieldRow}>
         <input
@@ -463,6 +476,7 @@ function ClientPageInner() {
                         inn: client.inn,
                         kpp: client.kpp,
                         legal_address: client.legal_address,
+                        access_note: client.access_note,
                       });
                     }}
                   >

@@ -1050,6 +1050,11 @@ function getFinanceSummary(token, from, to) {
 
 // --- Справочники (owner). Записи сбрасывают кэш (spec §10) ---
 
+// «Как добраться» — заметка для водителей (обрезка до 2000, не ошибка).
+function normalizeAccessNote_(v) {
+  return String(v || '').trim().slice(0, 2000);
+}
+
 function saveClient(token, client) {
   const session = requireRole_(token, ['owner']);
   if (!session) return err_('Нет доступа');
@@ -1069,6 +1074,7 @@ function saveClient(token, client) {
       const found = findTenantRow_(SHEETS.CLIENTS, client.id, laundryId);
       if (!found) return err_('Клиент не найден');
       Object.keys(client).forEach(function (k) { found.obj[k] = client[k]; });
+      found.obj.access_note = normalizeAccessNote_(found.obj.access_note);
       db.updateRow_(SHEETS.CLIENTS, found.rowNumber, found.obj);
       saved = found.obj;
     } else {
@@ -1078,7 +1084,8 @@ function saveClient(token, client) {
         type: client.type || 'прочее',
         active: 'да', comment: client.comment || '',
         item_types: client.item_types || '', accounting: client.accounting || '',
-        inn: client.inn || '', kpp: client.kpp || '', legal_address: client.legal_address || ''
+        inn: client.inn || '', kpp: client.kpp || '', legal_address: client.legal_address || '',
+        access_note: normalizeAccessNote_(client.access_note)
       };
       db.appendRowTenant_(SHEETS.CLIENTS, saved, laundryId);
     }

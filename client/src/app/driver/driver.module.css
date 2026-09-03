@@ -154,3 +154,16 @@
   font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
+
+/* «Как добраться» — инлайн-блок с подсказкой в модале точки (P2.4) */
+.accessNote {
+  margin-top: 8px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--warn-bg);
+  border: 1px solid var(--border);
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--text-2);
+  white-space: pre-wrap;
+}

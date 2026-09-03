@@ -54,6 +54,7 @@ export function ClientCreateModal({ onClose }: { onClose: () => void }) {
       inn: '',
       kpp: '',
       legal_address: '',
+      access_note: '',
     });
   }
 
