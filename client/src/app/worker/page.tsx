@@ -152,6 +152,7 @@ export default function WorkerPage() {
   const session = useRequireRole(['worker']);
   const logout = useLogout();
   const [tab, setTab] = useState<Tab>('tasks');
+  const [search, setSearch] = useState('');
 
   const day = useDayList(todayStr());
   // Отметки часов: месяц назад — месяц вперёд (можно ставить за будущие дни).
@@ -180,9 +181,12 @@ export default function WorkerPage() {
   if (!session) return null;
 
   const washes = day.data?.washes || [];
-  const inProgress = washes.filter((w) => w.status === 'in_progress');
-  const queue = washes.filter((w) => w.status === 'planned' || w.status === 'no_linen');
-  const doneList = washes.filter(
+  // Поиск по клиенту (как washSearch на дашборде)
+  const q = search.trim().toLowerCase();
+  const visible = q ? washes.filter((w) => w.client_name.toLowerCase().includes(q)) : washes;
+  const inProgress = visible.filter((w) => w.status === 'in_progress');
+  const queue = visible.filter((w) => w.status === 'planned' || w.status === 'no_linen');
+  const doneList = visible.filter(
     (w) =>
       w.status === 'done' ||
       w.status === 'stored' ||
@@ -250,6 +254,13 @@ export default function WorkerPage() {
               >
                 Добавить стирку
               </Button>
+              <input
+                type="search"
+                className={styles.search}
+                placeholder="Поиск по клиенту…"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
               <MobileSection label="Сейчас в работе">
                 {inProgress.length === 0 ? (
                   <Empty title="Сейчас ничего не стирается" hint="Возьмите стирку из очереди ниже." />
