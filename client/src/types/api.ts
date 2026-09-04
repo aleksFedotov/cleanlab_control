@@ -285,8 +285,10 @@ export interface DriverRouteRes {
   date: string;
   laundryName: string;
   cargo: { clean_bags: number; clean_points: number; dirty_points: number };
-  // Статистика дня (P2): посещённые точки и доплата за подъём выше 2-го этажа
-  stats: { visited: number; lift_qty: number; lift_total: number; lift_missing: boolean };
+  // Статистика дня (P2): посещённые точки и подъём выше 2-го этажа.
+  // lift_total/lift_missing — цена по прайсу клиента (для счёта);
+  // lift_pay — надбавка водителя по его зарплатной ставке.
+  stats: { visited: number; lift_qty: number; lift_total: number; lift_missing: boolean; lift_pay: number };
   visits: Array<DecoratedVisit & { address: string; access_note: string; contact?: string }>;
 }
 

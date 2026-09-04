@@ -8,6 +8,7 @@ const { nowStr_, todayStr_, logEvent, actorOf_ } = require('./audit');
 const { addDaysStr_, err_, ok_, clientName_, resolvePrice_, effectiveTariffs_ } = require('./core');
 const { requireRole_ } = require('./auth');
 const { addStorageEntry_, openStorage_, storageSummaryByClient_ } = require('./storage');
+const { resolveRate_ } = require('./payroll');
 
 // LockService в GAS; в однопроцессном Node с синхронным better-sqlite3 не нужен.
 function withLock_(fn) { return fn(); }
@@ -188,11 +189,24 @@ function driverCargo_(laundryId) {
 // включая empty — водитель до точки доехал) и доплата за подъём (P2).
 // Этаж выше 2-го: per_floor=да — за каждый этаж выше 2-го, иначе за факт.
 // Цена — как в счёте: тариф клиента → дефолт прачки; без цены — lift_missing.
-function driverDayStats_(visits, laundryId) {
+function driverDayStats_(visits, laundryId, session) {
   const stats = {
     visited: visits.filter(function (v) { return VISIT_FINAL.indexOf(v.status) >= 0; }).length,
-    lift_qty: 0, lift_total: 0, lift_missing: false
+    lift_qty: 0, lift_total: 0, lift_missing: false, lift_pay: 0
   };
+  // Надбавка водителя за подъём: этажи выше 2-го × его ставка
+  // (PayRates → Settings[PAY_LIFT_FLOOR_RATE] → дефолт 100), как в зарплате.
+  // От прайса клиента не зависит.
+  let payFloors = 0;
+  visits.forEach(function (v) {
+    const floor = Math.floor(Number(v.lift_floor) || 0);
+    if (floor > 2) payFloors += floor - 2;
+  });
+  const rateRow = db.findRowsByTenant_(SHEETS.PAY_RATES, function (r) {
+    return String(r.user_id) === String(session.userId);
+  }, 1000, laundryId)[0];
+  const liftRate = resolveRate_('lift_floor_rate', rateRow && rateRow.obj, db.getSettings_(laundryId));
+  stats.lift_pay = Math.round(payFloors * liftRate.value * 100) / 100;
   // Прайс и дефолтные тарифы глобальны (v7)
   const lift = db.readAll_(SHEETS.BILLING_ITEMS)
     .filter(function (b) { return b.kind === 'lift' && b.active !== 'нет'; })[0];
@@ -225,7 +239,7 @@ function getDriverRoute(token, date) {
     date: date,
     laundryName: db.getSettings_(laundryId).LAUNDRY_NAME || 'CleanLab Pro',
     cargo: driverCargo_(laundryId),
-    stats: driverDayStats_(visits, laundryId),
+    stats: driverDayStats_(visits, laundryId, session),
     visits: visits.map(function (v) {
       const c = clients[v.client_id] || {};
       v.address = c.address || '';

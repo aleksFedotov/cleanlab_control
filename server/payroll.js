@@ -374,7 +374,7 @@ function savePaySettings(token, fields) {
 }
 
 module.exports = {
-  computePayroll_,
+  computePayroll_, resolveRate_,
   getPayroll, getMyPayroll, listPayRates,
   savePayRate, savePayAdjustment, deletePayAdjustment, listPayAdjustments,
   listPaySettings, savePaySettings

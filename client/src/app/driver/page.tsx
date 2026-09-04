@@ -79,7 +79,7 @@ export default function DriverPage() {
 
   const route = query.data;
   const cargo = route?.cargo || { clean_bags: 0, clean_points: 0, dirty_points: 0 };
-  const dayStats = route?.stats || { visited: 0, lift_qty: 0, lift_total: 0, lift_missing: false };
+  const dayStats = route?.stats || { visited: 0, lift_qty: 0, lift_total: 0, lift_missing: false, lift_pay: 0 };
 
   // --- Мутации ---
   const actionMut = useApiMutation('driverAction', {
@@ -156,10 +156,10 @@ export default function DriverPage() {
         { value: cargo.clean_bags, label: 'Чистое, меш.', tone: cargo.clean_bags ? 'ok' : 'default' },
         { value: cargo.clean_points, label: 'Точек выдачи' },
         { value: cargo.dirty_points, label: 'Точек забора', tone: cargo.dirty_points ? 'warn' : 'default' },
-        // Доплата за подъём выше 2-го этажа (P2); ⚠ — у какой-то точки нет цены в прайсе
+        // Надбавка водителя за подъём выше 2-го этажа: этажи × его зарплатная ставка
         ...(dayStats.lift_qty > 0
           ? [{
-              value: `${money(dayStats.lift_total)} ₽${dayStats.lift_missing ? ' ⚠' : ''}`,
+              value: `${money(dayStats.lift_pay)} ₽`,
               label: 'Подъём',
               tone: 'ok' as const,
             }]

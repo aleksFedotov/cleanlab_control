@@ -636,12 +636,23 @@ test('getDriverRoute: статистика дня — посещённые то�
   assert.strictEqual(r.stats.lift_qty, 4, 'per_floor=да: этажи выше 2-го');
   assert.strictEqual(r.stats.lift_total, 800);
   assert.strictEqual(r.stats.lift_missing, false);
+  // Надбавка водителя: этажи × его ставка, от прайса не зависит
+  assert.strictEqual(r.stats.lift_pay, 400, '(3+1) этажа × дефолтные 100 ₽');
 
-  // Цену сняли — сумма не считается, флаг missing взведён
+  // Персональная ставка в PayRates переопределяет дефолт
+  const drv = ctx.db.findRowsBy_('Users', function (u) { return u.role === 'driver'; }, 10)[0].obj;
+  assert.ok(ctx.api.savePayRate(owner, drv.id, { lift_floor_rate: '150' }).ok);
+  const r1 = ctx.api.getDriverRoute(driver, d);
+  assert.strictEqual(r1.stats.lift_pay, 600, '(3+1) этажа × 150 ₽');
+  assert.strictEqual(r1.stats.lift_total, 800, 'цена по прайсу не изменилась');
+  assert.ok(ctx.api.savePayRate(owner, drv.id, { lift_floor_rate: '' }).ok);
+
+  // Цену сняли — сумма по прайсу не считается, надбавка водителя считается
   ctx.api.saveTariff(owner, '', bi.lift, '');
   const r2 = ctx.api.getDriverRoute(driver, d);
   assert.strictEqual(r2.stats.lift_total, 0);
   assert.strictEqual(r2.stats.lift_missing, true);
+  assert.strictEqual(r2.stats.lift_pay, 400);
 });
 
 test('старт стирки связывает dirty-запись склада со стиркой (вес ноги-забора)', () => {
