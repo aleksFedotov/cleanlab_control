@@ -161,7 +161,7 @@ function startWash(session, washId, weightKg) {
     if (Number(weightKg) > 0) w.dirty_weight_kg = round1_(weightKg);
     db.updateRow_(SHEETS.WASHES, found.rowNumber, w);
     // Грязное бельё клиента уходит со склада в стирку; wash_id на израсходованных
-    // записях — связь партии для веса ноги-забора в счёте (P2)
+    // записях — связь партии для веса ноги-забора в счёте (P2). Откат — в cancelWash.
     consumeStorage_(w.client_id, 'dirty', laundryId, w.id);
     ensureShift_(w.wash_date, laundryId);
     logEvent(actorOf_(session), 'wash_start', washId, { weight: w.dirty_weight_kg }, laundryId);
@@ -529,6 +529,9 @@ function addToDelivery(session, clientId, washDate, issueDate, comment) {
   });
 }
 
+// Отмена стирки (owner). Из in_progress — в т.ч. для цепочки правок P6.1:
+// грязные записи партии возвращаются на склад (снимаем расход startWash),
+// физическое бельё снова висит в «К стирке» и undo_pickup по точке разблокируется.
 function cancelWash(session, washId) {
   const laundryId = session.laundryId;
   return withLock_(function () {
@@ -537,7 +540,16 @@ function cancelWash(session, washId) {
     if (!check.ok) return err_(check.error);
     found.obj.status = 'cancelled';
     db.updateRow_(SHEETS.WASHES, found.rowNumber, found.obj);
-    logEvent(actorOf_(session), 'wash_cancel', washId, {}, laundryId);
+    // Возврат израсходованного грязного на склад: записи, забранные этой стиркой.
+    const returned = db.findRowsByTenant_(SHEETS.STORAGE, function (s) {
+      return s.kind === 'dirty' && s.wash_id === washId;
+    }, 1000, laundryId);
+    returned.forEach(function (r) {
+      r.obj.consumed_at = '';
+      r.obj.wash_id = '';
+      db.updateRow_(SHEETS.STORAGE, r.rowNumber, r.obj);
+    });
+    logEvent(actorOf_(session), 'wash_cancel', washId, { storage_returned: returned.length }, laundryId);
     return ok_({ wash: found.obj });
   });
 }

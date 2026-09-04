@@ -347,8 +347,10 @@ test('права: worker/driver → «Нет доступа» на всех ме
     assert.strictEqual(ctx.api.saveClientItemBilling(token, 'cli_a', 'itm_4', bi.robe).error, 'Нет доступа');
     assert.strictEqual(ctx.api.listClientItemBilling(token, 'cli_a').error, 'Нет доступа');
     assert.strictEqual(ctx.api.getClientInvoice(token, 'cli_a', FROM, TO).error, 'Нет доступа');
-    assert.strictEqual(ctx.api.setVisitLiftFloor(token, 'del_1', 3).error, 'Нет доступа');
   });
+  // P6: setVisitLiftFloor разрешён и водителю — роль проходит, падает на отсутствии визита
+  assert.strictEqual(ctx.api.setVisitLiftFloor(worker, 'del_1', 3).error, 'Нет доступа');
+  assert.strictEqual(ctx.api.setVisitLiftFloor(driver, 'del_1', 3).error, 'Визит не найден');
 });
 
 // --- Эталонные счёта из тикета ---

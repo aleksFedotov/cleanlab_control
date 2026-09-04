@@ -260,7 +260,7 @@ export default function WashCardPage() {
 
   const dirtyOk = w.has_dirty || checkedDirty;
   const canDefer = w.status === 'planned' || w.status === 'in_progress' || w.status === 'partial';
-  const canCancel = w.status === 'planned' || w.status === 'no_linen'; // сервер: cancel из planned/no_linen
+  const canCancel = w.status === 'planned' || w.status === 'no_linen' || w.status === 'in_progress'; // сервер: cancel из planned/no_linen/in_progress (P6.1)
   const canDelete = w.status !== 'issued'; // owner; выданную удалять нельзя
   const canIssue = w.status === 'done' || w.status === 'stored';
 

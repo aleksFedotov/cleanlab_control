@@ -370,10 +370,10 @@ function driverAction(token, visitId, action, liftFloor) {
   });
 }
 
-// Правка этажа подъёма владельцем задним числом (P2): счёт пересчитывается,
-// т.к. строится по текущему lift_floor визита.
+// Правка этажа подъёма задним числом (P2): счёт пересчитывается,
+// т.к. строится по текущему lift_floor визита. Правят обе роли (P6).
 function setVisitLiftFloor(token, visitId, floor) {
-  const session = requireRole_(token, ['owner']);
+  const session = requireRole_(token, ['driver', 'owner']);
   if (!session) return err_('Нет доступа');
   const laundryId = session.laundryId;
   return withLock_(function () {
@@ -383,6 +383,123 @@ function setVisitLiftFloor(token, visitId, floor) {
     db.updateRow_(SHEETS.DELIVERIES, found.rowNumber, found.obj);
     logEvent(actorOf_(session), 'visit_lift', visitId, { floor: found.obj.lift_floor || '—' }, laundryId);
     return ok_({ visit: found.obj });
+  });
+}
+
+// Правка состояния визита задним числом (P6): отмена ошибочных действий водителя.
+// Роли driver/owner. undo_empty / undo_take_clean / undo_deliver / undo_pickup.
+// undo_pickup при сданном на складе грязном откатывает и складскую запись (P6.1).
+// После отмены визит снова открыт, правильное действие отмечается обычным driverAction.
+// Счета и зарплата пересчитываются сами — строятся по текущим полям визита.
+function correctVisit(token, visitId, op) {
+  const session = requireRole_(token, ['driver', 'owner']);
+  if (!session) return err_('Нет доступа');
+  const laundryId = session.laundryId;
+  const OPS = ['undo_empty', 'undo_take_clean', 'undo_deliver', 'undo_pickup'];
+  if (OPS.indexOf(op) === -1) return err_('Неизвестная операция');
+  return withLock_(function () {
+    const found = findTenantVisit_(visitId, laundryId);
+    if (!found) return err_('Визит не найден');
+    const v = found.obj;
+    const snap_ = function () {
+      return {
+        status: v.status, delivered_at: v.delivered_at, picked_at: v.picked_at,
+        clean_taken_at: v.clean_taken_at, lift_floor: v.lift_floor,
+        dirty_handed_at: v.dirty_handed_at
+      };
+    };
+    const before = snap_();
+    let warn = null;
+    let extra = null;
+
+    if (op === 'undo_empty') {
+      if (v.status !== 'empty') return err_('Точка не помечена «ничего нет»');
+      v.status = 'planned';
+      v.delivered_at = '';
+    }
+
+    if (op === 'undo_take_clean') {
+      if (!v.clean_taken_at) return err_('Чистое по точке не взято');
+      if (v.delivered_at) return err_('Чистое уже выдано — сначала отмените выдачу');
+      // Чистое возвращается на склад: снимаем маркер «у водителя»
+      db.findRowsByTenant_(SHEETS.STORAGE, function (s) {
+        return s.client_id === v.client_id && s.kind === 'clean' && s.consumed_at === 'driver';
+      }, 500, laundryId).forEach(function (r) {
+        r.obj.consumed_at = '';
+        db.updateRow_(SHEETS.STORAGE, r.rowNumber, r.obj);
+      });
+      v.clean_taken_at = '';
+      v.clean_bags = '';
+    }
+
+    if (op === 'undo_deliver') {
+      if (!v.delivered_at || (v.status !== 'delivered' && v.status !== 'both')) {
+        return err_('Выдачи чистого по точке не было');
+      }
+      // Стирки этой выдачи (issued_at совпадает с delivered_at) — обратно на склад,
+      // их чистое — снова у водителя. Откат логики driverAction/deliver_clean.
+      const issued = db.findRowsByTenant_(SHEETS.WASHES, function (w) {
+        return w.client_id === v.client_id && w.status === 'issued' && w.issued_at === v.delivered_at;
+      }, 500, laundryId);
+      if (!issued.length) warn = 'washes_not_found'; // правили вручную — визит всё равно откатываем
+      issued.forEach(function (r) {
+        r.obj.status = 'stored';
+        r.obj.issued_at = '';
+        db.updateRow_(SHEETS.WASHES, r.rowNumber, r.obj);
+        db.findRowsByTenant_(SHEETS.STORAGE, function (s) {
+          return s.wash_id === r.obj.id && s.kind === 'clean';
+        }, 100, laundryId).forEach(function (sr) {
+          sr.obj.consumed_at = 'driver';
+          db.updateRow_(SHEETS.STORAGE, sr.rowNumber, sr.obj);
+        });
+      });
+      v.delivered_at = '';
+      v.status = v.picked_at ? 'picked' : 'planned';
+    }
+
+    if (op === 'undo_pickup') {
+      if (!v.picked_at) return err_('Забора грязного по точке не было');
+      // Грязное сдано на склад (driverHandover — массовый, поэтому это почти всегда так):
+      // откатываем и складскую запись, иначе самый частый случай правки был бы заблокирован (P6.1).
+      if (v.dirty_handed_at) {
+        // Привязки visit_id у Storage нет — матч по метке времени сдачи (как issued_at в undo_deliver).
+        const matches = db.findRowsByTenant_(SHEETS.STORAGE, function (s) {
+          return s.client_id === v.client_id && s.kind === 'dirty' && s.created_at === v.dirty_handed_at;
+        }, 100, laundryId);
+        const open = matches.filter(function (r) { return !r.obj.consumed_at; });
+        // Записи пустые и взаимозаменяемые (вес лежит на стирке) — удаляем одну открытую из совпавших.
+        if (open.length) {
+          db.deleteRow_(SHEETS.STORAGE, open[0].rowNumber);
+          extra = { storage_found: matches.length, storage_removed: 1 };
+        } else {
+          // Все совпавшие израсходованы: если стирка жива — блок с инструкцией, ничего не меняем.
+          let blockingWashId = null;
+          matches.forEach(function (r) {
+            if (blockingWashId || !r.obj.wash_id) return;
+            const wash = db.findRowsByTenant_(SHEETS.WASHES, function (w) {
+              return w.id === r.obj.wash_id && w.status !== 'cancelled';
+            }, 1, laundryId);
+            if (wash.length) blockingWashId = r.obj.wash_id;
+          });
+          if (blockingWashId) {
+            return err_('Грязное уже принято в стирку (стирка ' + blockingWashId +
+              '). Отмените её на складе, затем повторите отмену забора');
+          }
+          warn = 'storage_not_found'; // правили вручную — визит всё равно откатываем
+        }
+        v.dirty_handed_at = '';
+      }
+      v.picked_at = '';
+      v.pickup = '';
+      v.status = v.delivered_at ? 'delivered' : 'planned';
+    }
+
+    db.updateRow_(SHEETS.DELIVERIES, found.rowNumber, v);
+    const details = { op: op, before: before, after: snap_() };
+    if (warn) details.warn = warn;
+    if (extra) Object.keys(extra).forEach(function (k) { details[k] = extra[k]; });
+    logEvent(actorOf_(session), 'visit_correct', visitId, details, laundryId);
+    return ok_({ visit: v, cargo: driverCargo_(laundryId) });
   });
 }
 
@@ -461,6 +578,6 @@ module.exports = {
   VISIT_FINAL, isOpenVisit_, getVisitsByDate_, getVisitsByWeek_, decorateVisit_, ensureVisit_,
   getDeliveryVisits, addDeliveryVisit, moveDeliveryVisit, removeDeliveryVisit, setPickupOnly,
   driverCargo_, getDriverRoute, takeCleanForVisit_, driverTakeAllClean,
-  driverAction, driverHandover, setVisitLiftFloor, normalizeLiftFloor_,
+  driverAction, driverHandover, setVisitLiftFloor, correctVisit, normalizeLiftFloor_,
   migrateWashesToVisits, migrateIssueDatesToVisits
 };

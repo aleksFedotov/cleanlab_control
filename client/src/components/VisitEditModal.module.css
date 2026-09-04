@@ -1,0 +1,58 @@
+.metaDim {
+  font-size: 12.5px;
+  color: var(--text-4);
+  margin: 4px 0;
+}
+
+/* Крупная кнопка-действие на всю ширину (спека §6: ≥48px, radius 12px) */
+.bigBtn {
+  width: 100%;
+  min-height: 48px;
+  border-radius: 12px;
+  font-size: 15px;
+  margin-top: 8px;
+  justify-content: center;
+}
+
+/* Шаговик этажа (P2) */
+.floorRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 8px 0;
+}
+
+.floorLabel {
+  font-size: 13.5px;
+  color: var(--text-3);
+}
+
+.floorVal {
+  min-width: 20px;
+  text-align: center;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+/* «Как добраться» — инлайн-блок с подсказкой (P2.4) */
+.accessNote {
+  margin-top: 8px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--warn-bg);
+  border: 1px solid var(--border);
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--text-2);
+  white-space: pre-wrap;
+}
+
+/* Блок «Исправить» в закрытом визите (P6) */
+.correctLabel {
+  margin-top: 14px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-4);
+}

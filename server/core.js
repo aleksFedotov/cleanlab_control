@@ -47,7 +47,7 @@ const TRANSITIONS = {
   start: { from: ['planned', 'no_linen'] },
   complete: { from: ['in_progress'] },
   issue: { from: ['done', 'stored'] },
-  cancel: { from: ['planned', 'no_linen'] },
+  cancel: { from: ['planned', 'no_linen', 'in_progress'] }, // in_progress — откат партии на склад (P6.1)
   defer: { from: ['planned', 'in_progress', 'partial'] }
 };
 

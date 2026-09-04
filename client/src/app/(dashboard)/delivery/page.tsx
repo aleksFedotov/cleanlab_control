@@ -18,6 +18,7 @@ import { FilterPills } from '@/components/ui/FilterPills';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { VisitEditModal } from '@/components/VisitEditModal';
 import { Empty } from '@/components/ui/Empty';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { AddVisitModal } from './AddVisitModal';
@@ -34,6 +35,8 @@ export default function TodayPage() {
   const [removeTarget, setRemoveTarget] = useState<{ id: string; name: string } | null>(null);
   const [poTarget, setPoTarget] = useState<string | null>(null); // visitId для setPickupOnly(true)
   const [unpoId, setUnpoId] = useState<string | null>(null); // busy на «отменить» pickup_only
+  // Правка закрытого визита (P6): id, визит достаём из query-данных
+  const [editId, setEditId] = useState<string | null>(null);
 
   // Ошибка API: тост (§7); «Повторить» на месте контента — ниже, когда данных нет
   useEffect(() => {
@@ -224,9 +227,12 @@ export default function TodayPage() {
             const pickupOnly = v.pickup_only === 'да';
             const t1 = pickupOnly ? null : timeOf(v.clean_taken_at) || null;
             const t2 = pickupOnly ? timeOf(v.picked_at) || null : timeOf(v.delivered_at) || null;
+            const isClosed = v.status !== 'planned'; // P6: закрытый визит кликабелен — модал правки
             return (
               <Card
                 key={v.id}
+                interactive={isClosed}
+                onClick={isClosed ? () => setEditId(v.id) : undefined}
                 className={`${styles.visit} ${st.overdue ? styles.visitLate : ''}`}
               >
                 <div className={`mono ${styles.timeChip}`}>
@@ -289,6 +295,12 @@ export default function TodayPage() {
         date={date}
         clients={res.clients}
         visits={visits}
+      />
+
+      {/* Правка закрытого визита (P6): этаж + отмены действий водителя; общий модал с экраном водителя */}
+      <VisitEditModal
+        visit={visits.find((v) => v.id === editId) || null}
+        onClose={() => setEditId(null)}
       />
 
       <ConfirmDialog

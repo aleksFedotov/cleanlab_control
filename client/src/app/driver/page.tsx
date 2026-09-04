@@ -15,31 +15,14 @@ import { MobileLayout, MobileSection } from '@/components/layout/MobileLayout';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { StatusBadge } from '@/components/ui/StatusBadge';
-import { Modal } from '@/components/ui/Modal';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { VisitEditModal } from '@/components/VisitEditModal';
 import { Empty } from '@/components/ui/Empty';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { DateNav } from '@/components/ui/DateNav';
 import styles from './driver.module.css';
 
 type RouteVisit = DriverRouteRes['visits'][number];
-type DriverAction = 'take_clean' | 'deliver_clean' | 'pickup_dirty' | 'both' | 'empty';
-
-// Действия по состоянию точки — 1:1 из legacy openDriverVisit
-function actionsFor(v: RouteVisit): Array<{ act: DriverAction; label: string; primary: boolean }> {
-  const rows: Array<{ act: DriverAction; label: string; primary: boolean }> = [];
-  const stockBags = num(v.clean_stock_bags);
-  if (v.clean_taken_at && !v.delivered_at) {
-    // Комбо: чистое у водителя и грязное ещё не забрано — одна кнопка вместо двух
-    if (!v.picked_at) rows.push({ act: 'both', label: 'Отдал чистое, забрал грязное', primary: true });
-    rows.push({ act: 'deliver_clean', label: 'Доставлено', primary: !v.picked_at ? false : true });
-  } else if (v.has_clean) {
-    rows.push({ act: 'take_clean', label: 'Взял чистое' + (stockBags ? ` (${bags(stockBags)})` : ''), primary: true });
-  }
-  if (!v.picked_at) rows.push({ act: 'pickup_dirty', label: 'Забрал грязное', primary: rows.length === 0 });
-  if (!v.clean_taken_at && !v.picked_at) rows.push({ act: 'empty', label: 'Ничего нет', primary: false });
-  return rows;
-}
 
 // Метастрока точки — 1:1 из legacy renderDriver
 function visitMeta(v: RouteVisit, done: boolean): string[] {
@@ -82,10 +65,6 @@ export default function DriverPage() {
   const dayStats = route?.stats || { visited: 0, lift_qty: 0, lift_total: 0, lift_missing: false, lift_pay: 0 };
 
   // --- Мутации ---
-  const actionMut = useApiMutation('driverAction', {
-    invalidate: 'operational',
-    onSuccess: () => toast('Отмечено ✓'),
-  });
   const takeAllMut = useApiMutation<{ taken: number; bags: number }>('driverTakeAllClean', {
     invalidate: 'operational',
     onSuccess: (res) => toast(`Взято: ${res.taken} точек, ${res.bags} меш. ✓`),
@@ -98,33 +77,14 @@ export default function DriverPage() {
   });
 
   // --- Локальное состояние диалогов ---
-  const [visitTarget, setVisitTarget] = useState<RouteVisit | null>(null); // модал действий по точке
-  const [noteOpen, setNoteOpen] = useState(false); // инлайн-блок «Как пройти» в модале точки (P2.4)
-  const [floor, setFloor] = useState(1); // этаж подъёма в модале (P2); сбрасывается при смене visitTarget
-  const [takeConfirm, setTakeConfirm] = useState<null | { visitId: string; floor: number | null }>(null); // «Чистое бельё взято со склада?»
+  // Модал точки (P6): храним id, сам визит достаём из query-данных — после отмены
+  // действия (correctVisit) модал сам перерисуется в режим кнопок
+  const [visitId, setVisitId] = useState<string | null>(null);
   const [takeAllOpen, setTakeAllOpen] = useState(false);
   const [takeSelOpen, setTakeSelOpen] = useState(false);
   const [handoverOpen, setHandoverOpen] = useState(false);
   const [checked, setChecked] = useState<Record<string, boolean>>({});
   const [selBusy, setSelBusy] = useState(false);
-
-  const openVisit = (v: RouteVisit) => {
-    setVisitTarget(v);
-    setFloor(Math.max(1, Math.floor(num(v.lift_floor)) || 1));
-    setNoteOpen(false);
-  };
-
-  const runAction = (visitId: string, act: DriverAction) => {
-    const lift = floor > 2 ? floor : null; // пусто/1/2 — без доплаты (сервер нормализует)
-    if (act === 'take_clean') {
-      // Как в legacy: подтверждение перед take_clean
-      setVisitTarget(null);
-      setTakeConfirm({ visitId, floor: lift });
-      return;
-    }
-    setVisitTarget(null);
-    actionMut.mutate([visitId, act, lift]);
-  };
 
   // Чистое на складе, которое надо развезти (planned + has_clean + ещё не взято)
   const toTake = useMemo(
@@ -136,6 +96,7 @@ export default function DriverPage() {
   const visits = route?.visits || [];
   const planned = visits.filter((v) => v.status === 'planned');
   const doneVisits = visits.filter((v) => v.status !== 'planned');
+  const visitTarget = visits.find((v) => v.id === visitId) || null;
   // const nextVisit = planned[0];
   // const restVisits = planned.slice(1);
 
@@ -245,7 +206,7 @@ export default function DriverPage() {
           {planned.length > 0 && (
           <MobileSection label={`Адреса (${planned.length})`}>
             {planned.map((v) => (
-              <Card key={v.id} interactive className={styles.compactCard} onClick={() => openVisit(v)}>
+              <Card key={v.id} interactive className={styles.compactCard} onClick={() => setVisitId(v.id)}>
                 <div className={styles.cardName}>
                   {v.client_name}
                   {v.access_note && <KeyRound size={14} className={styles.inlineIcon} />}
@@ -324,7 +285,7 @@ export default function DriverPage() {
           <DateNav date={date} onChange={setDate} />
           {doneVisits.length === 0 && <Empty title="Адресов нет" hint="На эту дату выполненных визитов нет" />}
           {doneVisits.map((v) => (
-            <Card key={v.id} className={styles.compactCard}>
+            <Card key={v.id} interactive className={styles.compactCard} onClick={() => setVisitId(v.id)}>
               <div className={styles.histRow}>
                 <div className={styles.cardName}>{v.client_name}</div>
                 <StatusBadge status={v.status} size="sm" />
@@ -356,79 +317,8 @@ export default function DriverPage() {
 
       {/* ===== Диалоги ===== */}
 
-      {/* Действия по точке (порт openDriverVisit) */}
-      <Modal
-        open={!!visitTarget}
-        onClose={() => {
-          setVisitTarget(null);
-          setNoteOpen(false);
-        }}
-        title={visitTarget?.client_name || ''}
-      >
-        {visitTarget && (
-          <>
-            <div className={styles.metaDim}>{visitMeta(visitTarget, false).join(' · ')}</div>
-            {visitTarget.access_note && (
-              <>
-                <Button
-                  variant="ghost"
-                  className={styles.bigBtn}
-                  icon={<KeyRound size={16} />}
-                  onClick={() => setNoteOpen((o) => !o)}
-                >
-                  Как пройти
-                </Button>
-                {noteOpen && <div className={styles.accessNote}>{visitTarget.access_note}</div>}
-              </>
-            )}
-            <div className={styles.floorRow}>
-              <span className={styles.floorLabel}>Этаж</span>
-              <Button
-                variant="subtle"
-                size="sm"
-                aria-label="Этаж ниже"
-                disabled={floor <= 1}
-                onClick={() => setFloor((f) => Math.max(1, f - 1))}
-              >
-                −
-              </Button>
-              <span className={styles.floorVal}>{floor}</span>
-              <Button
-                variant="subtle"
-                size="sm"
-                aria-label="Этаж выше"
-                onClick={() => setFloor((f) => f + 1)}
-              >
-                +
-              </Button>
-              {floor > 2 && <span className={styles.metaDim}>доплата за подъём</span>}
-            </div>
-            {actionsFor(visitTarget).map((a) => (
-              <Button
-                key={a.act}
-                variant={a.primary ? 'primary' : 'ghost'}
-                className={styles.bigBtn}
-                busy={actionMut.isPending}
-                onClick={() => runAction(visitTarget.id, a.act)}
-              >
-                {a.label}
-              </Button>
-            ))}
-          </>
-        )}
-      </Modal>
-
-      <ConfirmDialog
-        open={!!takeConfirm}
-        onClose={() => setTakeConfirm(null)}
-        onConfirm={() => {
-          if (takeConfirm) actionMut.mutate([takeConfirm.visitId, 'take_clean', takeConfirm.floor]);
-          setTakeConfirm(null);
-        }}
-        text="Чистое бельё взято со склада?"
-        okLabel="Да, взял"
-        busy={actionMut.isPending}
-      />
+      {/* Действия/правка по точке (P6): общий модал — маршрут, история, «Развоз» владельца */}
+      <VisitEditModal visit={visitTarget} onClose={() => setVisitId(null)} />
 
       <ConfirmDialog
         open={takeAllOpen}

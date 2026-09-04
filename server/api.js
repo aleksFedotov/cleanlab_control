@@ -70,7 +70,7 @@ const API_ROLES = {
   getDeliveryVisits: OWNER, addDeliveryVisit: OWNER, moveDeliveryVisit: OWNER,
   removeDeliveryVisit: OWNER, setPickupOnly: OWNER, getDriverRoute: DRIVER_OWNER,
   driverTakeAllClean: DRIVER_OWNER, driverAction: DRIVER_OWNER, driverHandover: DRIVER_OWNER,
-  setVisitLiftFloor: OWNER,
+  setVisitLiftFloor: DRIVER_OWNER, correctVisit: DRIVER_OWNER,
   // workhours.js (legacy)
   setWorkHours: OWNER_WORKER, getWorkHours: OWNER_WORKER, getDeliveryPointStats: OWNER,
   // payroll.js (legacy)
@@ -124,6 +124,7 @@ const api = {
   driverAction: deliveries.driverAction,
   driverHandover: deliveries.driverHandover,
   setVisitLiftFloor: deliveries.setVisitLiftFloor,
+  correctVisit: deliveries.correctVisit,
   // Табель: часы работников и статистика развозов (логика в workhours.js)
   setWorkHours: workhours.setWorkHours,
   getWorkHours: workhours.getWorkHours,
