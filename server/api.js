@@ -6,50 +6,20 @@
 const { SHEETS } = require('./schema');
 const crypto = require('node:crypto');
 const db = require('./db');
-const time = require('./util/time');
 const { nowStr_, todayStr_, logEvent, actorOf_ } = require('./audit');
 const { requireRole_, hashPassword_ } = require('./auth');
 const core = require('./core');
 const {
   addDaysStr_, mondayOf_, checkTransition_, applyDefer_, canEditWashData_,
   isDayWash_, sortDayList_, shiftBlockers_, buildDayReport_, completionStatus_,
-  err_, ok_, round1_, clientName_, resolveBillingItemForType_
+  err_, ok_, round1_, clientName_, resolveBillingItemForType_,
+  withLock_, timeStr_, findTenantRow_, ensureShift_, getShiftByDate_
 } = core;
 const { addStorageEntry_, openStorage_, consumeStorage_, storageSummaryByClient_ } = require('./storage');
 const deliveries = require('./deliveries');
 const workhours = require('./workhours');
 const payroll = require('./payroll');
 const { getVisitsByDate_, getVisitsByWeek_, decorateVisit_, isOpenVisit_, ensureVisit_ } = deliveries;
-
-// Замена LockService.getScriptLock(): синхронные операции атомарны в одном процессе.
-function withLock_(fn) { return fn(); }
-
-function timeStr_() { return time.nowHHMM(); }
-
-// Поиск строки по id с проверкой тенанта: чужая прачка = «не найдено».
-function findTenantRow_(sheet, id, laundryId) {
-  const found = db.findById_(sheet, id);
-  if (!found || found.obj.laundry_id !== String(laundryId)) return null;
-  return found;
-}
-
-// Смена создаётся автоматически при первом действии (upsert по дате, spec §3.7).
-function ensureShift_(date, laundryId) {
-  const found = db.findRowsByTenant_(SHEETS.SHIFTS, function (s) { return s.date === date; }, 500, laundryId);
-  if (found.length) return found[found.length - 1].obj;
-  const shift = {
-    id: db.nextId_(SHEETS.SHIFTS, 'shift'), date: date, status: 'open',
-    opened_at: nowStr_(), closed_at: '', total_kg: '', washes_done: '',
-    washes_deferred: '', digest_sent: ''
-  };
-  db.appendRowTenant_(SHEETS.SHIFTS, shift, laundryId);
-  return shift;
-}
-
-function getShiftByDate_(date, laundryId) {
-  const found = db.findRowsByTenant_(SHEETS.SHIFTS, function (s) { return s.date === date; }, 500, laundryId);
-  return found.length ? found[found.length - 1] : null;
-}
 
 // --- Общие чтения ---
 

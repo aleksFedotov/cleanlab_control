@@ -1,5 +1,13 @@
 // Ядро бизнес-логики (spec §4, §8.2) — порт src/Core.gs.
-// Чистые функции без зависимостей от окружения. Даты — строки 'yyyy-MM-dd'.
+// Даты — строки 'yyyy-MM-dd'. Верхняя часть файла — чистые функции без
+// зависимостей от окружения; секция «Общие хелперы» внизу работает с БД
+// (вынесена из api.js при делёжке R1, чтобы доменные модули api/* могли
+// брать её без циклического require на api.js).
+
+const { SHEETS } = require('./schema');
+const db = require('./db');
+const time = require('./util/time');
+const { nowStr_ } = require('./audit');
 
 const TERMINAL_STATUSES = ['issued', 'cancelled'];
 // partial = стирка завершена частично: чистая часть на складе, клиент НЕ готов к выдаче
@@ -362,6 +370,38 @@ function clientName_(clientId, clientsById) {
   return c ? c.name : clientId;
 }
 
+// --- Хелперы из api.js (R1): общие для доменных модулей api/* ---
+
+// Замена LockService.getScriptLock(): синхронные операции атомарны в одном процессе.
+function withLock_(fn) { return fn(); }
+
+function timeStr_() { return time.nowHHMM(); }
+
+// Поиск строки по id с проверкой тенанта: чужая прачка = «не найдено».
+function findTenantRow_(sheet, id, laundryId) {
+  const found = db.findById_(sheet, id);
+  if (!found || found.obj.laundry_id !== String(laundryId)) return null;
+  return found;
+}
+
+// Смена создаётся автоматически при первом действии (upsert по дате, spec §3.7).
+function ensureShift_(date, laundryId) {
+  const found = db.findRowsByTenant_(SHEETS.SHIFTS, function (s) { return s.date === date; }, 500, laundryId);
+  if (found.length) return found[found.length - 1].obj;
+  const shift = {
+    id: db.nextId_(SHEETS.SHIFTS, 'shift'), date: date, status: 'open',
+    opened_at: nowStr_(), closed_at: '', total_kg: '', washes_done: '',
+    washes_deferred: '', digest_sent: ''
+  };
+  db.appendRowTenant_(SHEETS.SHIFTS, shift, laundryId);
+  return shift;
+}
+
+function getShiftByDate_(date, laundryId) {
+  const found = db.findRowsByTenant_(SHEETS.SHIFTS, function (s) { return s.date === date; }, 500, laundryId);
+  return found.length ? found[found.length - 1] : null;
+}
+
 module.exports = {
   TERMINAL_STATUSES, DONE_STATUSES,
   parseDate_, pad2_, addDaysStr_, mondayOf_,
@@ -370,5 +410,6 @@ module.exports = {
   formatWashLine_, formatDigest_,
   INVOICE_WASH_STATUSES, resolvePrice_, resolveBillingItemForType_, effectiveTariffs_,
   pickByTier_, pickTripPosition_, pickupWeightKg_, deliveryWeightKg_, buildInvoice_,
-  err_, ok_, round1_, clientName_
+  err_, ok_, round1_, clientName_,
+  withLock_, timeStr_, findTenantRow_, ensureShift_, getShiftByDate_
 };
