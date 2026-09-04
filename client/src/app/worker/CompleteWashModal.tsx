@@ -29,10 +29,14 @@ function Stepper({
   value,
   steps,
   onStep,
+  onValueChange,
+  step = 1,
 }: {
   value: number;
   steps: Array<{ delta: number; label: string }>;
   onStep: (delta: number) => void;
+  onValueChange: (value: number) => void;
+  step?: number;
 }) {
   return (
     <div className={styles.stepper}>
@@ -46,7 +50,20 @@ function Stepper({
           {s.label}
         </button>
       ))}
-      <span className={styles.stepperVal}>{value}</span>
+      <input
+        type="number"
+        inputMode="numeric"
+        min={0}
+        step={step}
+        className={styles.stepperInput}
+        value={value === 0 ? '' : value}
+        placeholder="0"
+        onChange={(e) => {
+          const v = parseFloat(e.target.value);
+          onValueChange(Number.isNaN(v) ? 0 : Math.max(0, v));
+        }}
+        onFocus={(e) => e.target.select()}
+      />
     </div>
   );
 }
@@ -139,6 +156,8 @@ export function CompleteWashModal({ w, itemTypes, onClose }: CompleteWashModalPr
               value={weight}
               steps={WEIGHT_STEPS}
               onStep={(d) => setWeight((v) => Math.max(0, Math.round((v + d) * 10) / 10))}
+              onValueChange={(v) => setWeight(Math.round(v * 10) / 10)}
+              step={0.1}
             />
           </div>
         )}
@@ -149,6 +168,7 @@ export function CompleteWashModal({ w, itemTypes, onClose }: CompleteWashModalPr
             value={bags}
             steps={UNIT_STEPS}
             onStep={(d) => setBags((v) => Math.max(0, v + d))}
+            onValueChange={(v) => setBags(Math.round(v))}
           />
         </div>
         {acc !== 'weight' && vis.length > 0 && (
@@ -161,6 +181,9 @@ export function CompleteWashModal({ w, itemTypes, onClose }: CompleteWashModalPr
                   value={counts[t.id] || 0}
                   steps={UNIT_STEPS}
                   onStep={(d) => stepCount(t.id, d)}
+                  onValueChange={(v) =>
+                    setCounts((m) => ({ ...m, [t.id]: Math.max(0, Math.round(v)) }))
+                  }
                 />
               </div>
             ))}

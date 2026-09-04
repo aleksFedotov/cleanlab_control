@@ -103,6 +103,38 @@
   padding: 6px 8px;
 }
 
+/* Редактируемое значение степпера (ручной ввод числа) */
+.stepperInput {
+  min-width: 56px;
+  width: 76px;
+  height: 44px;
+  text-align: center;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+  font-size: 18px;
+  font-weight: 700;
+  color: inherit;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-m);
+  padding: 0 4px;
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+
+.stepperInput::-webkit-inner-spin-button,
+.stepperInput::-webkit-outer-spin-button {
+  display: none;
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.stepperInput:focus {
+  outline: none;
+  border-color: var(--bluing-border);
+  box-shadow: 0 0 0 2px var(--bluing-soft);
+}
+
 /* --- Состав: строки видов белья --- */
 
 .itemRow {
