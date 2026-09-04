@@ -93,41 +93,13 @@ function mountApi(app) {
   });
 }
 
-module.exports = {
-  mountApi, api,
+// Экспорты собираются один раз из объекта api (шаг 2 R1): все публичные методы
+// доступны и как api.<method>, и как прямые ключи module.exports. Отдельно —
+// хелперы, которых нет в api: их используют deliveries.js, workhours.js,
+// payroll.js, telegram.js, index.js и тесты.
+module.exports = Object.assign({ mountApi, api }, api, {
   err_, ok_, withLock_, round1_, timeStr_,
-  login, logout, switchLaundry, listLaundries, createLaundry, updateLaundry, deactivateLaundry,
-  ensureShift_, getShiftByDate_, ensureWashesFromDelivery_, notReadyForDelivery_, materializeTodayAllLaundries_,
-  getDayList, startWash, completeWash, editWashData, deferWash, holdPartialWash, addUnplannedWash,
-  getShiftCloseState, closeShift,
-  getDeliveryPlan, addToDelivery, cancelWash, deleteWash, confirmStorageCheck, markIssued, updateIssueDate,
-  getWeekPlan, addWeekCard, moveWeekCard, removeWeekCard,
-  getStorage, getDayReport, getSummaryReport, getFinanceSummary,
-  saveClient, deleteClient, purgeClient, saveItemType, deleteItemType, rememberClientItemType, getRefs,
-  listBillingItems, saveBillingItem, deleteBillingItem,
-  listTariffs, saveTariff, saveClientItemBilling, listClientItemBilling, getClientInvoice,
-  listUsers, createUser, updateUser, resetUserPassword, deactivateUser, reactivateUser, deleteUser, makeTelegramBindCode,
-  consumeTelegramBindCode_, getTvData,
-  getDeliveryVisits: deliveries.getDeliveryVisits,
-  addDeliveryVisit: deliveries.addDeliveryVisit,
-  moveDeliveryVisit: deliveries.moveDeliveryVisit,
-  removeDeliveryVisit: deliveries.removeDeliveryVisit,
-  setPickupOnly: deliveries.setPickupOnly,
-  getDriverRoute: deliveries.getDriverRoute,
-  driverTakeAllClean: deliveries.driverTakeAllClean,
-  driverAction: deliveries.driverAction,
-  driverHandover: deliveries.driverHandover,
-  setVisitLiftFloor: deliveries.setVisitLiftFloor,
-  setWorkHours: workhours.setWorkHours,
-  getWorkHours: workhours.getWorkHours,
-  getDeliveryPointStats: workhours.getDeliveryPointStats,
-  getPayroll: payroll.getPayroll,
-  getMyPayroll: payroll.getMyPayroll,
-  listPayRates: payroll.listPayRates,
-  savePayRate: payroll.savePayRate,
-  savePayAdjustment: payroll.savePayAdjustment,
-  deletePayAdjustment: payroll.deletePayAdjustment,
-  listPayAdjustments: payroll.listPayAdjustments,
-  listPaySettings: payroll.listPaySettings,
-  savePaySettings: payroll.savePaySettings
-};
+  ensureShift_, getShiftByDate_,
+  ensureWashesFromDelivery_, notReadyForDelivery_, materializeTodayAllLaundries_,
+  consumeTelegramBindCode_
+});
