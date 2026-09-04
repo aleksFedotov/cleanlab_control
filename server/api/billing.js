@@ -3,7 +3,6 @@
 const { SHEETS } = require('../schema');
 const db = require('../db');
 const { logEvent, actorOf_ } = require('../audit');
-const { requireRole_ } = require('../auth');
 const core = require('../core');
 const { err_, ok_, withLock_, findTenantRow_ } = core;
 
@@ -17,15 +16,11 @@ function billingItems_() {
     .sort(function (a, b) { return (Number(a.sort) || 0) - (Number(b.sort) || 0); });
 }
 
-function listBillingItems(token) {
-  const session = requireRole_(token, ['owner']);
-  if (!session) return err_('Нет доступа');
+function listBillingItems(session) {
   return ok_({ items: billingItems_() });
 }
 
-function saveBillingItem(token, item) {
-  const session = requireRole_(token, ['owner']);
-  if (!session) return err_('Нет доступа');
+function saveBillingItem(session, item) {
   const laundryId = session.laundryId;
   return withLock_(function () {
     item = item || {};
@@ -136,9 +131,7 @@ function saveLogisticsItem_(session, found, item, laundryId) {
 
 // Удаление запрещено, если позиция используется в тарифах, привязках клиентов
 // или типах белья — только архивация (active=нет), чтобы не ломать историю счетов.
-function deleteBillingItem(token, itemId) {
-  const session = requireRole_(token, ['owner']);
-  if (!session) return err_('Нет доступа');
+function deleteBillingItem(session, itemId) {
   const laundryId = session.laundryId;
   return withLock_(function () {
     const found = db.findById_(SHEETS.BILLING_ITEMS, itemId);
@@ -168,9 +161,7 @@ function deleteBillingItem(token, itemId) {
 
 // Тарифы прачки: глобальные дефолты (client_id='') + переопределения её клиентов.
 // С clientId — дефолты + переопределения этого клиента.
-function listTariffs(token, clientId) {
-  const session = requireRole_(token, ['owner']);
-  if (!session) return err_('Нет доступа');
+function listTariffs(session, clientId) {
   const rows = core.effectiveTariffs_(db.readAll_(SHEETS.CLIENT_TARIFFS), session.laundryId)
     .filter(function (t) { return !clientId || !t.client_id || t.client_id === clientId; });
   return ok_({ tariffs: rows });
@@ -178,9 +169,7 @@ function listTariffs(token, clientId) {
 
 // Upsert по (client_id, billing_item_id); price=''/null — снять переопределение.
 // clientId пусто = глобальный дефолт (общий для всех прачек, laundry_id='').
-function saveTariff(token, clientId, billingItemId, price) {
-  const session = requireRole_(token, ['owner']);
-  if (!session) return err_('Нет доступа');
+function saveTariff(session, clientId, billingItemId, price) {
   const laundryId = session.laundryId;
   return withLock_(function () {
     if (!db.findById_(SHEETS.BILLING_ITEMS, billingItemId)) {
@@ -228,9 +217,7 @@ function saveTariff(token, clientId, billingItemId, price) {
 // Per-клиентская привязка типа белья к позиции счёта (upsert по client_id+item_type_id).
 // billingItemId '' — «у этого клиента тип идёт в вес»; null — удалить строку
 // (вернуться к дефолтной привязке из ItemTypes).
-function saveClientItemBilling(token, clientId, itemTypeId, billingItemId) {
-  const session = requireRole_(token, ['owner']);
-  if (!session) return err_('Нет доступа');
+function saveClientItemBilling(session, clientId, itemTypeId, billingItemId) {
   const laundryId = session.laundryId;
   return withLock_(function () {
     if (!findTenantRow_(SHEETS.CLIENTS, clientId, laundryId)) return err_('Клиент не найден');
@@ -267,9 +254,7 @@ function saveClientItemBilling(token, clientId, itemTypeId, billingItemId) {
   });
 }
 
-function listClientItemBilling(token, clientId) {
-  const session = requireRole_(token, ['owner']);
-  if (!session) return err_('Нет доступа');
+function listClientItemBilling(session, clientId) {
   const rows = db.findRowsByTenant_(SHEETS.CLIENT_ITEM_BILLING, function (r) {
     return r.client_id === clientId;
   }, 1000, session.laundryId).map(function (r) { return r.obj; });
@@ -277,9 +262,7 @@ function listClientItemBilling(token, clientId) {
 }
 
 // Счёт клиента за период: сбор данных и чистый расчёт buildInvoice_ (core.js).
-function getClientInvoice(token, clientId, from, to) {
-  const session = requireRole_(token, ['owner']);
-  if (!session) return err_('Нет доступа');
+function getClientInvoice(session, clientId, from, to) {
   const laundryId = session.laundryId;
   const found = findTenantRow_(SHEETS.CLIENTS, clientId, laundryId);
   if (!found) return err_('Клиент не найден');

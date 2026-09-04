@@ -3,7 +3,6 @@
 const { SHEETS } = require('../schema');
 const db = require('../db');
 const { logEvent, actorOf_ } = require('../audit');
-const { requireRole_ } = require('../auth');
 const { err_, ok_, withLock_, findTenantRow_ } = require('../core');
 
 // --- Справочники (owner). Записи сбрасывают кэш (spec §10) ---
@@ -13,9 +12,7 @@ function normalizeAccessNote_(v) {
   return String(v || '').trim().slice(0, 2000);
 }
 
-function saveClient(token, client) {
-  const session = requireRole_(token, ['owner']);
-  if (!session) return err_('Нет доступа');
+function saveClient(session, client) {
   const laundryId = session.laundryId;
   return withLock_(function () {
     // Нормализация новых полей: item_types — JSON-массив id, accounting — weight|count|both
@@ -53,9 +50,7 @@ function saveClient(token, client) {
 }
 
 // Удаление = архивация (active=нет, spec §7.3).
-function deleteClient(token, clientId) {
-  const session = requireRole_(token, ['owner']);
-  if (!session) return err_('Нет доступа');
+function deleteClient(session, clientId) {
   const laundryId = session.laundryId;
   return withLock_(function () {
     const found = findTenantRow_(SHEETS.CLIENTS, clientId, laundryId);
@@ -69,9 +64,7 @@ function deleteClient(token, clientId) {
 
 // Физическое удаление клиента. Стирки/визиты блокируют (история счетов);
 // тарифы и привязки клиента чистятся каскадно — без клиента они мусор.
-function purgeClient(token, clientId) {
-  const session = requireRole_(token, ['owner']);
-  if (!session) return err_('Нет доступа');
+function purgeClient(session, clientId) {
   const laundryId = session.laundryId;
   return withLock_(function () {
     const found = findTenantRow_(SHEETS.CLIENTS, clientId, laundryId);
@@ -101,12 +94,11 @@ function purgeClient(token, clientId) {
 }
 
 // Создавать новый тип («Другое…») может и работник с экрана стирки;
-// переименование существующего — только владелец.
+// переименование существующего — только владелец. Базовая роль (owner|worker)
+// проверяется в mountApi по API_ROLES; здесь — уточнение для правки.
 // billing_item_id — позиция в счёте (только штучная wash_pcs, пусто = в счёт по весу).
-function saveItemType(token, itemType) {
-  const roles = itemType && itemType.id ? ['owner'] : ['owner', 'worker'];
-  const session = requireRole_(token, roles);
-  if (!session) return err_('Нет доступа');
+function saveItemType(session, itemType) {
+  if (itemType && itemType.id && session.role !== 'owner') return err_('Нет доступа');
   if (itemType.billing_item_id !== undefined) {
     const bid = String(itemType.billing_item_id || '');
     if (bid) {
@@ -139,9 +131,7 @@ function saveItemType(token, itemType) {
 
 // Работник с экрана стирки добавил вид белья и попросил запомнить его для клиента.
 // Имеет смысл только когда у клиента уже настроен свой список (иначе показываются все типы).
-function rememberClientItemType(token, clientId, itemTypeId) {
-  const session = requireRole_(token, ['owner', 'worker']);
-  if (!session) return err_('Нет доступа');
+function rememberClientItemType(session, clientId, itemTypeId) {
   const laundryId = session.laundryId;
   return withLock_(function () {
     const found = findTenantRow_(SHEETS.CLIENTS, clientId, laundryId);
@@ -161,9 +151,7 @@ function rememberClientItemType(token, clientId, itemTypeId) {
 // у клиента (item_types) или есть per-клиентская привязка к позиции счёта —
 // иначе только архивация (active=нет). ItemTypes — глобальный справочник
 // (без laundry_id), клиентов проверяем только своей прачки.
-function deleteItemType(token, itemTypeId) {
-  const session = requireRole_(token, ['owner']);
-  if (!session) return err_('Нет доступа');
+function deleteItemType(session, itemTypeId) {
   const laundryId = session.laundryId;
   return withLock_(function () {
     const found = db.findById_(SHEETS.ITEM_TYPES, itemTypeId);
@@ -185,9 +173,7 @@ function deleteItemType(token, itemTypeId) {
 }
 
 // Полные справочники для экрана владельца (включая архивные).
-function getRefs(token) {
-  const session = requireRole_(token, ['owner']);
-  if (!session) return err_('Нет доступа');
+function getRefs(session) {
   return ok_({ clients: db.getClients_(session.laundryId), itemTypes: db.getItemTypes_() });
 }
 module.exports = {

@@ -3,7 +3,7 @@
 const crypto = require('node:crypto');
 const db = require('../db');
 const { logEvent, actorOf_ } = require('../audit');
-const { requireRole_, hashPassword_ } = require('../auth');
+const { hashPassword_ } = require('../auth');
 const { err_, ok_ } = require('../core');
 
 // --- Пользователи (owner): экран «Сотрудники» ---
@@ -11,9 +11,7 @@ const { err_, ok_ } = require('../core');
 // Список пользователей прачки (по умолчанию — активной в сессии) + владельцы.
 // Отдаём и неактивных (active=нет) — UI их помечает и предлагает «Включить».
 // pass_hash/pin из ответа убираем: клиенту хэши не нужны.
-function listUsers(token, laundryId) {
-  const session = requireRole_(token, ['owner']);
-  if (!session) return err_('Нет доступа');
+function listUsers(session, laundryId) {
   const lid = String(laundryId || session.laundryId);
   const users = db.readAll_('Users').filter(function (u) {
     return u.laundry_id === lid || u.role === 'owner';
@@ -27,9 +25,7 @@ function listUsers(token, laundryId) {
 // Создание аккаунта. Логин глобально уникален (вход — только по логину+паролю,
 // без выбора прачки). Пароль хранится как scrypt-хэш (util/passwords.js).
 // Роль client (задел) требует clientId — ссылку на клиента справочника.
-function createUser(token, user) {
-  const session = requireRole_(token, ['owner']);
-  if (!session) return err_('Нет доступа');
+function createUser(session, user) {
   user = user || {};
   const ROLES = ['owner', 'worker', 'driver', 'client'];
   if (ROLES.indexOf(user.role) === -1) return err_('Неизвестная роль');
@@ -56,9 +52,7 @@ function createUser(token, user) {
 }
 
 // Сброс пароля пользователя (owner): новый пароль хэшируется, старый перезаписывается.
-function resetUserPassword(token, userId, newPassword) {
-  const session = requireRole_(token, ['owner']);
-  if (!session) return err_('Нет доступа');
+function resetUserPassword(session, userId, newPassword) {
   if (!newPassword) return err_('Укажите пароль');
   const found = db.findById_('Users', userId);
   if (!found) return err_('Пользователь не найден');
@@ -71,9 +65,7 @@ function resetUserPassword(token, userId, newPassword) {
 // Правка аккаунта: имя, роль, логин, clientId (при роли client). Пароль не
 // трогаем — для этого resetUserPassword. Логин глобально уникален (кроме самого
 // пользователя). Нельзя менять роль самому себе (owner по своему userId).
-function updateUser(token, user) {
-  const session = requireRole_(token, ['owner']);
-  if (!session) return err_('Нет доступа');
+function updateUser(session, user) {
   user = user || {};
   const found = db.findById_('Users', user.id);
   if (!found) return err_('Пользователь не найден');
@@ -110,9 +102,7 @@ function updateUser(token, user) {
   return ok_({ user: { id: u.id, laundry_id: u.laundry_id, name: u.name, role: u.role, login: u.login, active: u.active, client_id: u.client_id } });
 }
 
-function deactivateUser(token, id) {
-  const session = requireRole_(token, ['owner']);
-  if (!session) return err_('Нет доступа');
+function deactivateUser(session, id) {
   if (String(id) === String(session.userId)) return err_('Нельзя отключить самого себя');
   const found = db.findById_('Users', id);
   if (!found) return err_('Пользователь не найден');
@@ -123,9 +113,7 @@ function deactivateUser(token, id) {
 }
 
 // Возврат доступа отключённому пользователю (пара к deactivateUser).
-function reactivateUser(token, id) {
-  const session = requireRole_(token, ['owner']);
-  if (!session) return err_('Нет доступа');
+function reactivateUser(session, id) {
   const found = db.findById_('Users', id);
   if (!found) return err_('Пользователь не найден');
   found.obj.active = 'да';
@@ -138,9 +126,7 @@ function reactivateUser(token, id) {
 // убирается из Users совсем). Нельзя удалить себя и последнего активного
 // владельца. Сессии удалённого чистить не нужно: getSession_ отклоняет их,
 // когда пользователь не найден (auth.js).
-function deleteUser(token, id) {
-  const session = requireRole_(token, ['owner']);
-  if (!session) return err_('Нет доступа');
+function deleteUser(session, id) {
   if (String(id) === String(session.userId)) return err_('Нельзя удалить самого себя');
   const found = db.findById_('Users', id);
   if (!found) return err_('Пользователь не найден');
@@ -161,9 +147,7 @@ function deleteUser(token, id) {
 const TG_CODE_TTL_MS = 10 * 60 * 1000;
 const telegramBindCodes = new Map(); // code → { laundryId, expiresAt }
 
-function makeTelegramBindCode(token) {
-  const session = requireRole_(token, ['owner']);
-  if (!session) return err_('Нет доступа');
+function makeTelegramBindCode(session) {
   // Уборка протухших, чтобы Map не рос
   const now = Date.now();
   for (const [c, rec] of telegramBindCodes) if (rec.expiresAt < now) telegramBindCodes.delete(c);

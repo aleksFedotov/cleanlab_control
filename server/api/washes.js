@@ -3,7 +3,6 @@
 const { SHEETS } = require('../schema');
 const db = require('../db');
 const { nowStr_, todayStr_, logEvent, actorOf_ } = require('../audit');
-const { requireRole_ } = require('../auth');
 const core = require('../core');
 const {
   addDaysStr_, mondayOf_, checkTransition_, applyDefer_, canEditWashData_,
@@ -57,9 +56,7 @@ function ensureWashesFromDelivery_(date, laundryId) {
   });
 }
 
-function getDayList(token, date) {
-  const session = requireRole_(token, ['owner', 'worker']);
-  if (!session) return err_('Нет доступа');
+function getDayList(session, date) {
   const laundryId = session.laundryId;
   date = date || todayStr_();
   return withLock_(function () {
@@ -150,9 +147,7 @@ function getDayList(token, date) {
 
 // --- Сотрудник ---
 
-function startWash(token, washId, weightKg) {
-  const session = requireRole_(token, ['owner', 'worker']);
-  if (!session) return err_('Нет доступа');
+function startWash(session, washId, weightKg) {
   const laundryId = session.laundryId;
   return withLock_(function () {
     const found = findTenantRow_(SHEETS.WASHES, washId, laundryId);
@@ -174,9 +169,7 @@ function startWash(token, washId, weightKg) {
   });
 }
 
-function completeWash(token, washId, items, weightKg, mode, bags) {
-  const session = requireRole_(token, ['owner', 'worker']);
-  if (!session) return err_('Нет доступа');
+function completeWash(session, washId, items, weightKg, mode, bags) {
   const laundryId = session.laundryId;
   return withLock_(function () {
     const found = findTenantRow_(SHEETS.WASHES, washId, laundryId);
@@ -229,9 +222,7 @@ function completeWash(token, washId, items, weightKg, mode, bags) {
 }
 
 // Правка веса/пересчёта/мешков завершённой (spec §4.2): статус и done_at не меняются.
-function editWashData(token, washId, weightKg, items, bags) {
-  const session = requireRole_(token, ['owner', 'worker']);
-  if (!session) return err_('Нет доступа');
+function editWashData(session, washId, weightKg, items, bags) {
   const laundryId = session.laundryId;
   return withLock_(function () {
     const found = findTenantRow_(SHEETS.WASHES, washId, laundryId);
@@ -276,9 +267,7 @@ function editWashData(token, washId, weightKg, items, bags) {
   });
 }
 
-function deferWash(token, washId, newDate, reason) {
-  const session = requireRole_(token, ['owner', 'worker']);
-  if (!session) return err_('Нет доступа');
+function deferWash(session, washId, newDate, reason) {
   const laundryId = session.laundryId;
   const actor = actorOf_(session);
   return withLock_(function () {
@@ -334,9 +323,7 @@ function deferWash(token, washId, newDate, reason) {
 // «Оставить на складе» по частичной (spec: решение принимает владелец): запоминаем
 // решение маркером hold в deferred_reason, дату НЕ переносим, статус остаётся partial.
 // Иначе запись навсегда висит «требует решения», хотя решение уже принято.
-function holdPartialWash(token, washId) {
-  const session = requireRole_(token, ['owner']);
-  if (!session) return err_('Нет доступа');
+function holdPartialWash(session, washId) {
   const laundryId = session.laundryId;
   return withLock_(function () {
     const found = findTenantRow_(SHEETS.WASHES, washId, laundryId);
@@ -351,9 +338,7 @@ function holdPartialWash(token, washId) {
 }
 
 // Внеплановая стирка из цеха: сегодня, выдача завтра, created_by по роли.
-function addUnplannedWash(token, clientId, comment) {
-  const session = requireRole_(token, ['owner', 'worker']);
-  if (!session) return err_('Нет доступа');
+function addUnplannedWash(session, clientId, comment) {
   const laundryId = session.laundryId;
   return withLock_(function () {
     const today = todayStr_();
@@ -380,9 +365,7 @@ function addUnplannedWash(token, clientId, comment) {
   });
 }
 
-function getShiftCloseState(token) {
-  const session = requireRole_(token, ['owner', 'worker']);
-  if (!session) return err_('Нет доступа');
+function getShiftCloseState(session) {
   const laundryId = session.laundryId;
   const today = todayStr_();
   // Любой экран дня материализует стирки из завтрашнего развоза (раньше — только getDayList)
@@ -453,9 +436,7 @@ function notReadyForDelivery_(date, laundryId) {
 // Перенос таких стирок на другой день может сделать только владелец, поэтому
 // при закрытии с незавершёнными владельцу уходит предупреждение в Telegram.
 // Async: отправка дайджеста в Telegram — HTTP-запрос (см. telegram.js).
-async function closeShift(token, force) {
-  const session = requireRole_(token, ['owner', 'worker']);
-  if (!session) return err_('Нет доступа');
+async function closeShift(session, force) {
   const laundryId = session.laundryId;
   const today = todayStr_();
   const washes = db.findRowsByTenant_(SHEETS.WASHES, function (w) { return w.wash_date === today; }, 1000, laundryId)
@@ -511,9 +492,7 @@ async function closeShift(token, force) {
 
 // --- Владелец ---
 
-function getDeliveryPlan(token, date) {
-  const session = requireRole_(token, ['owner']);
-  if (!session) return err_('Нет доступа');
+function getDeliveryPlan(session, date) {
   const laundryId = session.laundryId;
   const clients = {};
   db.getClients_(laundryId).forEach(function (c) { clients[c.id] = c; });
@@ -534,9 +513,7 @@ function getDeliveryPlan(token, date) {
   });
 }
 
-function addToDelivery(token, clientId, washDate, issueDate, comment) {
-  const session = requireRole_(token, ['owner']);
-  if (!session) return err_('Нет доступа');
+function addToDelivery(session, clientId, washDate, issueDate, comment) {
   const laundryId = session.laundryId;
   return withLock_(function () {
     const w = {
@@ -552,9 +529,7 @@ function addToDelivery(token, clientId, washDate, issueDate, comment) {
   });
 }
 
-function cancelWash(token, washId) {
-  const session = requireRole_(token, ['owner']);
-  if (!session) return err_('Нет доступа');
+function cancelWash(session, washId) {
   const laundryId = session.laundryId;
   return withLock_(function () {
     const found = findTenantRow_(SHEETS.WASHES, washId, laundryId);
@@ -572,9 +547,7 @@ function cancelWash(token, washId) {
 // у завершённых (done/stored/partial) заодно удаляются позиции и складские
 // строки этой стирки (в т.ч. израсходованные — бельё «убирается» из учёта).
 // Выданную клиенту (issued) удалять нельзя — это уже факт выдачи.
-function deleteWash(token, washId) {
-  const session = requireRole_(token, ['owner', 'worker']);
-  if (!session) return err_('Нет доступа');
+function deleteWash(session, washId) {
   const laundryId = session.laundryId;
   return withLock_(function () {
     const found = findTenantRow_(SHEETS.WASHES, washId, laundryId);
@@ -613,9 +586,7 @@ function deleteWash(token, washId) {
 //    создаём её (без веса — как приёмка водителем). Стирка остаётся/возвращается
 //    в planned, карточка становится янтарной везде. Запись израсходуется при startWash.
 // Время проверки пишем в done_at (для этих статусов — «когда разобрались с клиентом»).
-function confirmStorageCheck(token, washId, verdict) {
-  const session = requireRole_(token, ['owner', 'worker']);
-  if (!session) return err_('Нет доступа');
+function confirmStorageCheck(session, washId, verdict) {
   const laundryId = session.laundryId;
   const VERDICTS = { no_dirty: 1, already_clean: 1, has_dirty: 1 };
   if (!VERDICTS[verdict]) return err_('Неизвестный verdict');
@@ -646,9 +617,7 @@ function confirmStorageCheck(token, washId, verdict) {
   });
 }
 
-function markIssued(token, washId) {
-  const session = requireRole_(token, ['owner']);
-  if (!session) return err_('Нет доступа');
+function markIssued(session, washId) {
   const laundryId = session.laundryId;
   return withLock_(function () {
     const found = findTenantRow_(SHEETS.WASHES, washId, laundryId);
@@ -670,9 +639,7 @@ function markIssued(token, washId) {
 }
 
 // Правка issue_date у done/stored статус не меняет (spec §4.3).
-function updateIssueDate(token, washId, issueDate) {
-  const session = requireRole_(token, ['owner']);
-  if (!session) return err_('Нет доступа');
+function updateIssueDate(session, washId, issueDate) {
   const laundryId = session.laundryId;
   return withLock_(function () {
     const found = findTenantRow_(SHEETS.WASHES, washId, laundryId);
@@ -750,9 +717,7 @@ function materializeTodayAllLaundries_() {
     });
 }
 
-function getWeekPlan(token, monday) {
-  const session = requireRole_(token, ['owner']);
-  if (!session) return err_('Нет доступа');
+function getWeekPlan(session, monday) {
   const laundryId = session.laundryId;
   const mon = mondayOf_(monday || todayStr_());
   return withLock_(function () {
@@ -793,9 +758,7 @@ function removeWeekCard(token, visitId) {
   return deliveries.removeDeliveryVisit(token, visitId);
 }
 
-function getStorage(token) {
-  const session = requireRole_(token, ['owner']);
-  if (!session) return err_('Нет доступа');
+function getStorage(session) {
   const laundryId = session.laundryId;
   const clients = {};
   db.getClients_(laundryId).forEach(function (c) { clients[c.id] = c; });
@@ -842,9 +805,7 @@ function getStorage(token) {
   });
 }
 
-function getDayReport(token, date) {
-  const session = requireRole_(token, ['owner']);
-  if (!session) return err_('Нет доступа');
+function getDayReport(session, date) {
   const laundryId = session.laundryId;
   // Как и getDayList: отчёт по дню материализует стирки из развоза на date+1
   ensureWashesFromDelivery_(date, laundryId);
@@ -872,9 +833,7 @@ function getDayReport(token, date) {
 
 // Сводный отчёт за произвольный период: итоги по клиентам (мешки/вес/вещи/стирки)
 // + разбивка по видам вещей. Учитываются только завершённые стирки (DONE_STATUSES).
-function getSummaryReport(token, from, to) {
-  const session = requireRole_(token, ['owner']);
-  if (!session) return err_('Нет доступа');
+function getSummaryReport(session, from, to) {
   const laundryId = session.laundryId;
   const re = /^\d{4}-\d{2}-\d{2}$/;
   if (!re.test(from || '') || !re.test(to || '') || from > to) {
@@ -921,9 +880,7 @@ function getSummaryReport(token, from, to) {
 
 // Финансовая сводка (P4): объёмы getSummaryReport + денежный слой buildInvoice_
 // по каждому активному клиенту прачки. Read-only, один проход по данным.
-function getFinanceSummary(token, from, to) {
-  const session = requireRole_(token, ['owner']);
-  if (!session) return err_('Нет доступа');
+function getFinanceSummary(session, from, to) {
   const laundryId = session.laundryId;
   const re = /^\d{4}-\d{2}-\d{2}$/;
   if (!re.test(from || '') || !re.test(to || '') || from > to) {

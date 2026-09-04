@@ -4,7 +4,6 @@ const { SHEETS } = require('../schema');
 const crypto = require('node:crypto');
 const db = require('../db');
 const { todayStr_, logEvent, actorOf_ } = require('../audit');
-const { requireRole_ } = require('../auth');
 const {
   isDayWash_, sortDayList_, err_, ok_, clientName_, withLock_, timeStr_
 } = require('../core');
@@ -14,9 +13,7 @@ const {
 // Список активных прачек с TV-ключами (per-tenant Settings). Owner-only:
 // раньше метод был публичным для выбора прачки на входе, но вход теперь
 // по логину+паролю без выбора прачки — список нужен только владельцу.
-function listLaundries(token) {
-  const session = requireRole_(token, ['owner']);
-  if (!session) return err_('Нет доступа');
+function listLaundries(session) {
   const laundries = db.readAll_('Laundries')
     .filter(function (l) { return l.active === 'да'; })
     .map(function (l) {
@@ -27,9 +24,7 @@ function listLaundries(token) {
 
 // Новая прачка из веб-интерфейса (без ENV-сида). TV-ключ табла генерируется
 // случайно и кладётся в per-tenant Settings новой прачки.
-function createLaundry(token, data) {
-  const session = requireRole_(token, ['owner']);
-  if (!session) return err_('Нет доступа');
+function createLaundry(session, data) {
   const name = String((data && data.name) || '').trim();
   if (!name) return err_('Укажите название прачки');
   return withLock_(function () {
@@ -47,9 +42,7 @@ function createLaundry(token, data) {
 }
 
 // Переименование прачки: запись в Laundries + per-tenant Settings LAUNDRY_NAME.
-function updateLaundry(token, data) {
-  const session = requireRole_(token, ['owner']);
-  if (!session) return err_('Нет доступа');
+function updateLaundry(session, data) {
   const name = String((data && data.name) || '').trim();
   if (!name) return err_('Укажите название прачки');
   const found = db.findById_('Laundries', data && data.id);
@@ -64,9 +57,7 @@ function updateLaundry(token, data) {
 
 // Деактивация прачки: данные не удаляются, прачка пропадает из списков.
 // Нельзя деактивировать активную прачку текущей сессии и последнюю активную.
-function deactivateLaundry(token, id) {
-  const session = requireRole_(token, ['owner']);
-  if (!session) return err_('Нет доступа');
+function deactivateLaundry(session, id) {
   const found = db.findById_('Laundries', id);
   if (!found) return err_('Прачка не найдена');
   if (String(id) === String(session.laundryId)) {
