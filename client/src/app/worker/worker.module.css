@@ -240,6 +240,18 @@
   color: var(--warn);
 }
 
+/* Чип даты на карточках «Осталось с прошлых дней» (P7) */
+.dateChip {
+  color: var(--warn);
+  background: var(--warn-bg);
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  margin-right: auto;
+}
+
 /* Плашка «Отобрать до взвешивания» (P2): у стирки есть штучные позиции */
 .plaque {
   color: var(--warn);

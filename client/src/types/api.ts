@@ -192,6 +192,8 @@ export interface DayListRes {
   date: string;
   laundryName: string;
   washes: DayWash[];
+  // P7: незавершённые вчерашние стирки (planned/no_linen/in_progress, partial без hold)
+  overdue: DayWash[];
   shift: Shift | null;
   clients: Client[];
   itemTypes: ItemType[];

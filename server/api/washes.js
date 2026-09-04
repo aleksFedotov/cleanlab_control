@@ -66,13 +66,21 @@ function getDayList(session, date) {
     const washes = db.findRowsByTenant_(SHEETS.WASHES, function (w) {
       return isDayWash_(w, date);
     }, 1000, laundryId).map(function (r) { return r.obj; });
+    // P7: «Осталось со вчера» — незавершённые стирки вчерашнего дня.
+    // partial с deferred_reason='hold' исключаем: владелец уже решил «оставить на складе».
+    const yesterday = addDaysStr_(date, -1);
+    const overdue = db.findRowsByTenant_(SHEETS.WASHES, function (w) {
+      if (w.wash_date !== yesterday) return false;
+      if (w.status === 'planned' || w.status === 'no_linen' || w.status === 'in_progress') return true;
+      return w.status === 'partial' && w.deferred_reason !== 'hold';
+    }, 1000, laundryId).map(function (r) { return r.obj; });
     const shift = getShiftByDate_(date, laundryId);
     const storage = storageSummaryByClient_(laundryId);
     // WashItems грузим один раз для всех стирок дня: planned/in_progress — это
     // признак «остаток частичной стирки» (partial_rest), у завершённых — состав
     // постиранного (items), чтобы работник мог исправить ошибочное завершение.
     const dayIds = {};
-    washes.forEach(function (w) {
+    washes.concat(overdue).forEach(function (w) {
       if (w.status !== 'cancelled') dayIds[w.id] = true;
     });
     const prevItems = {};
@@ -107,37 +115,40 @@ function getDayList(session, date) {
         item_name: types[wi.item_type_id] || wi.item_type_id
       };
     };
+    // Декорация карточки дня — общая для washes и overdue (P7)
+    const decorate = function (w) {
+      w.client_name = clientName_(w.client_id, clients);
+      // Состояние склада для раскраски «К работе» (check-storage из спеки)
+      const s = storage[w.client_id] || { dirty: 0, clean: 0 };
+      w.has_dirty = s.dirty > 0;
+      w.has_clean = s.clean > 0;
+      // Настройки клиента: свой список белья и режим учёта (пусто = все типы / both)
+      const cl = clients[w.client_id] || {};
+      w.client_item_types = db.parseJsonList_(cl.item_types);
+      w.client_accounting = cl.accounting === 'weight' || cl.accounting === 'count' ? cl.accounting : 'both';
+      // Пустой список типов у клиента = все типы (как в формах стирки)
+      w.piece_types = pieceTypesFor_(w.client_id,
+        w.client_item_types && w.client_item_types.length ? w.client_item_types : Object.keys(itemTypesById));
+      // Остаток частичной стирки: показываем, что часть уже постирана
+      const prev = prevItems[w.id];
+      if (prev && prev.length) {
+        if (w.status === 'planned' || w.status === 'in_progress') {
+          w.partial_rest = true;
+          w.prev_items = prev.map(mapItem);
+          w.prev_kg = w.dirty_weight_kg;
+          w.prev_bags = w.bags;
+        } else {
+          // Состав постиранного у завершённых — для правки с экрана работника
+          w.items = prev.map(mapItem);
+        }
+      }
+      return w;
+    };
     return ok_({
       date: date,
       laundryName: db.getSettings_(laundryId).LAUNDRY_NAME || 'CleanLab Pro',
-      washes: sortDayList_(washes).map(function (w) {
-        w.client_name = clientName_(w.client_id, clients);
-        // Состояние склада для раскраски «К работе» (check-storage из спеки)
-        const s = storage[w.client_id] || { dirty: 0, clean: 0 };
-        w.has_dirty = s.dirty > 0;
-        w.has_clean = s.clean > 0;
-        // Настройки клиента: свой список белья и режим учёта (пусто = все типы / both)
-        const cl = clients[w.client_id] || {};
-        w.client_item_types = db.parseJsonList_(cl.item_types);
-        w.client_accounting = cl.accounting === 'weight' || cl.accounting === 'count' ? cl.accounting : 'both';
-        // Пустой список типов у клиента = все типы (как в формах стирки)
-        w.piece_types = pieceTypesFor_(w.client_id,
-          w.client_item_types && w.client_item_types.length ? w.client_item_types : Object.keys(itemTypesById));
-        // Остаток частичной стирки: показываем, что часть уже постирана
-        const prev = prevItems[w.id];
-        if (prev && prev.length) {
-          if (w.status === 'planned' || w.status === 'in_progress') {
-            w.partial_rest = true;
-            w.prev_items = prev.map(mapItem);
-            w.prev_kg = w.dirty_weight_kg;
-            w.prev_bags = w.bags;
-          } else {
-            // Состав постиранного у завершённых — для правки с экрана работника
-            w.items = prev.map(mapItem);
-          }
-        }
-        return w;
-      }),
+      washes: sortDayList_(washes).map(decorate),
+      overdue: overdue.map(decorate),
       shift: shift ? shift.obj : null,
       clients: db.getClients_(laundryId).filter(function (c) { return c.active === 'да'; }),
       itemTypes: db.getItemTypes_().filter(function (t) { return t.active === 'да'; })

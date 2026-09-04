@@ -801,3 +801,103 @@ test('deleteUser: удаляет совсем; нельзя себя, после
   assert.ok(!delSelf.ok);
   assert.ok(/самого себя/.test(delSelf.error));
 });
+
+// --- P7: «Осталось со вчера» (overdue в getDayList) ---
+const YESTERDAY = '2026-08-11';
+
+test('P7 overdue: незавершённые за вчера — в overdue; позавчера/hold/завершённые/сегодняшние — нет', () => {
+  const ctx = makeCtx();
+  const owner = loginOwner();
+  const worker = loginWorker();
+  // planned вчера
+  const wPlanned = ctx.api.addToDelivery(owner, seedClient(ctx), YESTERDAY, TODAY).wash.id;
+  // in_progress позавчера — НЕ в overdue (показываем только вчера)
+  const wProgress = ctx.api.addToDelivery(owner, seedClient(ctx, { name: 'Отель Б' }), '2026-08-10', YESTERDAY).wash.id;
+  ctx.api.startWash(worker, wProgress);
+  // no_linen вчера
+  const wNoLinen = ctx.api.addToDelivery(owner, seedClient(ctx, { name: 'Отель В' }), YESTERDAY, TODAY).wash.id;
+  assert.ok(ctx.api.confirmStorageCheck(worker, wNoLinen, 'no_dirty').ok);
+  // partial вчера без решения — в overdue
+  const wPartial = ctx.api.addToDelivery(owner, seedClient(ctx, { name: 'Отель Г' }), YESTERDAY, TODAY).wash.id;
+  ctx.api.startWash(worker, wPartial);
+  ctx.api.completeWash(worker, wPartial, [{ item_type_id: 'itm_1', qty: 2 }], 3, 'partial', 1);
+  // partial с решением «оставить на складе» (hold) — НЕ в overdue
+  const wHold = ctx.api.addToDelivery(owner, seedClient(ctx, { name: 'Отель Д' }), YESTERDAY, TODAY).wash.id;
+  ctx.api.startWash(worker, wHold);
+  ctx.api.completeWash(worker, wHold, [{ item_type_id: 'itm_1', qty: 1 }], 2, 'partial', 1);
+  assert.ok(ctx.api.holdPartialWash(owner, wHold).ok);
+  // завершённая вчера — НЕ в overdue
+  const wDone = ctx.api.addToDelivery(owner, seedClient(ctx, { name: 'Отель Е' }), YESTERDAY, TODAY).wash.id;
+  ctx.api.startWash(worker, wDone);
+  ctx.api.completeWash(worker, wDone, [{ item_type_id: 'itm_1', qty: 1 }], 2, null, 1);
+  // отменённая вчера — НЕ в overdue
+  const wCancelled = ctx.api.addToDelivery(owner, seedClient(ctx, { name: 'Отель Ж' }), YESTERDAY, TODAY).wash.id;
+  assert.ok(ctx.api.cancelWash(owner, wCancelled).ok);
+  // сегодняшняя — в washes, не в overdue
+  const wToday = ctx.api.addToDelivery(owner, seedClient(ctx, { name: 'Отель З' }), TODAY, TOMORROW).wash.id;
+
+  const day = ctx.api.getDayList(worker, TODAY);
+  const overdueIds = day.overdue.map(function (w) { return w.id; });
+  // только вчерашние, в порядке создания
+  assert.deepStrictEqual(overdueIds, [wPlanned, wNoLinen, wPartial]);
+  assert.ok(!overdueIds.includes(wProgress)); // позавчерашняя не показывается
+  assert.ok(!overdueIds.includes(wHold));
+  assert.ok(!overdueIds.includes(wDone));
+  assert.ok(!overdueIds.includes(wCancelled));
+  assert.ok(!overdueIds.includes(wToday));
+  assert.ok(day.washes.some(function (w) { return w.id === wToday; }));
+  // декорация как у обычных карточек дня
+  const od = day.overdue.find(function (w) { return w.id === wPlanned; });
+  assert.strictEqual(od.client_name, 'Отель А');
+  assert.strictEqual(typeof od.has_dirty, 'boolean');
+  assert.strictEqual(typeof od.has_clean, 'boolean');
+  const odPartial = day.overdue.find(function (w) { return w.id === wPartial; });
+  assert.ok(odPartial.items && odPartial.items.length === 1); // у partial — состав постиранного
+});
+
+test('P7 overdue: вчерашнюю стирку достирает работник; wash_date и отчёт своей даты не меняются', () => {
+  const ctx = makeCtx();
+  const clientId = seedClient(ctx);
+  const owner = loginOwner();
+  const worker = loginWorker();
+  const washId = ctx.api.addToDelivery(owner, clientId, YESTERDAY, TODAY).wash.id;
+  assert.ok(ctx.api.getDayList(worker, TODAY).overdue.some(function (w) { return w.id === washId; }));
+
+  assert.ok(ctx.api.startWash(worker, washId).ok);
+  const done = ctx.api.completeWash(worker, washId, [{ item_type_id: 'itm_1', qty: 3 }], 4, null, 1);
+  assert.ok(done.ok);
+  assert.strictEqual(done.wash.wash_date, YESTERDAY); // дату не трогаем
+  // из overdue ушла
+  assert.ok(!ctx.api.getDayList(worker, TODAY).overdue.some(function (w) { return w.id === washId; }));
+  // во вчерашнем отчёте — есть, в сегодняшнем — нет
+  assert.ok(ctx.api.getDayReport(owner, YESTERDAY).washes.some(function (w) { return w.id === washId; }));
+  assert.ok(!ctx.api.getDayReport(owner, TODAY).washes.some(function (w) { return w.id === washId; }));
+  // clean-запись склада создана
+  const clean = ctx.db.readAll_('Storage').filter(function (s) {
+    return s.client_id === clientId && s.kind === 'clean' && !s.consumed_at;
+  });
+  assert.strictEqual(clean.length, 1);
+});
+
+test('P7 overdue: перенос вчерашней на сегодня — из overdue в сегодняшнюю очередь', () => {
+  const ctx = makeCtx();
+  const clientId = seedClient(ctx);
+  const owner = loginOwner();
+  const worker = loginWorker();
+  const washId = ctx.api.addToDelivery(owner, clientId, YESTERDAY, TODAY).wash.id;
+  assert.ok(ctx.api.deferWash(worker, washId, TODAY, 'достираем сегодня').ok);
+  const day = ctx.api.getDayList(worker, TODAY);
+  assert.ok(day.washes.some(function (w) { return w.id === washId; }));
+  assert.ok(!day.overdue.some(function (w) { return w.id === washId; }));
+});
+
+test('P7 overdue: просроченные стирки не блокируют закрытие сегодняшней смены', async () => {
+  const ctx = makeCtx();
+  const clientId = seedClient(ctx);
+  const owner = loginOwner();
+  const worker = loginWorker();
+  ctx.api.addToDelivery(owner, clientId, YESTERDAY, TODAY); // вчерашняя planned — висит в overdue
+  const closed = await ctx.api.closeShift(worker);
+  assert.ok(closed.ok);
+  assert.strictEqual(closed.shift.status, 'closed');
+});

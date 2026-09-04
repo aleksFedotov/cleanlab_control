@@ -39,11 +39,13 @@ function greeting(name: string): string {
 // Стирка «в работе»: детали + большая кнопка завершения (спека §6)
 function ActiveWashCard({
   w,
+  showDate,
   onComplete,
   onDefer,
   onDelete,
 }: {
   w: DayWash;
+  showDate?: boolean;
   onComplete: () => void;
   onDefer: () => void;
   onDelete: () => void;
@@ -56,6 +58,7 @@ function ActiveWashCard({
     <Card className={styles.washCard}>
       <div className={styles.washHead}>
         <span className={styles.washName}>{w.client_name}</span>
+        {showDate && <span className={styles.dateChip}>от {formatDateRu(w.wash_date, false)}</span>}
         <StatusBadge status={w.status} />
       </div>
       {w.partial_rest && (
@@ -87,6 +90,8 @@ function ActiveWashCard({
 function QueuedWashCard({
   w,
   checkedDirty,
+  showDate,
+  allowStart = true,
   onStart,
   onCheck,
   onDefer,
@@ -94,16 +99,20 @@ function QueuedWashCard({
 }: {
   w: DayWash;
   checkedDirty: boolean;
+  showDate?: boolean;
+  // partial без решения владельца стартовать нельзя (только перенос) — кнопку прячем
+  allowStart?: boolean;
   onStart: () => void;
   onCheck: () => void;
   onDefer: () => void;
   onDelete: () => void;
 }) {
-  const dirtyOk = w.has_dirty || checkedDirty;
+  const dirtyOk = allowStart && (w.has_dirty || checkedDirty);
   return (
     <Card className={styles.washCard}>
       <div className={styles.washHead}>
         <span className={styles.washName}>{w.client_name}</span>
+        {showDate && <span className={styles.dateChip}>от {formatDateRu(w.wash_date, false)}</span>}
         <StatusBadge status={w.status} />
       </div>
       {w.status === 'no_linen' ? (
@@ -181,9 +190,13 @@ export default function WorkerPage() {
   if (!session) return null;
 
   const washes = day.data?.washes || [];
+  // P7: «Осталось со вчера» — незавершённые вчерашние стирки
+  const overdueAll = day.data?.overdue || [];
   // Поиск по клиенту (как washSearch на дашборде)
   const q = search.trim().toLowerCase();
-  const visible = q ? washes.filter((w) => w.client_name.toLowerCase().includes(q)) : washes;
+  const matchQ = (w: DayWash) => w.client_name.toLowerCase().includes(q);
+  const visible = q ? washes.filter(matchQ) : washes;
+  const overdue = q ? overdueAll.filter(matchQ) : overdueAll;
   const inProgress = visible.filter((w) => w.status === 'in_progress');
   const queue = visible.filter((w) => w.status === 'planned' || w.status === 'no_linen');
   const doneList = visible.filter(
@@ -196,12 +209,14 @@ export default function WorkerPage() {
   const doneCount = doneList.length;
   const shiftClosed = !!day.data?.shift && day.data.shift.status === 'closed';
 
-  const completeWash = completeId ? washes.find((w) => w.id === completeId) : undefined;
-  const startWash = startId ? washes.find((w) => w.id === startId) : undefined;
-  const checkWash = checkId ? washes.find((w) => w.id === checkId) : undefined;
-  const deferWash = deferId ? washes.find((w) => w.id === deferId) : undefined;
-  const deleteWash = deleteId ? washes.find((w) => w.id === deleteId) : undefined;
-  const editWash = editId ? washes.find((w) => w.id === editId) : undefined;
+  // Модалки ищут стирку и в сегодняшнем дне, и в просроченных (P7)
+  const allWashes = washes.concat(overdueAll);
+  const completeWash = completeId ? allWashes.find((w) => w.id === completeId) : undefined;
+  const startWash = startId ? allWashes.find((w) => w.id === startId) : undefined;
+  const checkWash = checkId ? allWashes.find((w) => w.id === checkId) : undefined;
+  const deferWash = deferId ? allWashes.find((w) => w.id === deferId) : undefined;
+  const deleteWash = deleteId ? allWashes.find((w) => w.id === deleteId) : undefined;
+  const editWash = editId ? allWashes.find((w) => w.id === editId) : undefined;
 
   // Отметки часов, новые сверху; отметка за сегодня — отдельно для карточки
   const hoursEntries = (hoursQ.data?.entries || []).slice().sort((a, b) => (a.date < b.date ? 1 : -1));
@@ -261,6 +276,34 @@ export default function WorkerPage() {
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
               />
+              {overdue.length > 0 && (
+                <MobileSection label={`Осталось со вчера (${overdue.length})`}>
+                  {overdue.map((w) =>
+                    w.status === 'in_progress' ? (
+                      <ActiveWashCard
+                        key={w.id}
+                        w={w}
+                        showDate
+                        onComplete={() => setCompleteId(w.id)}
+                        onDefer={() => setDeferId(w.id)}
+                        onDelete={() => setDeleteId(w.id)}
+                      />
+                    ) : (
+                      <QueuedWashCard
+                        key={w.id}
+                        w={w}
+                        showDate
+                        allowStart={w.status !== 'partial'}
+                        checkedDirty={!!checkedMap[w.id]}
+                        onStart={() => setStartId(w.id)}
+                        onCheck={() => setCheckId(w.id)}
+                        onDefer={() => setDeferId(w.id)}
+                        onDelete={() => setDeleteId(w.id)}
+                      />
+                    )
+                  )}
+                </MobileSection>
+              )}
               <MobileSection label="Сейчас в работе">
                 {inProgress.length === 0 ? (
                   <Empty title="Сейчас ничего не стирается" hint="Возьмите стирку из очереди ниже." />
