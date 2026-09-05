@@ -28,7 +28,11 @@ export function WashCard({ w }: { w: DayWash }) {
   if (w.status === 'stored') meta.push(`выдача ${w.issue_date}`);
 
   return (
-    <Card interactive className={styles.wcard} onClick={() => router.push('/wash/' + w.id)}>
+    <Card
+      interactive
+      className={`${styles.wcard} ${w.status === 'no_linen' ? styles.wcardNoLinen : ''}`}
+      onClick={() => router.push('/wash/' + w.id)}
+    >
       <div className={styles.wcardHead}>
         <div className={styles.nm}>{w.client_name}</div>
         <StatusBadge status={w.status} size="sm" />

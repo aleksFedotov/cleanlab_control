@@ -26,6 +26,12 @@
   margin-bottom: var(--gap);
 }
 
+/* «Нет белья» — заметный, но спокойный фон в секции «Готово» */
+.washCardNoLinen {
+  background: var(--warn-bg);
+  border-color: var(--warn);
+}
+
 .washHead {
   display: flex;
   align-items: center;

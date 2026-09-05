@@ -55,7 +55,7 @@ function ActiveWashCard({
   if (w.dirty_weight_kg !== '' && w.dirty_weight_kg != null) meta.push(kg(w.dirty_weight_kg));
   const started = timeOf(w.started_at);
   return (
-    <Card className={styles.washCard}>
+    <Card className={`${styles.washCard} ${w.status === 'no_linen' ? styles.washCardNoLinen : ''}`}>
       <div className={styles.washHead}>
         <span className={styles.washName}>{w.client_name}</span>
         {showDate && <span className={styles.dateChip}>от {formatDateRu(w.wash_date, false)}</span>}
@@ -109,7 +109,7 @@ function QueuedWashCard({
 }) {
   const dirtyOk = allowStart && (w.has_dirty || checkedDirty);
   return (
-    <Card className={styles.washCard}>
+    <Card className={`${styles.washCard} ${w.status === 'no_linen' ? styles.washCardNoLinen : ''}`}>
       <div className={styles.washHead}>
         <span className={styles.washName}>{w.client_name}</span>
         {showDate && <span className={styles.dateChip}>от {formatDateRu(w.wash_date, false)}</span>}
@@ -198,13 +198,14 @@ export default function WorkerPage() {
   const visible = q ? washes.filter(matchQ) : washes;
   const overdue = q ? overdueAll.filter(matchQ) : overdueAll;
   const inProgress = visible.filter((w) => w.status === 'in_progress');
-  const queue = visible.filter((w) => w.status === 'planned' || w.status === 'no_linen');
+  const queue = visible.filter((w) => w.status === 'planned');
   const doneList = visible.filter(
     (w) =>
       w.status === 'done' ||
       w.status === 'stored' ||
       w.status === 'partial' ||
-      w.status === 'ready_clean'
+      w.status === 'ready_clean' ||
+      w.status === 'no_linen'
   );
   const doneCount = doneList.length;
   const shiftClosed = !!day.data?.shift && day.data.shift.status === 'closed';
@@ -346,7 +347,10 @@ export default function WorkerPage() {
                     if (num(w.dirty_weight_kg) > 0) meta.push(kg(w.dirty_weight_kg));
                     if (num(w.bags) > 0) meta.push(bagsFmt(num(w.bags)));
                     return (
-                      <Card key={w.id} className={styles.washCard}>
+                      <Card
+                        key={w.id}
+                        className={`${styles.washCard} ${w.status === 'no_linen' ? styles.washCardNoLinen : ''}`}
+                      >
                         <div className={styles.washHead}>
                           <span className={styles.washName}>{w.client_name}</span>
                           <StatusBadge status={w.status} />

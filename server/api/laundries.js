@@ -89,6 +89,8 @@ function getTvData(key) {
   const counters = { total: washes.length, planned: 0, in_progress: 0, done: 0, stored: 0, deferred: 0 };
   const cards = sortDayList_(washes).map(function (w) {
     if (counters[w.status] !== undefined) counters[w.status]++;
+    // «Нет белья» показывается в колонке «Готово» — считаем её там же
+    if (w.status === 'no_linen') counters.done++;
     if (w.deferred_from) counters.deferred++;
     return {
       client: clientName_(w.client_id, clients), status: w.status,

@@ -137,6 +137,12 @@
   cursor: pointer;
 }
 
+/* «Нет белья» — заметный, но спокойный фон в колонке «Готово» */
+.wcardNoLinen {
+  background: var(--warn-bg);
+  border-color: var(--warn);
+}
+
 .wcardHead {
   display: flex;
   align-items: flex-start;

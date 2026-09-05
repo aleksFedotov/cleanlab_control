@@ -19,13 +19,17 @@ import styles from './wash.module.css';
 
 // Колонки доски — как в legacy renderWashList
 const COLS: Array<{ key: string; title: string; match: (w: DayWash) => boolean }> = [
-  { key: 'todo', title: 'К стирке', match: (w) => w.status === 'planned' || w.status === 'no_linen' },
+  { key: 'todo', title: 'К стирке', match: (w) => w.status === 'planned' },
   { key: 'doing', title: 'В работе', match: (w) => w.status === 'in_progress' },
   {
     key: 'done',
     title: 'Готово',
     match: (w) =>
-      w.status === 'done' || w.status === 'stored' || w.status === 'partial' || w.status === 'ready_clean',
+      w.status === 'done' ||
+      w.status === 'stored' ||
+      w.status === 'partial' ||
+      w.status === 'ready_clean' ||
+      w.status === 'no_linen',
   },
 ];
 

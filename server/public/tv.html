@@ -40,12 +40,15 @@
     .chip { display: inline-block; padding: .4vh 1.2vw; border-radius: .8vh; font-size: 2.2vh; font-weight: 700; margin-top: 1vh; font-family: 'JetBrains Mono', monospace; text-transform: uppercase; letter-spacing: .06em; }
     /* Цвета статусов совпадают с веб-приложением (light → dark адаптация тех же hue):
        planned/partial — янтарь, in_progress/stored — синий, done/ready_clean — зелёный,
-       no_linen — серый приглушённый. Текст чипа — через --chip-* (светлее в тёмной теме). */
+       no_linen — янтарь с пульсацией чипа (заметность на табло). Текст чипа — через --chip-* (светлее в тёмной теме). */
     .st-planned { border-left-color: #d97706; } .st-planned .chip { background: rgba(217,119,6,.22); color: var(--chip-amber); }
     .st-in_progress { border-left-color: #2563eb; } .st-in_progress .chip { background: rgba(37,99,235,.25); color: var(--chip-blue); }
     .st-done { border-left-color: #16a34a; } .st-done .chip { background: rgba(22,163,74,.22); color: var(--chip-green); }
     .st-stored { border-left-color: #2563eb; } .st-stored .chip { background: rgba(37,99,235,.25); color: var(--chip-blue); }
-    .st-no_linen { border-left-color: #64748b; opacity: .75; } .st-no_linen .chip { background: rgba(100,116,139,.25); color: var(--chip-gray); }
+    /* no_linen — янтарь с пульсацией, чтобы карточка выделялась на табло в колонке «Готово» */
+    .st-no_linen { border-left-color: #d97706; background: rgba(217,119,6,.18); }
+    .st-no_linen .chip { background: #d97706; color: #fff; animation: noLinenPulse 2s ease-in-out infinite; }
+    @keyframes noLinenPulse { 0%, 100% { opacity: 1; } 50% { opacity: .55; } }
     .st-ready_clean { border-left-color: #16a34a; } .st-ready_clean .chip { background: rgba(22,163,74,.22); color: var(--chip-green); }
     .st-partial { border-left-color: #d97706; } .st-partial .chip { background: rgba(217,119,6,.22); color: var(--chip-amber); }
     .chip-deferred { background: rgba(217,119,6,.22); color: var(--chip-amber); }
@@ -79,7 +82,16 @@
 
     /* #stage — обёртка для зума (?zoom=0.8, клавиши +/-/0) и поворота (?rotate=1 / -1) */
     #stage { transform-origin: top left; }
+    /* Повёрнутый режим: сцена имеет фиксированную высоту (= ширине экрана), поэтому
+       не влезшее содержимое скроллится внутри самой сцены. Скролл идёт по локальной
+       оси элемента, после поворота на 90° он визуально вертикален на экране — колесо
+       мыши и тач работают нативно. Полосу прокрутки прячем (на ТВ она не нужна). */
+    #stage.scrollable { overflow-y: auto; scrollbar-width: none; overscroll-behavior: contain; }
+    #stage.scrollable::-webkit-scrollbar { display: none; }
+    /* Шапка прилипает к верху при прокрутке (и в обычном, и в повёрнутом режиме) */
+    header { position: sticky; top: 0; background: var(--bg); z-index: 5; }
   </style>
+<base target="_blank">
 </head>
 <body>
   <div class="offline" id="offline">Нет связи — показаны данные на <span id="offlineTime"></span></div>
@@ -166,17 +178,43 @@ function applyTransform() {
     stage.style.height = (100 / zoom) + 'vw';
     stage.style.transform = (rotate > 0 ? 'translateX(100vw) rotate(90deg) ' : 'translateY(100vh) rotate(-90deg) ') +
       'scale(' + zoom + ')';
+    // Высота сцены зафиксирована → всё, что не влезло, доступно прокруткой сцены;
+    // саму страницу при этом не скроллим (иначе повёрнутая сцена «уезжает»).
+    stage.classList.add('scrollable');
+    document.body.style.overflow = 'hidden';
   } else {
     stage.style.width = (100 / zoom) + 'vw';
     stage.style.height = '';
     stage.style.transform = 'scale(' + zoom + ')';
+    // Без поворота сцена растёт вниз, страницу скроллит браузер — как раньше.
+    stage.classList.remove('scrollable');
+    document.body.style.overflow = '';
   }
   localStorage.setItem('cl_tv_zoom', String(zoom));
   localStorage.setItem('cl_tv_rotate', String(rotate));
 }
 applyTransform();
 
+// Прокрутка повёрнутого табло: колесо мыши и тач работают сами (сцена — скроллер,
+// её локальная ось после поворота вертикальна на экране). Клавиши — для пульта/
+// аэро-мыши: ↑↓ — построчно, PageUp/PageDown — на экран, Home/End — в начало/конец.
+function scrollStageBy(key) {
+  var stage = document.getElementById('stage');
+  var page = stage.clientHeight * 0.9;
+  var delta = { ArrowDown: 150, ArrowUp: -150, PageDown: page, PageUp: -page }[key];
+  if (key === 'Home') stage.scrollTo({ top: 0, behavior: 'smooth' });
+  else if (key === 'End') stage.scrollTo({ top: stage.scrollHeight, behavior: 'smooth' });
+  else if (delta != null) stage.scrollBy({ top: delta, behavior: 'smooth' });
+  else return false;
+  return true;
+}
+
 document.addEventListener('keydown', function (e) {
+  if (rotate && scrollStageBy(e.key)) {
+    pauseAutoscroll();
+    e.preventDefault();
+    return;
+  }
   if (e.key === '+' || e.key === '=') zoom = Math.min(3, Math.round((zoom + 0.05) * 100) / 100);
   else if (e.key === '-') zoom = Math.max(0.3, Math.round((zoom - 0.05) * 100) / 100);
   else if (e.key === '0') zoom = 1;
@@ -188,10 +226,42 @@ document.addEventListener('keydown', function (e) {
   else return;
   applyTransform();
 });
+
+// Автопрокрутка повёрнутого табло: ?autoscroll=60 (скорость, пикселей локальной оси
+// в секунду; 0/пусто — выкл). Запоминается в localStorage. Табло на ТВ обычно без
+// клавиатуры, поэтому при переполнении сцена медленно «плывёт» вниз-вверх с паузой
+// у краёв; ручная прокрутка приостанавливает автоскролл на 10 секунд.
+var autoscrollSpeed = parseFloat(params.get('autoscroll')) ||
+  parseFloat(localStorage.getItem('cl_tv_autoscroll')) || 0;
+var autoscrollPausedUntil = 0;
+function pauseAutoscroll() { autoscrollPausedUntil = Date.now() + 10000; }
+if (autoscrollSpeed > 0) {
+  localStorage.setItem('cl_tv_autoscroll', String(autoscrollSpeed));
+  var scrollDir = 1;
+  var edgePauseUntil = 0;
+  ['wheel', 'touchstart'].forEach(function (ev) {
+    document.getElementById('stage').addEventListener(ev, pauseAutoscroll, { passive: true });
+  });
+  (function autoScrollTick() {
+    requestAnimationFrame(function frame(now) {
+      var stage = document.getElementById('stage');
+      if (rotate && Date.now() >= autoscrollPausedUntil && Date.now() >= edgePauseUntil) {
+        var max = stage.scrollHeight - stage.clientHeight;
+        if (max > 0) {
+          var next = stage.scrollTop + scrollDir * autoscrollSpeed / 60;
+          if (next >= max) { next = max; scrollDir = -1; edgePauseUntil = Date.now() + 3000; }
+          else if (next <= 0) { next = 0; scrollDir = 1; edgePauseUntil = Date.now() + 3000; }
+          stage.scrollTop = next;
+        }
+      }
+      requestAnimationFrame(frame);
+    });
+  })();
+}
 var STATUS_LABELS = { planned: 'К стирке', in_progress: 'В работе', done: 'Готово', stored: 'На складе',
   no_linen: 'Нет белья', ready_clean: 'Чистое на складе', partial: 'Частично' };
 // Порядок на табло (spec §7.4): «В работе» → «К стирке» → «Готово»/«На складе»
-var ORDER = { in_progress: 0, planned: 1, no_linen: 1, partial: 1, done: 2, stored: 2, ready_clean: 2 };
+var ORDER = { in_progress: 0, planned: 1, partial: 1, no_linen: 1.5, done: 2, stored: 2, ready_clean: 2 };
 var lastDataAt = null;
 var lastRes = null;
 // Вид табло: 'list' (списком, колонки) или 'rows' (по строкам) — как на вкладке «Стирка»
@@ -276,9 +346,9 @@ function render(res) {
 
   // Колонки как на вкладке «Стирка» в приложении (там же и «partial» в «Готово»)
   var COLS = [
-    { title: 'К стирке', match: function (w) { return w.status === 'planned' || w.status === 'no_linen'; } },
+    { title: 'К стирке', match: function (w) { return w.status === 'planned'; } },
     { title: 'В работе', match: function (w) { return w.status === 'in_progress'; } },
-    { title: 'Готово', match: function (w) { return w.status === 'done' || w.status === 'stored' || w.status === 'partial' || w.status === 'ready_clean'; } }
+    { title: 'Готово', match: function (w) { return w.status === 'done' || w.status === 'stored' || w.status === 'partial' || w.status === 'ready_clean' || w.status === 'no_linen'; } }
   ];
   var arrows = ['→ к стирке', '→ в работе', '→ готово'];
   var colIdx = function (w) {
