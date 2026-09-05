@@ -63,8 +63,10 @@ function getDayList(session, date) {
     ensureWashesFromDelivery_(date, laundryId);
     const clients = {};
     db.getClients_(laundryId).forEach(function (c) { clients[c.id] = c; });
+    // Доска дня показывает все стирки дня, включая выданные (issued): день должен
+    // читаться целиком и задним числом. Исключаем только cancelled (isDayWash_ — без issued).
     const washes = db.findRowsByTenant_(SHEETS.WASHES, function (w) {
-      return isDayWash_(w, date);
+      return w.wash_date === date && w.status !== 'cancelled';
     }, 1000, laundryId).map(function (r) { return r.obj; });
     const shift = getShiftByDate_(date, laundryId);
     const storage = storageSummaryByClient_(laundryId);
@@ -851,8 +853,9 @@ function getDayReport(session, date) {
     .map(function (r) { return r.obj; });
   const log = db.readTailByTenant_(SHEETS.LOG, 1000, laundryId);
   const report = buildDayReport_(date, washes, log);
-  // Отчёт — только по стирке: выданные клиенту (issued) в таблицу не включаем
-  const dayWashes = washes.filter(function (w) { return w.wash_date === date && w.status !== 'issued'; }).map(function (w) {
+  // Таблица отчёта — все стирки дня, включая выданные (issued): картина дня полная,
+  // issued дополнительно учитываются в сводке report.issued
+  const dayWashes = washes.filter(function (w) { return w.wash_date === date; }).map(function (w) {
     w.client_name = clientName_(w.client_id, clients);
     w.items = db.findRowsBy_(SHEETS.WASH_ITEMS, function (wi) { return wi.wash_id === w.id; }, 1000)
       .map(function (x) {

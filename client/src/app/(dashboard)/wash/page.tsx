@@ -29,7 +29,8 @@ const COLS: Array<{ key: string; title: string; match: (w: DayWash) => boolean }
       w.status === 'stored' ||
       w.status === 'partial' ||
       w.status === 'ready_clean' ||
-      w.status === 'no_linen',
+      w.status === 'no_linen' ||
+      w.status === 'issued',
   },
 ];
 
