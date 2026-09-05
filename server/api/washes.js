@@ -66,6 +66,8 @@ function getDayList(session, date) {
     const washes = db.findRowsByTenant_(SHEETS.WASHES, function (w) {
       return isDayWash_(w, date);
     }, 1000, laundryId).map(function (r) { return r.obj; });
+    const shift = getShiftByDate_(date, laundryId);
+    const storage = storageSummaryByClient_(laundryId);
     // P7: «Осталось со вчера» — незавершённые стирки вчерашнего дня.
     // partial с deferred_reason='hold' исключаем: владелец уже решил «оставить на складе».
     const yesterday = addDaysStr_(date, -1);
@@ -74,13 +76,18 @@ function getDayList(session, date) {
       if (w.status === 'planned' || w.status === 'no_linen' || w.status === 'in_progress') return true;
       return w.status === 'partial' && w.deferred_reason !== 'hold';
     }, 1000, laundryId).map(function (r) { return r.obj; });
-    const shift = getShiftByDate_(date, laundryId);
-    const storage = storageSummaryByClient_(laundryId);
+    // На следующий день показываем только «в работе» или карточки с грязным бельём
+    // на складе: без грязного работнику с вчерашней карточки делать нечего.
+    const actionable = overdue.filter(function (w) {
+      if (w.status === 'in_progress') return true;
+      const s = storage[w.client_id];
+      return !!s && s.dirty > 0;
+    });
     // WashItems грузим один раз для всех стирок дня: planned/in_progress — это
     // признак «остаток частичной стирки» (partial_rest), у завершённых — состав
     // постиранного (items), чтобы работник мог исправить ошибочное завершение.
     const dayIds = {};
-    washes.concat(overdue).forEach(function (w) {
+    washes.concat(actionable).forEach(function (w) {
       if (w.status !== 'cancelled') dayIds[w.id] = true;
     });
     const prevItems = {};
@@ -148,7 +155,7 @@ function getDayList(session, date) {
       date: date,
       laundryName: db.getSettings_(laundryId).LAUNDRY_NAME || 'CleanLab Pro',
       washes: sortDayList_(washes).map(decorate),
-      overdue: overdue.map(decorate),
+      overdue: actionable.map(decorate),
       shift: shift ? shift.obj : null,
       clients: db.getClients_(laundryId).filter(function (c) { return c.active === 'да'; }),
       itemTypes: db.getItemTypes_().filter(function (t) { return t.active === 'да'; })
