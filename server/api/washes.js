@@ -76,12 +76,16 @@ function getDayList(session, date) {
       if (w.status === 'planned' || w.status === 'no_linen' || w.status === 'in_progress') return true;
       return w.status === 'partial' && w.deferred_reason !== 'hold';
     }, 1000, laundryId).map(function (r) { return r.obj; });
-    // На следующий день показываем только «в работе» или карточки с грязным бельём
-    // на складе: без грязного работнику с вчерашней карточки делать нечего.
+    // На следующий день показываем только «в работе» или карточки, по которым
+    // грязное бельё лежало на складе уже в день стирки (created_at <= вчера).
+    // Привезённое сегодня — для сегодняшней стирки, вчерашний долг не оживляет.
+    const dirtyByWashDay = {};
+    db.findRowsByTenant_(SHEETS.STORAGE, function (s) {
+      return !s.consumed_at && s.kind === 'dirty' && String(s.created_at).slice(0, 10) <= yesterday;
+    }, 2000, laundryId).forEach(function (r) { dirtyByWashDay[r.obj.client_id] = true; });
     const actionable = overdue.filter(function (w) {
       if (w.status === 'in_progress') return true;
-      const s = storage[w.client_id];
-      return !!s && s.dirty > 0;
+      return !!dirtyByWashDay[w.client_id];
     });
     // WashItems грузим один раз для всех стирок дня: planned/in_progress — это
     // признак «остаток частичной стирки» (partial_rest), у завершённых — состав

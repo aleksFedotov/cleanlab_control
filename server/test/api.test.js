@@ -805,11 +805,11 @@ test('deleteUser: удаляет совсем; нельзя себя, после
 // --- P7: «Осталось со вчера» (overdue в getDayList) ---
 const YESTERDAY = '2026-08-11';
 
-// Открытая dirty-запись склада: у клиента есть грязное бельё
-function addDirty(ctx, clientId) {
+// Открытая dirty-запись склада: у клиента есть грязное бельё (date — день записи)
+function addDirty(ctx, clientId, date) {
   ctx.db.appendRowTenant_('Storage', {
     id: ctx.db.nextId_('Storage', 'st'), client_id: clientId, kind: 'dirty',
-    weight_kg: '', items_total: '', wash_id: '', created_at: YESTERDAY + ' 10:00:00', consumed_at: ''
+    weight_kg: '', items_total: '', wash_id: '', created_at: (date || YESTERDAY) + ' 10:00:00', consumed_at: ''
   }, '1');
 }
 
@@ -827,13 +827,17 @@ test('P7 overdue: за вчера видны только «в работе» и
   // no_linen без грязного → НЕ в overdue
   const wNoLinen = ctx.api.addToDelivery(owner, seedClient(ctx, { name: 'Отель В' }), YESTERDAY, TODAY).wash.id;
   assert.ok(ctx.api.confirmStorageCheck(worker, wNoLinen, 'no_dirty').ok);
-  // no_linen, по которой грязное позже привезли → в overdue
+  // no_linen, по которой грязное лежало на складе со вчера → в overdue
   const cG = seedClient(ctx, { name: 'Отель Г' });
   const wNoLinenDirty = ctx.api.addToDelivery(owner, cG, YESTERDAY, TODAY).wash.id;
   assert.ok(ctx.api.confirmStorageCheck(worker, wNoLinenDirty, 'no_dirty').ok);
   addDirty(ctx, cG);
   // planned без грязного → НЕ в overdue
   const wPlannedNoDirty = ctx.api.addToDelivery(owner, seedClient(ctx, { name: 'Отель Д' }), YESTERDAY, TODAY).wash.id;
+  // planned вчера, но грязное привезли только сегодня → НЕ в overdue (оно для сегодняшней стирки)
+  const cDirtyToday = seedClient(ctx, { name: 'Отель М' });
+  const wDirtyToday = ctx.api.addToDelivery(owner, cDirtyToday, YESTERDAY, TODAY).wash.id;
+  addDirty(ctx, cDirtyToday, TODAY);
   // partial вчера без грязного → НЕ в overdue
   const wPartial = ctx.api.addToDelivery(owner, seedClient(ctx, { name: 'Отель Е' }), YESTERDAY, TODAY).wash.id;
   ctx.api.startWash(worker, wPartial);
@@ -858,9 +862,9 @@ test('P7 overdue: за вчера видны только «в работе» и
 
   const day = ctx.api.getDayList(worker, TODAY);
   const overdueIds = day.overdue.map(function (w) { return w.id; });
-  // только вчерашние «в работе» или с грязным, в порядке создания
+  // только вчерашние «в работе» или с грязным, лежащим со вчера, в порядке создания
   assert.deepStrictEqual(overdueIds, [wPlanned, wProgress, wNoLinenDirty]);
-  [wNoLinen, wPlannedNoDirty, wPartial, wHold, wDone, wCancelled, wOld, wToday].forEach(function (id) {
+  [wNoLinen, wPlannedNoDirty, wDirtyToday, wPartial, wHold, wDone, wCancelled, wOld, wToday].forEach(function (id) {
     assert.ok(!overdueIds.includes(id));
   });
   assert.ok(day.washes.some(function (w) { return w.id === wToday; }));
