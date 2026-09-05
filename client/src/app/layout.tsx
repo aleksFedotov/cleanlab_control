@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import { Providers } from "./providers";
@@ -16,6 +16,19 @@ const jetbrainsMono = JetBrains_Mono({
 export const metadata: Metadata = {
   title: "CleanLab Pro — панель управления",
   description: "Внутренний дашборд прачечной",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "default",
+    title: "CleanLab",
+  },
+};
+
+// PWA: viewport под мобильные экраны worker/driver; цвет — под фон --bg из globals.css
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+  themeColor: "#f8fafc",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
