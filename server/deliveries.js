@@ -277,13 +277,14 @@ function takeCleanForVisit_(v, laundryId) {
 }
 
 // Чистое водителя по конкретному визиту возвращается на склад:
-// снимаем маркер «у водителя» со складских записей клиента, визит очищается.
+// снимаем маркер «у водителя» со складских записей визита (по visit_id — при двух
+// открытых визитах клиента возвращается только бельё своего визита, R4), визит очищается.
 // Мутирует v (clean_taken_at, clean_bags) — запись на диске делает вызывающий.
 // Возвращает число возвращённых мешков (clean_bags до очистки).
 function returnCleanForVisit_(v, laundryId) {
   const bags = Number(v.clean_bags) || 0;
   db.findRowsByTenant_(SHEETS.STORAGE, function (s) {
-    return s.client_id === v.client_id && s.kind === 'clean' && s.consumed_at === 'driver';
+    return s.visit_id === v.id && s.kind === 'clean' && s.consumed_at === 'driver';
   }, 500, laundryId).forEach(function (r) {
     r.obj.consumed_at = '';
     db.updateRow_(SHEETS.STORAGE, r.rowNumber, r.obj);
@@ -443,9 +444,9 @@ function correctVisit(token, visitId, op) {
       // Грязное сдано на склад (driverHandover — массовый, поэтому это почти всегда так):
       // откатываем и складскую запись, иначе самый частый случай правки был бы заблокирован (P6.1).
       if (v.dirty_handed_at) {
-        // Привязки visit_id у Storage нет — матч по метке времени сдачи (как issued_at в undo_deliver).
+        // Грязная запись сдана по этому визиту — матч по visit_id (R4).
         const matches = db.findRowsByTenant_(SHEETS.STORAGE, function (s) {
-          return s.client_id === v.client_id && s.kind === 'dirty' && s.created_at === v.dirty_handed_at;
+          return s.visit_id === v.id && s.kind === 'dirty';
         }, 100, laundryId);
         const open = matches.filter(function (r) { return !r.obj.consumed_at; });
         // Записи пустые и взаимозаменяемые (вес лежит на стирке) — удаляем одну открытую из совпавших.

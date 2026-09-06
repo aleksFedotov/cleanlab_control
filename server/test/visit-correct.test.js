@@ -230,12 +230,13 @@ test('undo_pickup: грязное сдано, запись открыта → з
   assert.strictEqual(details.after.dirty_handed_at, '');
 });
 
-test('undo_pickup: 2 записи с одной меткой (массовая сдача) → удалена ровно одна', () => {
+test('undo_pickup: 2 записи при массовой сдаче → удалена ровно одна, своя (по visit_id)', () => {
   const ctx = makeCtx();
   const owner = loginOwner();
   const driver = loginDriver();
   const clientId = seedClient(ctx, owner);
-  // Два визита одного клиента (разные дни), сдача разом → записи с одним created_at
+  // Два визита одного клиента (разные дни), сдача разом → записи с одним created_at,
+  // но со своим visit_id каждая (R4): откат визита удаляет именно свою запись.
   const v1 = ctx.api.addDeliveryVisit(owner, clientId, '2026-08-12').visit;
   const v2 = ctx.api.addDeliveryVisit(owner, clientId, '2026-08-13').visit;
   assert.ok(ctx.api.driverAction(driver, v1.id, 'pickup_dirty').ok);
@@ -248,8 +249,9 @@ test('undo_pickup: 2 записи с одной меткой (массовая �
   assert.ok(r.ok, r.error);
   const rest = dirtyStorage(ctx, clientId);
   assert.strictEqual(rest.length, 1, 'вторая запись не тронута');
+  assert.strictEqual(rest[0].visit_id, v2.id, 'осталась запись второго визита');
   const ev = ctx.db.readAll_('Log').filter(function (e) { return e.action === 'visit_correct'; }).pop();
-  assert.strictEqual(JSON.parse(ev.details).storage_found, 2);
+  assert.strictEqual(JSON.parse(ev.details).storage_found, 1);
 
   // Второй визит откатывается по оставшейся записи
   const r2 = ctx.api.correctVisit(driver, v2.id, 'undo_pickup');
