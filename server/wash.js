@@ -230,7 +230,62 @@ function addUnplannedWash(session, clientId, comment) {
   return ok_({ wash: w });
 }
 
+// Отмена стирки (owner). Из in_progress — в т.ч. для цепочки правок P6.1:
+// грязные записи партии возвращаются на склад (снимаем расход startWash),
+// физическое бельё снова висит в «К стирке» и undo_pickup по точке разблокируется.
+function cancelWash(session, washId) {
+  const laundryId = session.laundryId;
+  const found = findTenantRow_(SHEETS.WASHES, washId, laundryId);
+  const check = checkTransition_('cancel', found && found.obj);
+  if (!check.ok) return err_(check.error);
+  found.obj.status = 'cancelled';
+  db.updateRow_(SHEETS.WASHES, found.rowNumber, found.obj);
+  // Возврат израсходованного грязного на склад: записи, забранные этой стиркой.
+  const returned = db.findRowsByTenant_(SHEETS.STORAGE, function (s) {
+    return s.kind === 'dirty' && s.wash_id === washId;
+  }, 1000, laundryId);
+  returned.forEach(function (r) {
+    r.obj.consumed_at = '';
+    r.obj.wash_id = '';
+    db.updateRow_(SHEETS.STORAGE, r.rowNumber, r.obj);
+  });
+  logEvent(actorOf_(session), 'wash_cancel', washId, { storage_returned: returned.length }, laundryId);
+  return ok_({ wash: found.obj });
+}
+
+// Полное удаление ошибочно созданной стирки (owner). В отличие от отмены,
+// запись исчезает из отчётов совсем. Разрешено для любой невыданной стирки:
+// у завершённых (done/stored/partial) заодно удаляются позиции и складские
+// строки этой стирки (в т.ч. израсходованные — бельё «убирается» из учёта).
+// Выданную клиенту (issued) удалять нельзя — это уже факт выдачи.
+function deleteWash(session, washId) {
+  const laundryId = session.laundryId;
+  const found = findTenantRow_(SHEETS.WASHES, washId, laundryId);
+  if (!found) return err_('Стирка не найдена');
+  const w = found.obj;
+  if (w.status === 'issued') {
+    return err_('Выданную клиенту стирку удалить нельзя');
+  }
+  // Связанные записи: позиции стирки и складские строки.
+  // Удаляем снизу вверх, чтобы номера строк не съезжали.
+  [SHEETS.WASH_ITEMS, SHEETS.STORAGE].forEach(function (sheet) {
+    db.findRowsBy_(sheet, function (r) { return r.wash_id === washId; }, 1000)
+      .sort(function (a, b) { return b.rowNumber - a.rowNumber; })
+      .forEach(function (r) { db.deleteRow_(sheet, r.rowNumber); });
+  });
+  logEvent(actorOf_(session), 'wash_delete', washId, {
+    client_id: w.client_id, wash_date: w.wash_date, status: w.status,
+    kg: w.dirty_weight_kg, items_total: w.items_total
+  }, laundryId);
+  notifyOwnerOnWorkerAction_(session,
+    '🗑 ' + actorOf_(session) + ': удалена стирка — ' + clientNameById_(w.client_id, laundryId) +
+    ' (' + w.wash_date + ')', laundryId);
+  db.deleteRow_(SHEETS.WASHES, found.rowNumber);
+  return ok_({ id: washId });
+}
+
 module.exports = {
   notifyOwnerOnWorkerAction_, clientNameById_,
-  startWash, completeWash, editWashData, deferWash, holdPartialWash, addUnplannedWash
+  startWash, completeWash, editWashData, deferWash, holdPartialWash, addUnplannedWash,
+  cancelWash, deleteWash
 };
