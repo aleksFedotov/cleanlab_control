@@ -268,6 +268,7 @@ function takeCleanForVisit_(v, laundryId) {
       if (w) bags += Number(w.obj.bags) || 0;
     }
     r.obj.consumed_at = 'driver'; // маркер «у водителя»: склад его больше не показывает
+    r.obj.visit_id = v.id; // связь с визитом: возврат/откаты матчат по ней (R4)
     db.updateRow_(SHEETS.STORAGE, r.rowNumber, r.obj);
   });
   v.clean_taken_at = nowStr_();
@@ -543,7 +544,7 @@ function driverHandover(token) {
       return v.status !== 'cancelled' && v.picked_at && !v.dirty_handed_at;
     }, 1000, laundryId);
     rows.forEach(function (r) {
-      addStorageEntry_(r.obj.client_id, 'dirty', {}, laundryId);
+      addStorageEntry_(r.obj.client_id, 'dirty', { visit_id: r.obj.id }, laundryId);
       r.obj.dirty_handed_at = nowStr_();
       db.updateRow_(SHEETS.DELIVERIES, r.rowNumber, r.obj);
     });

@@ -13,7 +13,8 @@ function addStorageEntry_(clientId, kind, opts, laundryId) {
   const entry = {
     id: db.nextId_(SHEETS.STORAGE, 'st'), client_id: clientId, kind: kind,
     weight_kg: opts.weight_kg || '', items_total: opts.items_total || '',
-    wash_id: opts.wash_id || '', created_at: nowStr_(), consumed_at: ''
+    wash_id: opts.wash_id || '', visit_id: opts.visit_id || '',
+    created_at: nowStr_(), consumed_at: ''
   };
   db.appendRowTenant_(SHEETS.STORAGE, entry, laundryId);
   return entry;
