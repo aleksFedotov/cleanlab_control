@@ -321,7 +321,8 @@ function driverAction(token, visitId, action, liftFloor) {
   const laundryId = session.laundryId;
   const ACTIONS = ['take_clean', 'deliver_clean', 'pickup_dirty', 'both', 'empty'];
   if (ACTIONS.indexOf(action) === -1) return err_('Неизвестное действие');
-  return withLock_(function () {
+  // Вся операция — одна транзакция: склад + стирки + запись визита атомарны (R4)
+  return db.transaction_(function () {
     const found = findTenantVisit_(visitId, laundryId);
     if (!found) return err_('Визит не найден');
     const v = found.obj;
@@ -344,23 +345,8 @@ function driverAction(token, visitId, action, liftFloor) {
 
     if (action === 'deliver_clean' || action === 'both') {
       if (!v.clean_taken_at) return err_('Сначала возьмите чистое на складе');
-      // Стирки, чьё чистое уехало к клиенту, помечаются выданными
-      db.findRowsByTenant_(SHEETS.STORAGE, function (s) {
-        return s.client_id === v.client_id && s.kind === 'clean' && s.consumed_at === 'driver';
-      }, 500, laundryId).forEach(function (r) {
-        r.obj.consumed_at = nowStr_();
-        db.updateRow_(SHEETS.STORAGE, r.rowNumber, r.obj);
-        if (r.obj.wash_id) {
-          const w = db.findById_(SHEETS.WASHES, r.obj.wash_id);
-          if (w && (w.obj.status === 'done' || w.obj.status === 'stored')) {
-            w.obj.status = 'issued';
-            w.obj.issued_at = nowStr_();
-            db.updateRow_(SHEETS.WASHES, w.rowNumber, w.obj);
-          }
-        }
-      });
-      v.status = v.picked_at ? 'both' : 'delivered';
-      v.delivered_at = nowStr_();
+      // Стирки, чьё чистое уехало к клиенту, помечаются выданными (команда «Стирки»)
+      require('./wash').issueForVisit_(v, laundryId);
     }
 
     if (action === 'pickup_dirty' || action === 'both') {
@@ -415,7 +401,8 @@ function correctVisit(token, visitId, op) {
   const laundryId = session.laundryId;
   const OPS = ['undo_empty', 'undo_take_clean', 'undo_deliver', 'undo_pickup'];
   if (OPS.indexOf(op) === -1) return err_('Неизвестная операция');
-  return withLock_(function () {
+  // Вся правка — одна транзакция: склад + стирки + запись визита атомарны (R4)
+  return db.transaction_(function () {
     const found = findTenantVisit_(visitId, laundryId);
     if (!found) return err_('Визит не найден');
     const v = found.obj;
@@ -446,25 +433,9 @@ function correctVisit(token, visitId, op) {
       if (!v.delivered_at || (v.status !== 'delivered' && v.status !== 'both')) {
         return err_('Выдачи чистого по точке не было');
       }
-      // Стирки этой выдачи (issued_at совпадает с delivered_at) — обратно на склад,
-      // их чистое — снова у водителя. Откат логики driverAction/deliver_clean.
-      const issued = db.findRowsByTenant_(SHEETS.WASHES, function (w) {
-        return w.client_id === v.client_id && w.status === 'issued' && w.issued_at === v.delivered_at;
-      }, 500, laundryId);
-      if (!issued.length) warn = 'washes_not_found'; // правили вручную — визит всё равно откатываем
-      issued.forEach(function (r) {
-        r.obj.status = 'stored';
-        r.obj.issued_at = '';
-        db.updateRow_(SHEETS.WASHES, r.rowNumber, r.obj);
-        db.findRowsByTenant_(SHEETS.STORAGE, function (s) {
-          return s.wash_id === r.obj.id && s.kind === 'clean';
-        }, 100, laundryId).forEach(function (sr) {
-          sr.obj.consumed_at = 'driver';
-          db.updateRow_(SHEETS.STORAGE, sr.rowNumber, sr.obj);
-        });
-      });
-      v.delivered_at = '';
-      v.status = v.picked_at ? 'picked' : 'planned';
+      // Откат логики issueForVisit_: стирки — обратно на склад, чистое — снова у водителя
+      const undoWarn = require('./wash').unissueForVisit_(v, laundryId);
+      if (undoWarn) warn = undoWarn;
     }
 
     if (op === 'undo_pickup') {
@@ -521,7 +492,7 @@ function driverReturnClean(token, visitId) {
   const session = requireRole_(token, ['driver', 'owner']);
   if (!session) return err_('Нет доступа');
   const laundryId = session.laundryId;
-  return withLock_(function () {
+  return db.transaction_(function () {
     const found = findTenantVisit_(visitId, laundryId);
     if (!found) return err_('Визит не найден');
     const v = found.obj;

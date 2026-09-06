@@ -374,6 +374,60 @@ function markIssued(session, washId) {
   });
 }
 
+// Переход «чистое выдано клиенту» по визиту развоза (R4): чистые записи визита
+// (visit_id + consumed_at='driver') израсходованы, их стирки (done|stored) → issued.
+// Перенос логики driverAction/deliver_clean. Визит не пишет — мутирует v
+// (status, delivered_at), запись на диске делает вызывающий, обёрнутый в транзакцию.
+// Одна метка времени на всю операцию: сцепка стирок в unissueForVisit_
+// (issued_at === delivered_at) работает только при равных метках.
+function issueForVisit_(v, laundryId) {
+  const ts = nowStr_();
+  db.findRowsByTenant_(SHEETS.STORAGE, function (s) {
+    return s.visit_id === v.id && s.kind === 'clean' && s.consumed_at === 'driver';
+  }, 500, laundryId).forEach(function (r) {
+    r.obj.consumed_at = ts;
+    db.updateRow_(SHEETS.STORAGE, r.rowNumber, r.obj);
+    if (r.obj.wash_id) {
+      const w = db.findById_(SHEETS.WASHES, r.obj.wash_id);
+      if (w && (w.obj.status === 'done' || w.obj.status === 'stored')) {
+        w.obj.status = 'issued';
+        w.obj.issued_at = ts;
+        db.updateRow_(SHEETS.WASHES, w.rowNumber, w.obj);
+      }
+    }
+  });
+  v.status = v.picked_at ? 'both' : 'delivered';
+  v.delivered_at = ts;
+}
+
+// Откат выдачи по визиту (обратный к issueForVisit_): стирки выдачи → stored,
+// чистое визита — снова у водителя. Возвращает warn ('washes_not_found' — правили
+// вручную, визит всё равно откатываем) или null. Визит не пишет — мутирует v.
+// Сцепка стирка↔визит остаётся по метке issued_at === delivered_at: у Washes нет
+// visit_id, вносить его — отдельный тикет (принятый остаточный риск, см. R4).
+function unissueForVisit_(v, laundryId) {
+  const issued = db.findRowsByTenant_(SHEETS.WASHES, function (w) {
+    return w.client_id === v.client_id && w.status === 'issued' && w.issued_at === v.delivered_at;
+  }, 500, laundryId);
+  // Визит откатываем в любом случае; предупреждение — только если стирки не нашлись
+  v.delivered_at = '';
+  v.status = v.picked_at ? 'picked' : 'planned';
+  if (!issued.length) return 'washes_not_found'; // правили вручную — визит всё равно откатываем
+  issued.forEach(function (r) {
+    r.obj.status = 'stored';
+    r.obj.issued_at = '';
+    db.updateRow_(SHEETS.WASHES, r.rowNumber, r.obj);
+  });
+  // Чистое ищется по складским записям визита (visit_id), не по метке времени
+  db.findRowsByTenant_(SHEETS.STORAGE, function (s) {
+    return s.visit_id === v.id && s.kind === 'clean';
+  }, 500, laundryId).forEach(function (sr) {
+    sr.obj.consumed_at = 'driver';
+    db.updateRow_(SHEETS.STORAGE, sr.rowNumber, sr.obj);
+  });
+  return null;
+}
+
 // Правка issue_date у done/stored статус не меняет (spec §4.3).
 function updateIssueDate(session, washId, issueDate) {
   const laundryId = session.laundryId;
@@ -439,5 +493,6 @@ function notReadyForDelivery_(date, laundryId) {
 module.exports = {
   notifyOwnerOnWorkerAction_, clientNameById_,
   startWash, completeWash, editWashData, deferWash, holdPartialWash, addUnplannedWash,
-  cancelWash, deleteWash, confirmStorageCheck, markIssued, updateIssueDate, notReadyForDelivery_
+  cancelWash, deleteWash, confirmStorageCheck, markIssued, updateIssueDate, notReadyForDelivery_,
+  issueForVisit_, unissueForVisit_
 };
