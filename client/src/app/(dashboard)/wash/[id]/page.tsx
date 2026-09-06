@@ -195,7 +195,20 @@ export default function WashCardPage() {
   }
 
   // --- Производные значения (как в legacy renderWashCard) ---
-  const counts = countsMap[id] || {};
+  const acc = w.client_accounting || 'both';
+  const canEdit = w.status === 'done' || w.status === 'stored' || w.status === 'partial';
+  // Для завершённой стирки состав префиллится из сохранённого w.items (черновик
+  // степперов, если есть, важнее); пустой черновик после сброса = нет черновика.
+  const draftCounts = countsMap[id];
+  const counts =
+    draftCounts && Object.keys(draftCounts).length > 0
+      ? draftCounts
+      : canEdit
+        ? (w.items || []).reduce<Record<string, number>>((m, it) => {
+            m[it.item_type_id] = it.qty;
+            return m;
+          }, {})
+        : {};
   // При достирке (partial_rest) форма вводит ДЕЛЬТУ остатка: не префиллим вес
   // первой части, иначе completeWash суммирует его дважды (server/api.js completeWash).
   const weight =
@@ -203,8 +216,6 @@ export default function WashCardPage() {
   const bagsVal = bagsMap[id] || 0;
   const extra = extraMap[id] || [];
   const checkedDirty = !!checkedMap[id];
-  const acc = w.client_accounting || 'both';
-  const canEdit = w.status === 'done' || w.status === 'stored' || w.status === 'partial';
   const total = totalQty(counts);
 
   const dayTypes = data.itemTypes || [];
@@ -222,6 +233,13 @@ export default function WashCardPage() {
       vis.push(t);
     }
   });
+  // Типы, которые уже есть в составе стирки, но не в списке клиента (legacy-данные)
+  (w.items || []).forEach((it) => {
+    if (!vis.some((t) => t.id === it.item_type_id)) {
+      const known = types.find((t) => t.id === it.item_type_id);
+      vis.push(known || ({ id: it.item_type_id, name: it.item_name || it.item_type_id } as ItemType));
+    }
+  });
 
   // --- Степперы ---
   const stepWeight = (d: number) =>
@@ -234,7 +252,9 @@ export default function WashCardPage() {
   const stepCount = (tid: string, d: number) =>
     setCountsMap((m) => ({
       ...m,
-      [id]: { ...(m[id] || {}), [tid]: Math.max(0, ((m[id] || {})[tid] || 0) + d) },
+      // База — текущие эффективные counts (у завершённой они префиллены из w.items),
+      // иначе первый шаг степпера затрёт остальные виды
+      [id]: { ...counts, [tid]: Math.max(0, (counts[tid] || 0) + d) },
     }));
 
   // --- Сохранение результата (legacy saveResult) ---
@@ -430,7 +450,7 @@ export default function WashCardPage() {
                     current: counts[t.id] || 0,
                     isFloat: false,
                     onOk: (v) =>
-                      setCountsMap((m) => ({ ...m, [id]: { ...(m[id] || {}), [t.id]: v } })),
+                      setCountsMap((m) => ({ ...m, [id]: { ...counts, [t.id]: v } })),
                   })
                 }
               />
