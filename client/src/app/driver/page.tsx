@@ -75,7 +75,6 @@ export default function DriverPage() {
     invalidate: 'operational',
     onSuccess: (res) => toast(`Передано на склад: ${res.handed} ✓`),
   });
-
   // --- Локальное состояние диалогов ---
   // Модал точки (P6): храним id, сам визит достаём из query-данных — после отмены
   // действия (correctVisit) модал сам перерисуется в режим кнопок

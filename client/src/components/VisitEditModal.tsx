@@ -28,7 +28,7 @@ export interface VisitEditModalProps {
 }
 
 type DriverAction = 'take_clean' | 'deliver_clean' | 'pickup_dirty' | 'both' | 'empty';
-type CorrectOp = 'undo_empty' | 'undo_take_clean' | 'undo_deliver' | 'undo_pickup';
+type CorrectOp = 'undo_empty' | 'undo_deliver' | 'undo_pickup';
 
 // Действия по состоянию точки — 1:1 из legacy openDriverVisit
 function actionsFor(v: VisitEditTarget): Array<{ act: DriverAction; label: string; primary: boolean }> {
@@ -70,9 +70,6 @@ function correctionsFor(v: VisitEditTarget): Array<{ op: CorrectOp; label: strin
     rows.push({ op: 'undo_deliver', label: 'Отменить выдачу чистого', what: 'выдачу чистого' });
   }
   if (v.picked_at) rows.push({ op: 'undo_pickup', label: 'Отменить забор грязного', what: 'забор грязного' });
-  if (v.clean_taken_at && !v.delivered_at) {
-    rows.push({ op: 'undo_take_clean', label: 'Отменить «Взял чистое»', what: '«Взял чистое»' });
-  }
   return rows;
 }
 
@@ -82,6 +79,7 @@ export function VisitEditModal({ visit, onClose }: VisitEditModalProps) {
   const [noteOpen, setNoteOpen] = useState(false);
   const [takeConfirm, setTakeConfirm] = useState(false);
   const [undoTarget, setUndoTarget] = useState<{ op: CorrectOp; what: string } | null>(null);
+  const [returnConfirm, setReturnConfirm] = useState(false);
 
   // Этаж и блок «Как пройти» сбрасываются при смене точки
   // (adjust-state-during-render вместо эффекта — рекомендация react.dev)
@@ -107,6 +105,12 @@ export function VisitEditModal({ visit, onClose }: VisitEditModalProps) {
   const floorMut = useApiMutation('setVisitLiftFloor', {
     invalidate: 'operational',
     onSuccess: () => toast('Этаж сохранён ✓'),
+  });
+  // P6.2: штатный возврат чистого на склад (не «исправление») — модал не закрываем,
+  // визит перерисуется и «Взял чистое» снова станет доступно
+  const returnCleanMut = useApiMutation<{ returnedBags: number }>('driverReturnClean', {
+    invalidate: 'operational',
+    onSuccess: (res) => toast(`Возвращено ${res.returnedBags} меш. ✓`),
   });
 
   const closed = !!visit && visit.status !== 'planned';
@@ -202,6 +206,16 @@ export function VisitEditModal({ visit, onClose }: VisitEditModalProps) {
                   {a.label}
                 </Button>
               ))}
+            {visit.clean_taken_at && !visit.delivered_at && (
+              <Button
+                variant="ghost"
+                className={styles.bigBtn}
+                busy={returnCleanMut.isPending}
+                onClick={() => setReturnConfirm(true)}
+              >
+                ↩ Вернуть чистое на склад{num(visit.clean_bags) ? ` (${bags(num(visit.clean_bags))})` : ''}
+              </Button>
+            )}
             {corrections.length > 0 && (
               <>
                 {closed && <div className={styles.correctLabel}>Исправить</div>}
@@ -232,6 +246,22 @@ export function VisitEditModal({ visit, onClose }: VisitEditModalProps) {
         text="Чистое бельё взято со склада?"
         okLabel="Да, взял"
         busy={actionMut.isPending}
+      />
+
+      <ConfirmDialog
+        open={returnConfirm}
+        onClose={() => setReturnConfirm(false)}
+        onConfirm={() => {
+          if (visit) returnCleanMut.mutate(visit.id);
+          setReturnConfirm(false);
+        }}
+        text={
+          visit
+            ? `Вернуть на склад ${bags(num(visit.clean_bags)) || 'чистое'}? Точка останется в маршруте, чистое снова появится на складе.`
+            : ''
+        }
+        okLabel="Вернуть на склад"
+        busy={returnCleanMut.isPending}
       />
 
       <ConfirmDialog

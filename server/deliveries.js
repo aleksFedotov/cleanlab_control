@@ -275,6 +275,23 @@ function takeCleanForVisit_(v, laundryId) {
   return bags;
 }
 
+// Чистое водителя по конкретному визиту возвращается на склад:
+// снимаем маркер «у водителя» со складских записей клиента, визит очищается.
+// Мутирует v (clean_taken_at, clean_bags) — запись на диске делает вызывающий.
+// Возвращает число возвращённых мешков (clean_bags до очистки).
+function returnCleanForVisit_(v, laundryId) {
+  const bags = Number(v.clean_bags) || 0;
+  db.findRowsByTenant_(SHEETS.STORAGE, function (s) {
+    return s.client_id === v.client_id && s.kind === 'clean' && s.consumed_at === 'driver';
+  }, 500, laundryId).forEach(function (r) {
+    r.obj.consumed_at = '';
+    db.updateRow_(SHEETS.STORAGE, r.rowNumber, r.obj);
+  });
+  v.clean_taken_at = '';
+  v.clean_bags = '';
+  return bags;
+}
+
 // Массово: взять чистое по всем открытым точкам дня, где оно есть на складе.
 function driverTakeAllClean(token, date) {
   const session = requireRole_(token, ['driver', 'owner']);
@@ -421,15 +438,7 @@ function correctVisit(token, visitId, op) {
     if (op === 'undo_take_clean') {
       if (!v.clean_taken_at) return err_('Чистое по точке не взято');
       if (v.delivered_at) return err_('Чистое уже выдано — сначала отмените выдачу');
-      // Чистое возвращается на склад: снимаем маркер «у водителя»
-      db.findRowsByTenant_(SHEETS.STORAGE, function (s) {
-        return s.client_id === v.client_id && s.kind === 'clean' && s.consumed_at === 'driver';
-      }, 500, laundryId).forEach(function (r) {
-        r.obj.consumed_at = '';
-        db.updateRow_(SHEETS.STORAGE, r.rowNumber, r.obj);
-      });
-      v.clean_taken_at = '';
-      v.clean_bags = '';
+      returnCleanForVisit_(v, laundryId); // чистое возвращается на склад
     }
 
     if (op === 'undo_deliver') {
@@ -500,6 +509,27 @@ function correctVisit(token, visitId, op) {
     if (extra) Object.keys(extra).forEach(function (k) { details[k] = extra[k]; });
     logEvent(actorOf_(session), 'visit_correct', visitId, details, laundryId);
     return ok_({ visit: v, cargo: driverCargo_(laundryId) });
+  });
+}
+
+// «Вернуть чистое на склад» (P6.2): штатное действие водителя по конкретной точке,
+// а не «исправление ошибки». Складская механика — returnCleanForVisit_ (как
+// undo_take_clean), но аудит пишет отдельное событие clean_return.
+// Статус визита не меняем: planned/picked сохраняется, стирки не трогаем.
+function driverReturnClean(token, visitId) {
+  const session = requireRole_(token, ['driver', 'owner']);
+  if (!session) return err_('Нет доступа');
+  const laundryId = session.laundryId;
+  return withLock_(function () {
+    const found = findTenantVisit_(visitId, laundryId);
+    if (!found) return err_('Визит не найден');
+    const v = found.obj;
+    if (!v.clean_taken_at) return err_('Чистое по точке не взято');
+    if (v.delivered_at) return err_('Чистое уже выдано — сначала отмените выдачу');
+    const bags = returnCleanForVisit_(v, laundryId);
+    db.updateRow_(SHEETS.DELIVERIES, found.rowNumber, v);
+    logEvent(actorOf_(session), 'clean_return', visitId, { client_id: v.client_id, date: v.date, bags: bags }, laundryId);
+    return ok_({ visit: v, cargo: driverCargo_(laundryId), returnedBags: bags });
   });
 }
 
@@ -578,6 +608,6 @@ module.exports = {
   VISIT_FINAL, isOpenVisit_, getVisitsByDate_, getVisitsByWeek_, decorateVisit_, ensureVisit_,
   getDeliveryVisits, addDeliveryVisit, moveDeliveryVisit, removeDeliveryVisit, setPickupOnly,
   driverCargo_, getDriverRoute, takeCleanForVisit_, driverTakeAllClean,
-  driverAction, driverHandover, setVisitLiftFloor, correctVisit, normalizeLiftFloor_,
+  driverAction, driverHandover, setVisitLiftFloor, correctVisit, driverReturnClean, normalizeLiftFloor_,
   migrateWashesToVisits, migrateIssueDatesToVisits
 };
