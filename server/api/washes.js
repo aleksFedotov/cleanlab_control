@@ -14,11 +14,13 @@ const { addStorageEntry_, openStorage_, consumeStorage_, storageSummaryByClient_
 const deliveries = require('../deliveries');
 const { getVisitsByDate_, getVisitsByWeek_, decorateVisit_, isOpenVisit_, ensureVisit_ } = deliveries;
 const { billingItems_ } = require('./billing');
+const wash = require('../wash');
 
 // --- Общие чтения ---
 
 // Уведомление владельцу в Telegram о действиях работника со стирками
 // (добавление/перенос/удаление). Действия самого владельца не шлём.
+// TODO(R3): переедет в wash.js по мере переноса команд.
 function notifyOwnerOnWorkerAction_(session, text, laundryId) {
   if (session.role !== 'worker') return;
   require('../telegram').sendTelegram_(null, text, laundryId).catch(function () {});
@@ -172,25 +174,7 @@ function getDayList(session, date) {
 // --- Сотрудник ---
 
 function startWash(session, washId, weightKg) {
-  const laundryId = session.laundryId;
-  return withLock_(function () {
-    const found = findTenantRow_(SHEETS.WASHES, washId, laundryId);
-    const check = checkTransition_('start', found && found.obj);
-    if (!check.ok) return err_(check.error);
-    const w = found.obj;
-    // Повторное «В работу» не затирает started_at: переход из in_progress уже отклонён.
-    w.status = 'in_progress';
-    w.started_at = nowStr_();
-    // Вес необязателен на старте: основное взвешивание — при завершении (чистый вес)
-    if (Number(weightKg) > 0) w.dirty_weight_kg = round1_(weightKg);
-    db.updateRow_(SHEETS.WASHES, found.rowNumber, w);
-    // Грязное бельё клиента уходит со склада в стирку; wash_id на израсходованных
-    // записях — связь партии для веса ноги-забора в счёте (P2). Откат — в cancelWash.
-    consumeStorage_(w.client_id, 'dirty', laundryId, w.id);
-    ensureShift_(w.wash_date, laundryId);
-    logEvent(actorOf_(session), 'wash_start', washId, { weight: w.dirty_weight_kg }, laundryId);
-    return ok_({ wash: w });
-  });
+  return wash.startWash(session, washId, weightKg);
 }
 
 function completeWash(session, washId, items, weightKg, mode, bags) {

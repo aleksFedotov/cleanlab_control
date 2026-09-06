@@ -27,8 +27,11 @@ const {
   listLaundries, createLaundry, updateLaundry, deactivateLaundry, getTvData
 } = require('./api/laundries');
 const {
+  startWash
+} = require('./wash');
+const {
   ensureWashesFromDelivery_, notReadyForDelivery_, materializeTodayAllLaundries_,
-  getDayList, startWash, completeWash, editWashData, deferWash, holdPartialWash, addUnplannedWash,
+  getDayList, completeWash, editWashData, deferWash, holdPartialWash, addUnplannedWash,
   getShiftCloseState, closeShift,
   getDeliveryPlan, addToDelivery, cancelWash, deleteWash, confirmStorageCheck, markIssued, updateIssueDate,
   getWeekPlan, addWeekCard, moveWeekCard, removeWeekCard,
