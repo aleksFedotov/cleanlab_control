@@ -29,6 +29,7 @@ function open(dbPath = DB_PATH) {
   migrateToV4_(db);
   migrateToV6_(db);
   migrateToV7_(db);
+  migrateToV9_(db);
   return db;
 }
 
@@ -42,6 +43,7 @@ function openTest(dbPath = ':memory:') {
   migrateToV4_(testDb);
   migrateToV6_(testDb);
   migrateToV7_(testDb);
+  migrateToV9_(testDb);
   return testDb;
 }
 
@@ -214,6 +216,49 @@ function migrateToV7_(d = db) {
   // Глобальный дедуп дефолтных тарифов
   dedup('ClientTariffs', ['client_id', 'billing_item_id']); // для client_id='' глобально
   d.prepare(`UPDATE "ClientTariffs" SET laundry_id = '' WHERE client_id IS NULL OR client_id = ''`).run();
+}
+// Миграция v9 (R4): backfill Storage.visit_id — явная связь склад↔визит вместо
+// матчинга по меткам времени. DDL не нужен: createTables_ сам доносит новые
+// колонки из HEADERS через ALTER TABLE. Backfill проставляет visit_id по тем же
+// совпадениям, что используют нынешние откаты (issued_at === delivered_at для
+// clean-записей выданных стирок, created_at === dirty_handed_at для dirty-записей
+// сдачи); не сматчившееся (строки до появления меток ≈ до марта, ручные правки
+// истории) осознанно остаётся с visit_id=''. Идемпотентность — маркер в Settings
+// (глобальный ключ, laundry_id=''): страж по данным не подходит — до-R2 строки
+// навсегда остаются пустыми, и миграция пересканировала бы всю Storage при
+// каждом старте.
+function migrateToV9_(d = db) {
+  const marked = d.prepare(
+    `SELECT COUNT(*) AS n FROM "Settings" WHERE key = 'STORAGE_VISIT_ID_BACKFILL' AND (laundry_id IS NULL OR laundry_id = '')`
+  ).get();
+  if (marked.n > 0) return;
+  // Индексы совпадений: клиент|метка → визит.
+  const cleanBy = {}; // client|delivered_at → visit_id (выдача чистого)
+  const dirtyBy = {}; // client|dirty_handed_at → visit_id (сдача грязного)
+  d.prepare(`SELECT id, client_id, delivered_at, dirty_handed_at FROM "Deliveries"`).all()
+    .forEach(function (v) {
+      if (v.delivered_at) cleanBy[v.client_id + '|' + v.delivered_at] = v.id;
+      if (v.dirty_handed_at) dirtyBy[v.client_id + '|' + v.dirty_handed_at] = v.id;
+    });
+  const washById = {};
+  d.prepare(`SELECT id, client_id, status, issued_at FROM "Washes"`).all()
+    .forEach(function (w) { washById[w.id] = w; });
+  const upd = d.prepare(`UPDATE "Storage" SET visit_id = ? WHERE rowid = ?`);
+  d.prepare(`SELECT rowid AS _rowid, * FROM "Storage"`).all().forEach(function (s) {
+    let visitId = '';
+    if (s.kind === 'clean' && s.wash_id) {
+      // Только выданные стирки: у неизрасходованной clean-записи визита ещё не было
+      const w = washById[s.wash_id];
+      if (w && w.status === 'issued' && w.issued_at) {
+        visitId = cleanBy[w.client_id + '|' + w.issued_at] || '';
+      }
+    }
+    if (s.kind === 'dirty' && s.created_at) {
+      visitId = dirtyBy[s.client_id + '|' + s.created_at] || '';
+    }
+    if (visitId) upd.run(visitId, s._rowid);
+  });
+  setTenantSetting_('', 'STORAGE_VISIT_ID_BACKFILL', 'done', d);
 }
 
 
@@ -428,6 +473,6 @@ module.exports = {
   readAll_, readTail_, appendRow_, nextId_, findRowsBy_, findById_,
   updateRow_, deleteRow_, parseJsonList_,
   readAllByTenant_, readTailByTenant_, findRowsByTenant_, appendRowTenant_,
-  setTenantSetting_, migrateToV2_, migrateToV3_, migrateToV4_, migrateToV6_, migrateToV7_,
+  setTenantSetting_, migrateToV2_, migrateToV3_, migrateToV4_, migrateToV6_, migrateToV7_, migrateToV9_,
   invalidateRefCache_, getSettings_, getClients_, getItemTypes_, transaction_
 };
