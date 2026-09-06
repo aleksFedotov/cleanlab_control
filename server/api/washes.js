@@ -186,101 +186,15 @@ function editWashData(session, washId, weightKg, items, bags) {
 }
 
 function deferWash(session, washId, newDate, reason) {
-  const laundryId = session.laundryId;
-  const actor = actorOf_(session);
-  return withLock_(function () {
-    const found = findTenantRow_(SHEETS.WASHES, washId, laundryId);
-    const check = checkTransition_('defer', found && found.obj);
-    if (!check.ok) return err_(check.error);
-    const w = found.obj;
-    const patch = applyDefer_(w, newDate, reason);
-    const details = { from: patch.deferred_from, to: newDate, reason: reason || '' };
-    if (w.status === 'partial') {
-      // Достирка остатка: стирка возвращается в план нового дня, выдача — на
-      // следующий день. Постиранная часть (вес/позиции/clean-запись на складе)
-      // сохраняется; остаток при повторном завершении добавит вторую clean-запись
-      // склада, а итоги стирки (items_total/bags/dirty_weight_kg) суммируются.
-      const oldIssueDate = w.issue_date;
-      const newIssueDate = addDaysStr_(newDate, 1);
-      patch.status = 'planned';
-      patch.issue_date = newIssueDate;
-      // Остаток грязного физически в цеху: восстанавливаем dirty-запись склада,
-      // иначе карточка показывает «Нет белья на складе» (первая запись израсходована
-      // при первом «В работу»). Как verdict has_dirty в confirmStorageCheck.
-      if (openStorage_(w.client_id, 'dirty', laundryId).length === 0) {
-        addStorageEntry_(w.client_id, 'dirty', {}, laundryId);
-      }
-      // Визит развоза едет следом: «завтра» → «послезавтра». Только planned и
-      // только если на целевую дату у клиента ещё нет визита.
-      const visit = getVisitsByDate_(oldIssueDate, laundryId).filter(function (x) {
-        return x.client_id === w.client_id && x.status === 'planned';
-      })[0];
-      const dup = getVisitsByDate_(newIssueDate, laundryId).some(function (x) {
-        return x.client_id === w.client_id;
-      });
-      if (visit && !dup) {
-        const vf = db.findById_(SHEETS.DELIVERIES, visit.id);
-        vf.obj.date = newIssueDate;
-        db.updateRow_(SHEETS.DELIVERIES, vf.rowNumber, vf.obj);
-        logEvent(actor, 'visit_move', visit.id, { date: oldIssueDate + ' → ' + newIssueDate, reason: 'wash_defer' }, laundryId);
-        details.visit_moved = true;
-      } else {
-        details.visit_moved = false;
-      }
-    }
-    logEvent(actor, 'wash_defer', washId, details, laundryId);
-    notifyOwnerOnWorkerAction_(session,
-      '↪ ' + actor + ': стирка перенесена — ' + clientNameById_(w.client_id, laundryId) +
-      ': ' + details.from + ' → ' + details.to + (details.reason ? ', ' + details.reason : ''), laundryId);
-    Object.keys(patch).forEach(function (k) { w[k] = patch[k]; });
-    db.updateRow_(SHEETS.WASHES, found.rowNumber, w);
-    return ok_({ wash: w });
-  });
+  return wash.deferWash(session, washId, newDate, reason);
 }
 
-// «Оставить на складе» по частичной (spec: решение принимает владелец): запоминаем
-// решение маркером hold в deferred_reason, дату НЕ переносим, статус остаётся partial.
-// Иначе запись навсегда висит «требует решения», хотя решение уже принято.
 function holdPartialWash(session, washId) {
-  const laundryId = session.laundryId;
-  return withLock_(function () {
-    const found = findTenantRow_(SHEETS.WASHES, washId, laundryId);
-    if (!found) return err_('Стирка не найдена');
-    const w = found.obj;
-    if (w.status !== 'partial') return err_('Не частичная стирка');
-    w.deferred_reason = 'hold'; // маркер решения «оставить на складе»
-    db.updateRow_(SHEETS.WASHES, found.rowNumber, w);
-    logEvent(actorOf_(session), 'wash_hold', washId, {}, laundryId);
-    return ok_({ wash: w });
-  });
+  return wash.holdPartialWash(session, washId);
 }
 
-// Внеплановая стирка из цеха: сегодня, выдача завтра, created_by по роли.
 function addUnplannedWash(session, clientId, comment) {
-  const laundryId = session.laundryId;
-  return withLock_(function () {
-    const today = todayStr_();
-    // Не дублируем: у клиента уже есть открытая стирка на сегодня
-    const dup = db.findRowsByTenant_(SHEETS.WASHES, function (x) {
-      return x.client_id === clientId && x.wash_date === today &&
-        ['planned', 'no_linen', 'in_progress'].indexOf(x.status) !== -1;
-    }, 100, laundryId).length;
-    if (dup) return err_('Стирка этого клиента уже в плане на сегодня');
-    const w = {
-      id: db.nextId_(SHEETS.WASHES, 'wash'), client_id: clientId,
-      wash_date: today, issue_date: addDaysStr_(today, 1), status: 'planned',
-      dirty_weight_kg: '', items_total: '', comment: comment || '',
-      created_by: session.role, created_at: nowStr_(),
-      started_at: '', done_at: '', issued_at: '', deferred_from: '', deferred_reason: ''
-    };
-    db.appendRowTenant_(SHEETS.WASHES, w, laundryId);
-    ensureShift_(today, laundryId);
-    logEvent(actorOf_(session), 'wash_create', w.id, { client_id: clientId, unplanned: true }, laundryId);
-    notifyOwnerOnWorkerAction_(session,
-      '➕ ' + actorOf_(session) + ': новая внеплановая стирка — ' + clientNameById_(clientId, laundryId) +
-      (w.comment ? ' (' + w.comment + ')' : ''), laundryId);
-    return ok_({ wash: w });
-  });
+  return wash.addUnplannedWash(session, clientId, comment);
 }
 
 function getShiftCloseState(session) {
