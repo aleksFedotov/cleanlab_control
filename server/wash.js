@@ -5,12 +5,12 @@ const db = require('./db');
 const { nowStr_, todayStr_, logEvent, actorOf_ } = require('./audit');
 const core = require('./core');
 const {
-  addDaysStr_, checkTransition_, applyDefer_, err_, ok_, round1_, findTenantRow_,
-  ensureShift_, getShiftByDate_, canEditWashData_, completionStatus_
+  addDaysStr_, checkTransition_, applyDefer_, err_, ok_, round1_, clientName_,
+  findTenantRow_, ensureShift_, getShiftByDate_, canEditWashData_, completionStatus_
 } = core;
-const { addStorageEntry_, consumeStorage_, openStorage_ } = require('./storage');
+const { addStorageEntry_, consumeStorage_, openStorage_, storageSummaryByClient_ } = require('./storage');
 const deliveries = require('./deliveries');
-const { getVisitsByDate_, ensureVisit_ } = deliveries;
+const { getVisitsByDate_, ensureVisit_, isOpenVisit_ } = deliveries;
 
 // Уведомление владельцу в Telegram о действиях работника со стирками
 // (добавление/перенос/удаление). Действия самого владельца не шлём.
@@ -284,8 +284,127 @@ function deleteWash(session, washId) {
   return ok_({ id: washId });
 }
 
+// Подтверждение проверки склада работником (спека «check storage»).
+// Применимо к planned-стирке и к повторной проверке no_linen. Три исхода:
+//  - no_dirty → статус no_linen: стирать нечего, карточка остаётся в «К стирке»
+//    приглушённой; смену не блокирует, в отчёт как отмена НЕ идёт;
+//    клиент остаётся в предупреждении «не готов к развозу» (no_clean), если чистого нет.
+//  - already_clean → статус ready_clean: чистое уже на складе, работа закончена,
+//    карточка уходит в «Готово», в отчёте считается завершённой (0 кг).
+//  - has_dirty → рабочий нашёл грязное бельё: если записи о грязном нет,
+//    создаём её (без веса — как приёмка водителем). Стирка остаётся/возвращается
+//    в planned, карточка становится янтарной везде. Запись израсходуется при startWash.
+// Время проверки пишем в done_at (для этих статусов — «когда разобрались с клиентом»).
+function confirmStorageCheck(session, washId, verdict) {
+  const laundryId = session.laundryId;
+  const VERDICTS = { no_dirty: 1, already_clean: 1, has_dirty: 1 };
+  if (!VERDICTS[verdict]) return err_('Неизвестный verdict');
+  const found = findTenantRow_(SHEETS.WASHES, washId, laundryId);
+  if (!found) return err_('Стирка не найдена');
+  const w = found.obj;
+  if (w.status !== 'planned' && w.status !== 'no_linen') {
+    return err_('Подтверждение возможно только для стирки «К работе»');
+  }
+  if (verdict === 'has_dirty') {
+    if (openStorage_(w.client_id, 'dirty', laundryId).length === 0) {
+      addStorageEntry_(w.client_id, 'dirty', {}, laundryId);
+    }
+    if (w.status === 'no_linen') {
+      w.status = 'planned';
+      w.done_at = '';
+      db.updateRow_(SHEETS.WASHES, found.rowNumber, w);
+    }
+    logEvent(actorOf_(session), 'storage_check', washId, { verdict: verdict }, laundryId);
+    return ok_({ wash: w });
+  }
+  w.status = verdict === 'no_dirty' ? 'no_linen' : 'ready_clean';
+  w.done_at = nowStr_();
+  db.updateRow_(SHEETS.WASHES, found.rowNumber, w);
+  logEvent(actorOf_(session), 'storage_check', washId, { verdict: verdict }, laundryId);
+  return ok_({ wash: w });
+}
+
+function markIssued(session, washId) {
+  const laundryId = session.laundryId;
+  const found = findTenantRow_(SHEETS.WASHES, washId, laundryId);
+  const check = checkTransition_('issue', found && found.obj);
+  if (!check.ok) return err_(check.error);
+  found.obj.status = 'issued';
+  found.obj.issued_at = nowStr_();
+  db.updateRow_(SHEETS.WASHES, found.rowNumber, found.obj);
+  // Чистая запись этой стирки уходит со склада
+  db.findRowsByTenant_(SHEETS.STORAGE, function (s) {
+    return s.wash_id === washId && s.kind === 'clean' && !s.consumed_at;
+  }, 1000, laundryId).forEach(function (r) {
+    r.obj.consumed_at = found.obj.issued_at;
+    db.updateRow_(SHEETS.STORAGE, r.rowNumber, r.obj);
+  });
+  logEvent(actorOf_(session), 'wash_issue', washId, {}, laundryId);
+  return ok_({ wash: found.obj });
+}
+
+// Правка issue_date у done/stored статус не меняет (spec §4.3).
+function updateIssueDate(session, washId, issueDate) {
+  const laundryId = session.laundryId;
+  const found = findTenantRow_(SHEETS.WASHES, washId, laundryId);
+  if (!found) return err_('Стирка не найдена');
+  if (['done', 'stored'].indexOf(found.obj.status) === -1) {
+    return err_('Менять дату выдачи можно только у завершённой стирки');
+  }
+  const old = found.obj.issue_date;
+  found.obj.issue_date = issueDate;
+  db.updateRow_(SHEETS.WASHES, found.rowNumber, found.obj);
+  logEvent(actorOf_(session), 'wash_edit', washId, { issue_date: old + ' → ' + issueDate }, laundryId);
+  // Чистое с новой датой выдачи появляется в плане/развозе на этот день
+  ensureVisit_(found.obj.client_id, issueDate, laundryId, actorOf_(session));
+  return ok_({ wash: found.obj });
+}
+
+// Клиенты развоза на date без готового чистого белья. Обслуженные точки
+// (закрытый визит или чистое уже у водителя) пропускаем — предупреждать не о чем.
+// Причины: washing_incomplete (стирка дня подготовки не завершена),
+// partial (завершена частично), no_clean (нет чистого на складе).
+function notReadyForDelivery_(date, laundryId) {
+  const visits = getVisitsByDate_(date, laundryId);
+  if (!visits.length) return [];
+  const clients = {};
+  db.getClients_(laundryId).forEach(function (c) { clients[c.id] = c; });
+  const storage = storageSummaryByClient_(laundryId);
+  const prepDay = addDaysStr_(date, -1);
+  const washes = db.findRowsByTenant_(SHEETS.WASHES, function (w) {
+    return w.status !== 'cancelled';
+  }, 2000, laundryId).map(function (r) { return r.obj; });
+  const out = [];
+  visits.forEach(function (v) {
+    // Точка уже обслужена (закрыта или чистое у водителя) — предупреждать не о чем
+    if (!isOpenVisit_(v) || v.clean_taken_at) return;
+    // Владелец подтвердил «только забрать грязное» — чистое не нужно
+    if (v.pickup_only === 'да') return;
+    const prep = washes.filter(function (w) {
+      return w.client_id === v.client_id && w.wash_date === prepDay;
+    });
+    // Незавершённая или частичная стирка дня подготовки — клиент не готов в любом случае
+    let reason = null;
+    if (prep.some(function (w) { return w.status === 'planned' || w.status === 'in_progress'; })) {
+      reason = 'washing_incomplete';
+    } else if (prep.some(function (w) { return w.status === 'partial'; })) {
+      reason = 'partial';
+    } else {
+      const s = storage[v.client_id];
+      const hasClean = (s && s.clean > 0) || washes.some(function (w) {
+        return w.client_id === v.client_id && (w.status === 'done' || w.status === 'stored');
+      });
+      if (!hasClean) reason = 'no_clean';
+    }
+    if (reason) {
+      out.push({ client_id: v.client_id, client_name: clientName_(v.client_id, clients), reason: reason, visit_id: v.id });
+    }
+  });
+  return out;
+}
+
 module.exports = {
   notifyOwnerOnWorkerAction_, clientNameById_,
   startWash, completeWash, editWashData, deferWash, holdPartialWash, addUnplannedWash,
-  cancelWash, deleteWash
+  cancelWash, deleteWash, confirmStorageCheck, markIssued, updateIssueDate, notReadyForDelivery_
 };
