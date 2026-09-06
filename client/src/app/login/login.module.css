@@ -39,6 +39,30 @@
   font-size: 15px;
 }
 
+.passwordWrap {
+  position: relative;
+}
+
+.passwordWrap .input {
+  width: 100%;
+  padding-right: 44px;
+}
+
+.eyeBtn {
+  position: absolute;
+  top: 0;
+  right: 0;
+  height: calc(100% - 12px);
+  width: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  color: var(--neutral);
+  cursor: pointer;
+}
+
 .submit {
   width: 100%;
   justify-content: center;

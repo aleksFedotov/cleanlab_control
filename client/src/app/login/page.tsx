@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
+import { Eye, EyeOff } from 'lucide-react';
 import { api } from '@/lib/api';
 import { saveSession } from '@/lib/session';
 import type { LoginRes } from '@/types/api';
@@ -15,6 +16,7 @@ export default function LoginPage() {
   const [login, setLogin] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [busy, setBusy] = useState(false);
   const [shake, setShake] = useState(false);
 
@@ -56,14 +58,24 @@ export default function LoginPage() {
             value={login}
             onChange={(e) => setLogin(e.target.value)}
           />
-          <input
-            className={styles.input}
-            type="password"
-            placeholder="Пароль"
-            autoComplete="current-password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-          />
+          <div className={styles.passwordWrap}>
+            <input
+              className={styles.input}
+              type={showPassword ? 'text' : 'password'}
+              placeholder="Пароль"
+              autoComplete="current-password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+            />
+            <button
+              type="button"
+              className={styles.eyeBtn}
+              aria-label={showPassword ? 'Скрыть пароль' : 'Показать пароль'}
+              onClick={() => setShowPassword((s) => !s)}
+            >
+              {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+            </button>
+          </div>
           <Button type="submit" variant="primary" busy={busy} className={styles.submit}>
             Войти
           </Button>
