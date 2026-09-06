@@ -12,7 +12,7 @@ function seedVisit(ctx, o) {
     pickup: o.picked_at ? 'да' : '', driver_comment: '', created_by: 'test',
     created_at: o.date + ' 08:00:00', clean_taken_at: '', clean_bags: '',
     picked_at: o.picked_at || '', dirty_handed_at: '', pickup_only: o.pickup_only || '',
-    lift_floor: o.lift_floor || ''
+    lift_floor: o.lift_floor || '', driver_id: o.driver_id || ''
   }, o.laundry_id || '1');
 }
 
@@ -129,6 +129,27 @@ test('getPayroll: работник — 4000/12 × 7.5 ч = 2500', () => {
   assert.strictEqual(w.amount_shift, 2500);
   assert.strictEqual(w.total, 2500);
   assert.strictEqual(w.days.length, 2);
+});
+
+test('getPayroll: атрибуция точек по водителям (driver_id), legacy — общие', () => {
+  const ctx = makeCtx();
+  seedUser('usr_d3', '1', 'Второй водитель', 'driver', 'driver3', 'pass3');
+  const owner = loginOwner();
+  const ts = TODAY + ' 12:00:00';
+
+  seedVisit(ctx, { date: TODAY, delivered_at: ts, driver_id: 'usr_d1', lift_floor: '4' }); // d1: 1 точка + 2 эт.
+  seedVisit(ctx, { date: TODAY, picked_at: ts, status: 'picked', driver_id: 'usr_d3' });   // d3: 1 точка
+  seedVisit(ctx, { date: TODAY, delivered_at: ts });                                       // legacy: обоим
+
+  const res = ctx.api.getPayroll(owner, TODAY, TODAY);
+  const d1 = employeeOf(res, 'usr_d1');
+  const d3 = employeeOf(res, 'usr_d3');
+  assert.strictEqual(d1.points, 2);
+  assert.strictEqual(d1.lift_floors, 2);
+  assert.strictEqual(d1.total, 2 * 250 + 200);
+  assert.strictEqual(d3.points, 2);
+  assert.strictEqual(d3.lift_floors, 0);
+  assert.strictEqual(d3.total, 2 * 250);
 });
 
 test('getPayroll: округление один раз на итоге периода', () => {

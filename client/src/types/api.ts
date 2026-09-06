@@ -107,6 +107,7 @@ export interface Visit {
   dirty_handed_at: string;
   pickup_only: string; // '' | 'да'
   lift_floor: string; // этаж подъёма; пусто/1/2 = без доплаты
+  driver_id?: string; // водитель, закрывший точку; пусто у старых визитов
   laundry_id: string;
 }
 
@@ -328,11 +329,18 @@ export interface DeliveryPointStatsDay {
   both: number;
 }
 
+export interface DeliveryPointDriverStats {
+  user_id: string; // '' — бакет «Без водителя» (точки без атрибуции)
+  name: string;
+  days: DeliveryPointStatsDay[];
+}
+
 export interface DeliveryPointStatsRes {
   ok: true;
   from: string;
   to: string;
   days: DeliveryPointStatsDay[];
+  byDriver: DeliveryPointDriverStats[];
 }
 
 // --- Прайс и авторасчёт счетов (P2, owner-only) ---

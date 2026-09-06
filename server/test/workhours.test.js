@@ -4,12 +4,13 @@ const assert = require('node:assert');
 const { makeCtx, seedUser, loginOwner, loginWorker, loginWorker2, seedLaundry2, TODAY, TOMORROW } = require('./helpers/serverMocks');
 
 // Визит развоза напрямую в БД с нужными треками/статусом
-function seedVisit(ctx, date, status, deliveredAt, pickedAt, laundryId) {
+function seedVisit(ctx, date, status, deliveredAt, pickedAt, laundryId, driverId) {
   ctx.db.appendRowTenant_('Deliveries', {
     id: ctx.db.nextId_('Deliveries', 'del'), date: date, client_id: 'cli_1',
     ord: 1, status: status, delivered_at: deliveredAt || '', pickup: pickedAt ? 'да' : '',
     driver_comment: '', created_by: 'test', created_at: date + ' 08:00:00',
-    clean_taken_at: '', clean_bags: '', picked_at: pickedAt || '', dirty_handed_at: '', pickup_only: ''
+    clean_taken_at: '', clean_bags: '', picked_at: pickedAt || '', dirty_handed_at: '', pickup_only: '',
+    driver_id: driverId || ''
   }, laundryId || '1');
 }
 
@@ -145,4 +146,36 @@ test('getDeliveryPointStats: разбивка total/only_delivery/only_pickup/bo
   // Валидация и права
   assert.ok(!ctx.api.getDeliveryPointStats(owner, TOMORROW, TODAY).ok);
   assert.ok(!ctx.api.getDeliveryPointStats(loginWorker(), TODAY, TODAY).ok);
+});
+
+test('getDeliveryPointStats: byDriver — точки по водителям + бакет «Без водителя»', () => {
+  const ctx = makeCtx();
+  seedUser('usr_d3', '1', 'Второй водитель', 'driver', 'driver3', 'pass3');
+  const owner = loginOwner();
+  const ts = TODAY + ' 12:00:00';
+
+  seedVisit(ctx, TODAY, 'both', ts, ts, '1', 'usr_d1');      // точка первого водителя
+  seedVisit(ctx, TODAY, 'picked', '', ts, '1', 'usr_d1');    // ещё одна его точка
+  seedVisit(ctx, TODAY, 'delivered', ts, '', '1', 'usr_d3'); // точка второго
+  seedVisit(ctx, TODAY, 'delivered', ts, '');                // без атрибуции (legacy)
+
+  const res = ctx.api.getDeliveryPointStats(owner, TODAY, TODAY);
+  assert.ok(res.ok);
+  assert.strictEqual(res.days[0].total, 4, 'общий итог — все точки');
+
+  const d1 = res.byDriver.filter(d => d.user_id === 'usr_d1')[0];
+  const d3 = res.byDriver.filter(d => d.user_id === 'usr_d3')[0];
+  const none = res.byDriver.filter(d => d.user_id === '')[0];
+  assert.ok(d1 && d3 && none, 'оба водителя + бакет «Без водителя»');
+  assert.strictEqual(none.name, 'Без водителя');
+  assert.strictEqual(d1.days[0].total, 2);
+  assert.strictEqual(d1.days[0].both, 1);
+  assert.strictEqual(d1.days[0].only_pickup, 1);
+  assert.strictEqual(d3.days[0].total, 1);
+  assert.strictEqual(d3.days[0].only_delivery, 1);
+  assert.strictEqual(none.days[0].total, 1);
+
+  // Без неатрибутированных точек бакета нет
+  const only = ctx.api.getDeliveryPointStats(owner, TOMORROW, TOMORROW);
+  assert.ok(only.byDriver.every(d => d.user_id !== ''));
 });

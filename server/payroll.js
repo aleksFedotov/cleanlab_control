@@ -1,8 +1,9 @@
 // Зарплаты (P3): авторасчёт по точкам развоза (водители) и табелю (работники).
 // Водитель: точки × ставка_за_точку + этажи × ставка_подъёма + корректировки.
 // Точка — выполненный визит прачки: status не cancelled/empty и закрыт хотя бы
-// один трек (delivered_at или picked_at); «только забор» — тоже точка. Привязки
-// к user_id нет: водитель на прачке один, все водители получают одинаковые цифры.
+// один трек (delivered_at или picked_at); «только забор» — тоже точка. Точка
+// принадлежит водителю из v.driver_id; визиты без driver_id (старые данные,
+// действия owner) считаются общими и начисляются всем водителям, как раньше.
 // Работник: shift_base / shift_norm_hours × часы (WorkHours) + корректировки.
 // Ставки: PayRates (непустое поле) → Settings[PAY_*] → встроенный дефолт.
 // Округление — один раз на итоге периода. Мультитенантность — по session.laundryId.
@@ -59,11 +60,21 @@ function computePayroll_(input) {
   const ratesByUser = {};
   (input.payRates || []).forEach(function (r) { ratesByUser[r.user_id] = r; });
 
-  // Визиты прачки за период (общие для всех водителей) с разбивкой по дням
-  const dayVisits = {};
+  // Визиты прачки за период с разбивкой по дням: персональные по водителям
+  // (driver_id активного водителя) + общие (без атрибуции — legacy/owner).
+  const driverIds = {};
+  users.forEach(function (u) {
+    if (u.role === 'driver') driverIds[String(u.id)] = true;
+  });
+  const dayVisitsShared = {};
+  const dayVisitsByDriver = {};
   (input.deliveries || []).forEach(function (v) {
     if (v.date < from || v.date > to || !isPaidVisit_(v)) return;
-    const d = dayVisits[v.date] || (dayVisits[v.date] = { points: 0, lift_floors: 0 });
+    const owner = v.driver_id && driverIds[String(v.driver_id)] ? String(v.driver_id) : null;
+    const bucket = owner
+      ? (dayVisitsByDriver[owner] || (dayVisitsByDriver[owner] = {}))
+      : dayVisitsShared;
+    const d = bucket[v.date] || (bucket[v.date] = { points: 0, lift_floors: 0 });
     d.points++;
     const floor = Number(v.lift_floor) || 0;
     if (floor > 2) d.lift_floors += floor - 2;
@@ -102,14 +113,20 @@ function computePayroll_(input) {
       return dayMap[date] || (dayMap[date] = { date: date, points: 0, lift_floors: 0, hours: 0, amount: 0 });
     }
     if (u.role === 'driver') {
-      Object.keys(dayVisits).forEach(function (date) {
-        const dv = dayVisits[date];
+      // Свои точки (driver_id) + общие без атрибуции (старые данные)
+      const own = dayVisitsByDriver[String(u.id)] || {};
+      const dates = {};
+      Object.keys(dayVisitsShared).forEach(function (k) { dates[k] = true; });
+      Object.keys(own).forEach(function (k) { dates[k] = true; });
+      Object.keys(dates).forEach(function (date) {
+        const sh = dayVisitsShared[date] || { points: 0, lift_floors: 0 };
+        const ow = own[date] || { points: 0, lift_floors: 0 };
         const d = day(date);
-        d.points = dv.points;
-        d.lift_floors = dv.lift_floors;
-        d.amount = dv.points * pointRate.value + dv.lift_floors * liftRate.value;
-        points += dv.points;
-        liftFloors += dv.lift_floors;
+        d.points = sh.points + ow.points;
+        d.lift_floors = sh.lift_floors + ow.lift_floors;
+        d.amount = d.points * pointRate.value + d.lift_floors * liftRate.value;
+        points += d.points;
+        liftFloors += d.lift_floors;
       });
     } else if (u.role === 'worker') {
       const perDay = hoursBy[u.id] || {};

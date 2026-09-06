@@ -142,3 +142,11 @@
   font-family: var(--font-mono), ui-monospace, monospace;
   font-variant-numeric: tabular-nums;
 }
+
+/* Имя водителя над его карточками развозов */
+.driverName {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-2);
+  margin: 4px 0 0;
+}

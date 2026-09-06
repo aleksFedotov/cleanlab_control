@@ -222,6 +222,28 @@ export default function TimesheetPage() {
     return rows;
   }, [statDays]);
 
+  // Разбивка развозов по водителям: итоги периода на каждого (точки с driver_id;
+  // бакет «Без водителя» — старые точки без атрибуции). Пустых не показываем.
+  const driverStatTotals = useMemo(
+    () =>
+      (statsQ.data?.byDriver || [])
+        .map((d) => ({
+          user_id: d.user_id,
+          name: d.name,
+          totals: d.days.reduce(
+            (t, day) => ({
+              total: t.total + day.total,
+              only_delivery: t.only_delivery + day.only_delivery,
+              only_pickup: t.only_pickup + day.only_pickup,
+              both: t.both + day.both,
+            }),
+            { total: 0, only_delivery: 0, only_pickup: 0, both: 0 }
+          ),
+        }))
+        .filter((d) => d.totals.total > 0),
+    [statsQ.data]
+  );
+
   const statsColumns: DataTableColumn[] = [
     {
       key: 'date',
@@ -392,6 +414,18 @@ export default function TimesheetPage() {
             <StatCard label="Только забор" value={statsTotals.only_pickup} />
             <StatCard label="Доставка + забор" value={statsTotals.both} />
           </StatRow>
+
+          {driverStatTotals.map((d) => (
+            <div key={d.user_id || 'none'}>
+              <h3 className={styles.driverName}>{d.name}</h3>
+              <StatRow>
+                <StatCard label="Всего точек" value={d.totals.total} tone="ok" />
+                <StatCard label="Только доставка" value={d.totals.only_delivery} />
+                <StatCard label="Только забор" value={d.totals.only_pickup} />
+                <StatCard label="Доставка + забор" value={d.totals.both} />
+              </StatRow>
+            </div>
+          ))}
 
           {mode === 'month' &&
             payrollDrivers.map((d) => (

@@ -42,9 +42,11 @@ const HEADERS = {
   Shifts: ['id', 'date', 'status', 'opened_at', 'closed_at',
     'total_kg', 'washes_done', 'washes_deferred', 'digest_sent', 'laundry_id'],
   // lift_floor — этаж, на который поднимался водитель (пусто/1/2 = без доплаты).
+  // driver_id — водитель, выполнивший визит (проставляется в driverAction);
+  // пусто у старых визитов — они считаются общими для всех водителей.
   Deliveries: ['id', 'date', 'client_id', 'ord', 'status',
     'delivered_at', 'pickup', 'driver_comment', 'created_by', 'created_at',
-    'clean_taken_at', 'clean_bags', 'picked_at', 'dirty_handed_at', 'pickup_only', 'lift_floor', 'laundry_id'],
+    'clean_taken_at', 'clean_bags', 'picked_at', 'dirty_handed_at', 'pickup_only', 'lift_floor', 'driver_id', 'laundry_id'],
   // visit_id — связь записи с визитом развоза (R4): уходит со склада/сдаётся
   // по конкретному визиту, откаты матчат по ней, а не по меткам времени.
   Storage: ['id', 'client_id', 'kind', 'weight_kg', 'items_total',

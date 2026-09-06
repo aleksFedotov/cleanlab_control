@@ -1,6 +1,8 @@
 // Визиты развоза (таблица Deliveries) — порт src/Deliveries.gs.
 // Визит = «водитель заезжает к клиенту в день D», без привязки к состоянию белья.
 // Статусы: planned → delivered | picked | both | empty, плюс cancelled.
+// driver_id — водитель, закрывший точку (deliver/pickup/both/empty в driverAction);
+// точки с пустым driver_id (старые данные) считаются общими — см. payroll/workhours.
 // Мультитенантность: все выборки и записи — в рамках session.laundryId.
 const { SHEETS } = require('./schema');
 const db = require('./db');
@@ -190,15 +192,20 @@ function driverCargo_(laundryId) {
 // Этаж выше 2-го: per_floor=да — за каждый этаж выше 2-го, иначе за факт.
 // Цена — как в счёте: тариф клиента → дефолт прачки; без цены — lift_missing.
 function driverDayStats_(visits, laundryId, session) {
+  // Водитель видит свои цифры: только точки, закрытые им (driver_id).
+  // Owner смотрит по всем визитам дня (текущее поведение).
+  const mine = session.role === 'driver'
+    ? visits.filter(function (v) { return String(v.driver_id) === String(session.userId); })
+    : visits;
   const stats = {
-    visited: visits.filter(function (v) { return VISIT_FINAL.indexOf(v.status) >= 0; }).length,
+    visited: mine.filter(function (v) { return VISIT_FINAL.indexOf(v.status) >= 0; }).length,
     lift_qty: 0, lift_total: 0, lift_missing: false, lift_pay: 0
   };
   // Надбавка водителя за подъём: этажи выше 2-го × его ставка
   // (PayRates → Settings[PAY_LIFT_FLOOR_RATE] → дефолт 100), как в зарплате.
   // От прайса клиента не зависит.
   let payFloors = 0;
-  visits.forEach(function (v) {
+  mine.forEach(function (v) {
     const floor = Math.floor(Number(v.lift_floor) || 0);
     if (floor > 2) payFloors += floor - 2;
   });
@@ -212,7 +219,7 @@ function driverDayStats_(visits, laundryId, session) {
     .filter(function (b) { return b.kind === 'lift' && b.active !== 'нет'; })[0];
   if (!lift) return stats;
   const tariffs = effectiveTariffs_(db.readAll_(SHEETS.CLIENT_TARIFFS), laundryId);
-  visits.forEach(function (v) {
+  mine.forEach(function (v) {
     const floor = Math.floor(Number(v.lift_floor) || 0);
     if (floor <= 2) return;
     const qty = lift.per_floor === 'да' ? floor - 2 : 1;
@@ -366,6 +373,9 @@ function driverAction(token, visitId, action, liftFloor) {
       v.delivered_at = nowStr_();
     }
 
+    // Закрывающие действия привязывают точку к исполнителю (зарплата/статистика)
+    if (action !== 'take_clean') v.driver_id = String(session.userId);
+
     db.updateRow_(SHEETS.DELIVERIES, found.rowNumber, v);
     logEvent(actorOf_(session), 'visit_' + action, visitId, { client_id: v.client_id, date: v.date }, laundryId);
     if (liftFloor !== undefined) {
@@ -411,7 +421,7 @@ function correctVisit(token, visitId, op) {
       return {
         status: v.status, delivered_at: v.delivered_at, picked_at: v.picked_at,
         clean_taken_at: v.clean_taken_at, lift_floor: v.lift_floor,
-        dirty_handed_at: v.dirty_handed_at
+        dirty_handed_at: v.dirty_handed_at, driver_id: v.driver_id
       };
     };
     const before = snap_();
@@ -475,6 +485,10 @@ function correctVisit(token, visitId, op) {
       v.pickup = '';
       v.status = v.delivered_at ? 'delivered' : 'planned';
     }
+
+    // Точка снова полностью открыта — снимаем привязку к водителю;
+    // если один трек остался закрыт, привязка сохраняется за его исполнителем.
+    if (!v.delivered_at && !v.picked_at && v.status === 'planned') v.driver_id = '';
 
     db.updateRow_(SHEETS.DELIVERIES, found.rowNumber, v);
     const details = { op: op, before: before, after: snap_() };
