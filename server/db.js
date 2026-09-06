@@ -417,11 +417,17 @@ function _setDbForTests(d) {
   refCache.clear();
 }
 
+// Транзакция поверх module-level БД: fn — синхронная функция; исключение откатывает
+// все записи команды целиком (атомарность эффектов стирки, R3).
+function transaction_(fn) {
+  return db.transaction(fn)();
+}
+
 module.exports = {
   TAIL_ROWS, open, openTest, _setDbForTests,
   readAll_, readTail_, appendRow_, nextId_, findRowsBy_, findById_,
   updateRow_, deleteRow_, parseJsonList_,
   readAllByTenant_, readTailByTenant_, findRowsByTenant_, appendRowTenant_,
   setTenantSetting_, migrateToV2_, migrateToV3_, migrateToV4_, migrateToV6_, migrateToV7_,
-  invalidateRefCache_, getSettings_, getClients_, getItemTypes_
+  invalidateRefCache_, getSettings_, getClients_, getItemTypes_, transaction_
 };
