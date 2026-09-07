@@ -390,3 +390,175 @@ test('migrateToV9_: backfill visit_id по меткам, несматчивше�
   ctx.db.migrateToV9_();
   assert.strictEqual(ctx.db.findById_(SHEETS.STORAGE, 'st_hist1').obj.visit_id, 'hack');
 });
+
+
+// --- P8: проверка склада, ручное внесение чистого ---
+
+const { storageSummaryByClient_ } = require('../storage');
+
+test('P8: already_clean без открытого clean у клиента → ошибка, статус и Log не тронуты', () => {
+  const ctx = makeCtx();
+  const clientId = seedClient(ctx);
+  const washId = plannedWash(ctx, clientId);
+
+  const res = wash.confirmStorageCheck(workerSession, washId, 'already_clean');
+  assert.strictEqual(res.ok, false);
+  assert.strictEqual(res.error, 'Чистого белья этого клиента на складе нет. ' +
+    'Если бельё физически на полке — внесите его вручную.');
+  const w = ctx.db.findById_(SHEETS.WASHES, washId).obj;
+  assert.strictEqual(w.status, 'planned');
+  assert.strictEqual(w.done_at, '');
+  assert.strictEqual(ctx.db.readTailByTenant_(SHEETS.LOG, 1000, '1').filter(function (e) {
+    return e.action === 'storage_check';
+  }).length, 0);
+});
+
+test('P8: already_clean, чистое уже у водителя (consumed_at=driver) → ошибка', () => {
+  const ctx = makeCtx();
+  const clientId = seedClient(ctx);
+  const washId = plannedWash(ctx, clientId);
+  ctx.db.appendRowTenant_(SHEETS.STORAGE, {
+    id: 'st_dr1', client_id: clientId, kind: 'clean', weight_kg: '5',
+    items_total: '10', bags: '2', wash_id: '', visit_id: '',
+    created_at: TODAY, consumed_at: 'driver'
+  }, '1');
+
+  const res = wash.confirmStorageCheck(workerSession, washId, 'already_clean');
+  assert.strictEqual(res.ok, false, 'чистое у водителя на складе не считается');
+  assert.strictEqual(ctx.db.findById_(SHEETS.WASHES, washId).obj.status, 'planned');
+});
+
+test('P8: already_clean при открытом clean → ready_clean (регрессия)', () => {
+  const ctx = makeCtx();
+  const clientId = seedClient(ctx);
+  const washId = plannedWash(ctx, clientId);
+  ctx.db.appendRowTenant_(SHEETS.STORAGE, {
+    id: 'st_cl1', client_id: clientId, kind: 'clean', weight_kg: '5',
+    items_total: '10', bags: '2', wash_id: '', visit_id: '',
+    created_at: TODAY, consumed_at: ''
+  }, '1');
+
+  const res = wash.confirmStorageCheck(workerSession, washId, 'already_clean');
+  assert.ok(res.ok);
+  assert.strictEqual(res.wash.status, 'ready_clean');
+  assert.ok(res.wash.done_at);
+});
+
+test('P8: addManualClean — валидации: мешки, вес, комментарий; count-клиент', () => {
+  const ctx = makeCtx();
+  const clientId = seedClient(ctx);
+  const countId = ctx.api.saveClient(loginOwner(), { name: 'Поштучный', type: 'отель', accounting: 'count' }).client.id;
+
+  assert.strictEqual(wash.addManualClean(workerSession, clientId, 5, 10, 0, 'остаток').ok, false, 'без мешков');
+  assert.strictEqual(wash.addManualClean(workerSession, clientId, 5, 10, 1.5, 'остаток').ok, false, 'мешки не целые');
+  assert.strictEqual(wash.addManualClean(workerSession, clientId, 0, 10, 2, 'остаток').ok, false, 'без веса');
+  assert.strictEqual(wash.addManualClean(workerSession, clientId, 5, 10, 2, '   ').ok, false, 'пустой комментарий');
+  assert.strictEqual(wash.addManualClean(workerSession, countId, 5, 0, 2, 'остаток').ok, false, 'count без штук');
+  const countOk = wash.addManualClean(workerSession, countId, 0, 12, 2, 'остаток');
+  assert.ok(countOk.ok, 'count-клиенту вес не нужен: ' + (countOk.error || ''));
+  // Несуществующий/неактивный клиент
+  assert.strictEqual(wash.addManualClean(workerSession, 'cl_none', 5, 10, 2, 'остаток').ok, false);
+});
+
+test('P8: addManualClean — успех: clean-запись с bags и пустым wash_id, Log, Telegram работника', () => {
+  const ctx = makeCtx();
+  ctx.db.appendRow_('Settings', { key: 'OWNER_CHAT_ID', value: '998877' });
+  ctx.db.invalidateRefCache_();
+  const clientId = seedClient(ctx);
+
+  const res = wash.addManualClean(workerSession, clientId, 7.5, 20, 3, 'со старой накладной');
+  assert.ok(res.ok, res.error);
+  const entry = res.entry;
+  assert.strictEqual(entry.kind, 'clean');
+  assert.strictEqual(entry.bags, 3);
+  assert.strictEqual(entry.wash_id, '', 'стирки за записью нет');
+  assert.strictEqual(entry.weight_kg, 7.5);
+  const st = ctx.db.findById_(SHEETS.STORAGE, entry.id).obj;
+  assert.strictEqual(st.bags, '3');
+
+  const ev = ctx.db.readTailByTenant_(SHEETS.LOG, 1000, '1').filter(function (e) {
+    return e.action === 'storage_manual_clean';
+  });
+  assert.strictEqual(ev.length, 1);
+  assert.strictEqual(ev[0].entity, entry.id);
+  const det = JSON.parse(ev[0].details);
+  assert.strictEqual(det.client_id, clientId);
+  assert.strictEqual(det.kg, 7.5);
+  assert.strictEqual(det.bags, 3);
+  assert.strictEqual(det.comment, 'со старой накладной');
+
+  const msg = ctx.fetches.find(function (f) {
+    return f.payload.text && f.payload.text.indexOf('чистое внесено вручную') !== -1;
+  });
+  assert.ok(msg, 'владельцу ушло Telegram об действии работника');
+  assert.ok(msg.payload.text.indexOf('Отель А') !== -1);
+
+  // Действие владельца — без уведомления
+  const before = ctx.fetches.length;
+  assert.ok(wash.addManualClean(ownerSession, clientId, 1, 1, 1, 'от владельца').ok);
+  assert.strictEqual(ctx.fetches.length, before, 'действия владельца не шлём');
+});
+
+test('P8: storageSummaryByClient_ — мешки ручной записи из bags, записи со стиркой — со стирки', () => {
+  const ctx = makeCtx();
+  const clientId = seedClient(ctx);
+  // Запись из стирки: мешки хранятся на стирке
+  ctx.db.appendRowTenant_(SHEETS.WASHES, {
+    id: 'wash_s1', client_id: clientId, wash_date: TODAY, issue_date: TOMORROW,
+    status: 'done', dirty_weight_kg: '5', items_total: '2', comment: '', created_by: 'owner',
+    created_at: TODAY + ' 10:00:00', started_at: '', done_at: TODAY + ' 18:00:00',
+    issued_at: '', deferred_from: '', deferred_reason: '', bags: '2'
+  }, '1');
+  ctx.db.appendRowTenant_(SHEETS.STORAGE, {
+    id: 'st_s1', client_id: clientId, kind: 'clean', weight_kg: '5', items_total: '2',
+    bags: '', wash_id: 'wash_s1', visit_id: '', created_at: TODAY, consumed_at: ''
+  }, '1');
+  // Ручная запись: мешки свои
+  assert.ok(wash.addManualClean(ownerSession, clientId, 3, 5, 4, 'ручное').ok);
+
+  const s = storageSummaryByClient_('1')[clientId];
+  assert.strictEqual(s.clean, 2);
+  assert.strictEqual(s.cleanBags, 6, '2 со стирки + 4 ручных');
+  assert.strictEqual(s.cleanKg, 8);
+  assert.strictEqual(s.cleanItems, 7);
+});
+
+test('P8: ручное чистое не влияет на getDayReport/getSummaryReport', () => {
+  const ctx = makeCtx();
+  const owner = loginOwner();
+  const clientId = seedClient(ctx);
+  plannedWash(ctx, clientId);
+
+  const dayBefore = ctx.api.getDayReport(owner, TODAY);
+  const sumBefore = ctx.api.getSummaryReport(owner, TODAY, TODAY);
+  assert.ok(wash.addManualClean(ownerSession, clientId, 10, 30, 5, 'досистемный запас').ok);
+  const dayAfter = ctx.api.getDayReport(owner, TODAY);
+  const sumAfter = ctx.api.getSummaryReport(owner, TODAY, TODAY);
+
+  assert.strictEqual(dayAfter.report.totalKg, dayBefore.report.totalKg, 'кг дня не изменились');
+  assert.strictEqual(dayAfter.report.washesDone, dayBefore.report.washesDone, 'стирок дня не прибавилось');
+  assert.deepStrictEqual(sumAfter.clients, sumBefore.clients, 'сводный отчёт не изменился');
+});
+
+test('P8: getDayList — карточка несёт storage с цифрами клиента; без записей — нули', () => {
+  const ctx = makeCtx();
+  const owner = loginOwner();
+  const clientId = seedClient(ctx);
+  const washId = plannedWash(ctx, clientId);
+  // Грязная партия + ручное чистое
+  ctx.db.appendRowTenant_(SHEETS.STORAGE, {
+    id: 'st_d1', client_id: clientId, kind: 'dirty', weight_kg: '', items_total: '',
+    bags: '', wash_id: '', visit_id: '', created_at: TODAY, consumed_at: ''
+  }, '1');
+  assert.ok(wash.addManualClean(ownerSession, clientId, 6, 15, 2, 'ручное').ok);
+  // Клиент без записей на складе
+  const emptyId = ctx.api.saveClient(owner, { name: 'Пустой', type: 'отель' }).client.id;
+  const emptyWashId = plannedWash(ctx, emptyId);
+
+  const list = ctx.api.getDayList(owner, TODAY);
+  assert.ok(list.ok);
+  const card = list.washes.find(function (w) { return w.id === washId; });
+  assert.deepStrictEqual(card.storage, { dirty: 1, clean: 1, clean_kg: 6, clean_items: 15, clean_bags: 2 });
+  const empty = list.washes.find(function (w) { return w.id === emptyWashId; });
+  assert.deepStrictEqual(empty.storage, { dirty: 0, clean: 0, clean_kg: 0, clean_items: 0, clean_bags: 0 });
+});
