@@ -565,7 +565,7 @@ test('P8: getDayList — карточка несёт storage с цифрами �
     { dirty: 0, clean: 0, clean_kg: 0, clean_items: 0, clean_bags: 0, clean_detail: [] });
 });
 
-test('clean_detail: разбивка чистого по типам из WashItems; ручные записи не входят', () => {
+test('clean_detail: разбивка чистого по типам из WashItems, включая ручные записи с items', () => {
   const ctx = makeCtx();
   const owner = loginOwner();
   const clientId = seedClient(ctx);
@@ -575,14 +575,97 @@ test('clean_detail: разбивка чистого по типам из WashIte
   assert.ok(wash.completeWash(workerSession, doneId, [
     { item_type_id: 'itm_1', qty: 4 }, { item_type_id: 'itm_2', qty: 3 }
   ], 9.5, null, 2).ok);
-  // Ручное чистое — в clean_detail не попадает
+  // Ручное чистое без разбивки — в clean_detail не попадает
   assert.ok(wash.addManualClean(ownerSession, clientId, 2, 5, 1, 'ручное').ok);
+  // Ручное чистое с разбивкой — попадает (v11: WashItems по storage_id)
+  assert.ok(wash.addManualClean(ownerSession, clientId, 3, 0, 1, 'ручное с разбивкой', [
+    { item_type_id: 'itm_2', qty: 2 }, { item_type_id: 'itm_3', qty: 1 }
+  ]).ok);
   const washId = plannedWash(ctx, clientId);
 
   const card = ctx.api.getDayList(owner, TODAY).washes.find(function (w) { return w.id === washId; });
   assert.deepStrictEqual(card.storage.clean_detail, [
+    { name: 'простыня', qty: 5 },
     { name: 'пододеяльник', qty: 4 },
-    { name: 'простыня', qty: 3 }
-  ], 'сортировка по убыванию qty, имена из ItemTypes');
-  assert.strictEqual(card.storage.clean_items, 12, 'итог штук — с ручной записью');
+    { name: 'наволочка', qty: 1 }
+  ], 'разбивка стирки + ручной записи, сортировка по убыванию qty');
+  assert.strictEqual(card.storage.clean_items, 15, 'итог штук — со всеми записями');
+});
+
+test('P8: addManualClean с items — WashItems со storage_id, items_total = сумма qty', () => {
+  const ctx = makeCtx();
+  const clientId = seedClient(ctx);
+
+  const res = wash.addManualClean(ownerSession, clientId, 5, 999, 2, 'остаток', [
+    { item_type_id: 'itm_1', qty: 4 }, { item_type_id: 'itm_2', qty: 3 },
+    { item_type_id: 'itm_1', qty: 1 } // дубликат типа — суммируется
+  ]);
+  assert.ok(res.ok, res.error);
+  assert.strictEqual(res.entry.items_total, 8, 'переданный itemsTotal игнорируется, берётся сумма разбивки');
+
+  const wis = ctx.db.readAll_(SHEETS.WASH_ITEMS).filter(function (wi) {
+    return wi.storage_id === res.entry.id;
+  });
+  assert.strictEqual(wis.length, 2, 'дубликат слит в одну строку');
+  assert.deepStrictEqual(
+    wis.map(function (wi) { return [wi.item_type_id, Number(wi.qty)]; }),
+    [['itm_1', 5], ['itm_2', 3]]
+  );
+  wis.forEach(function (wi) {
+    assert.strictEqual(wi.wash_id, '', 'стирки за позицией нет');
+  });
+
+  const ev = ctx.db.readTailByTenant_(SHEETS.LOG, 1000, '1').filter(function (e) {
+    return e.action === 'storage_manual_clean';
+  });
+  const det = JSON.parse(ev[0].details);
+  assert.strictEqual(det.items, 8);
+  assert.strictEqual(det.breakdown.length, 2, 'в журнале разбивка по видам');
+});
+
+test('P8: addManualClean с items — валидации разбивки; count-клиент без веса', () => {
+  const ctx = makeCtx();
+  const clientId = seedClient(ctx);
+  const countId = ctx.api.saveClient(loginOwner(), { name: 'Поштучный', type: 'отель', accounting: 'count' }).client.id;
+
+  assert.strictEqual(wash.addManualClean(ownerSession, clientId, 5, 0, 2, 'x', [
+    { item_type_id: 'itm_none', qty: 1 }
+  ]).ok, false, 'неизвестный вид белья');
+  assert.strictEqual(wash.addManualClean(ownerSession, clientId, 5, 0, 2, 'x', [
+    { item_type_id: 'itm_1', qty: 0 }
+  ]).ok, false, 'qty = 0');
+  assert.strictEqual(wash.addManualClean(ownerSession, clientId, 5, 0, 2, 'x', [
+    { item_type_id: 'itm_1', qty: 1.5 }
+  ]).ok, false, 'qty не целое');
+  // Ошибки разбивки откатывают транзакцию: clean-записей не появилось
+  assert.strictEqual(ctx.db.readAll_(SHEETS.STORAGE).length, 0);
+  assert.strictEqual(ctx.db.readAll_(SHEETS.WASH_ITEMS).length, 0);
+
+  // count-клиент: вес не нужен, штуки берутся из разбивки
+  const res = wash.addManualClean(workerSession, countId, 0, 0, 1, 'остаток', [
+    { item_type_id: 'itm_1', qty: 6 }
+  ]);
+  assert.ok(res.ok, res.error);
+  assert.strictEqual(res.entry.items_total, 6);
+  assert.strictEqual(res.entry.weight_kg, '');
+});
+
+test('P8: WashItems ручной записи не влияют на getDayReport/getSummaryReport', () => {
+  const ctx = makeCtx();
+  const owner = loginOwner();
+  const clientId = seedClient(ctx);
+  plannedWash(ctx, clientId);
+
+  const dayBefore = ctx.api.getDayReport(owner, TODAY);
+  const sumBefore = ctx.api.getSummaryReport(owner, TODAY, TODAY);
+  assert.ok(wash.addManualClean(ownerSession, clientId, 10, 0, 5, 'досистемный запас', [
+    { item_type_id: 'itm_1', qty: 30 }
+  ]).ok);
+  const dayAfter = ctx.api.getDayReport(owner, TODAY);
+  const sumAfter = ctx.api.getSummaryReport(owner, TODAY, TODAY);
+
+  assert.strictEqual(dayAfter.report.totalKg, dayBefore.report.totalKg, 'кг дня не изменились');
+  assert.strictEqual(dayAfter.report.washesDone, dayBefore.report.washesDone, 'стирок дня не прибавилось');
+  assert.deepStrictEqual(sumAfter.clients, sumBefore.clients,
+    'сводный отчёт не изменился: позиции с wash_id=\'\' в разбивку по видам не попадают');
 });

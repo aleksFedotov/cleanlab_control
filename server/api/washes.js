@@ -91,20 +91,26 @@ function getDayList(session, date) {
       });
     const types = {};
     db.getItemTypes_().forEach(function (t) { types[t.id] = t.name; });
-    // Детализация чистого на складе по типам (модалка проверки склада): только
-    // clean-записи со стиркой — у ручных (wash_id='') по-типовой разбивки нет.
-    // Один проход по Storage и один по WashItems, сумма qty по client_id+типу.
+    // Детализация чистого на складе по типам (модалка проверки склада): WashItems
+    // открытых clean-записей — как со стиркой (по wash_id), так и ручных
+    // (по storage_id, v11). Один проход по Storage и один по WashItems, сумма qty
+    // по client_id+типу. Двойного счёта нет: у строки заполнена ровно одна связь.
     const cleanWashClient = {};
+    const cleanStorageClient = {};
     db.findRowsByTenant_(SHEETS.STORAGE, function (s) {
-      return !s.consumed_at && s.kind === 'clean' && s.wash_id;
+      return !s.consumed_at && s.kind === 'clean';
     }, 2000, laundryId).forEach(function (r) {
-      cleanWashClient[r.obj.wash_id] = r.obj.client_id;
+      if (r.obj.wash_id) cleanWashClient[r.obj.wash_id] = r.obj.client_id;
+      else cleanStorageClient[r.obj.id] = r.obj.client_id;
     });
     const cleanQtyByClientType = {};
-    db.findRowsBy_(SHEETS.WASH_ITEMS, function (wi) { return !!cleanWashClient[wi.wash_id]; }, 100000)
+    db.findRowsBy_(SHEETS.WASH_ITEMS, function (wi) {
+      return !!(wi.wash_id && cleanWashClient[wi.wash_id]) ||
+        !!(wi.storage_id && cleanStorageClient[wi.storage_id]);
+    }, 100000)
       .forEach(function (r) {
         const wi = r.obj;
-        const cid = cleanWashClient[wi.wash_id];
+        const cid = wi.wash_id ? cleanWashClient[wi.wash_id] : cleanStorageClient[wi.storage_id];
         const byType = cleanQtyByClientType[cid] = cleanQtyByClientType[cid] || {};
         byType[wi.item_type_id] = (byType[wi.item_type_id] || 0) + (Number(wi.qty) || 0);
       });
@@ -356,8 +362,9 @@ function confirmStorageCheck(session, washId, verdict) {
 }
 
 // Ручное внесение чистого на склад (P8): работник и владелец.
-function addManualClean(session, clientId, weightKg, itemsTotal, bags, comment) {
-  return wash.addManualClean(session, clientId, weightKg, itemsTotal, bags, comment);
+// items (опционально) — разбивка по видам [{item_type_id, qty}].
+function addManualClean(session, clientId, weightKg, itemsTotal, bags, comment, items) {
+  return wash.addManualClean(session, clientId, weightKg, itemsTotal, bags, comment, items);
 }
 
 function markIssued(session, washId) {

@@ -365,7 +365,11 @@ function confirmStorageCheck(session, washId, verdict) {
 // wash_id принципиально пустой — стирки за записью нет, в производственные
 // отчёты запись не попадает. Мешки обязательны: это сверка водителя.
 // Комментарий обязателен: исключительный путь, «откуда бельё» фиксируется.
-function addManualClean(session, clientId, weightKg, itemsTotal, bags, comment) {
+// items (опционально) — разбивка по видам [{item_type_id, qty}], как при
+// завершении стирки: пишется в WashItems со storage_id записи (wash_id='').
+// Если items непуст, items_total = сумме qty, переданный itemsTotal игнорируется
+// (клиент шлёт сумму со степперов, источник истины — разбивка).
+function addManualClean(session, clientId, weightKg, itemsTotal, bags, comment, items) {
   const laundryId = session.laundryId;
   const actor = actorOf_(session);
   let notifyText = null;
@@ -376,16 +380,43 @@ function addManualClean(session, clientId, weightKg, itemsTotal, bags, comment) 
     if (!(Number.isInteger(bagsN) && bagsN > 0)) return err_('Укажите количество мешков');
     const countOnly = found.obj.accounting === 'count';
     const kg = round1_(weightKg);
-    const items = Math.floor(Number(itemsTotal) || 0);
+    // Разбивка по видам: тип должен существовать и быть активным; qty целое > 0;
+    // дубликаты типов суммируем (клиент мог собрать список из двух источников).
+    const activeTypes = {};
+    db.getItemTypes_().forEach(function (t) {
+      if (t.active === 'да') activeTypes[t.id] = true;
+    });
+    const byType = {};
+    const order = [];
+    for (let i = 0; i < (items || []).length; i++) {
+      const it = items[i];
+      const qty = Number(it && it.qty);
+      if (!activeTypes[it && it.item_type_id]) return err_('Неизвестный вид белья: ' + (it && it.item_type_id));
+      if (!(Number.isInteger(qty) && qty > 0)) return err_('Количество должно быть целым > 0');
+      if (!byType[it.item_type_id]) order.push(it.item_type_id);
+      byType[it.item_type_id] = (byType[it.item_type_id] || 0) + qty;
+    }
+    const valid = order.map(function (tid) { return { item_type_id: tid, qty: byType[tid] }; });
+    let total = 0;
+    valid.forEach(function (it) { total += it.qty; });
+    // Без разбивки — как раньше, одно число; с разбивкой — её сумма
+    const itemsN = valid.length ? total : Math.floor(Number(itemsTotal) || 0);
     if (!countOnly && !(kg > 0)) return err_('Укажите вес чистого белья');
-    if (countOnly && !(items > 0)) return err_('Укажите количество штук');
+    if (countOnly && !(itemsN > 0)) return err_('Укажите количество штук');
     const text = String(comment || '').trim();
     if (!text) return err_('Укажите комментарий — откуда бельё');
     const entry = addStorageEntry_(clientId, 'clean', {
-      weight_kg: kg > 0 ? kg : '', items_total: items > 0 ? items : '', bags: bagsN
+      weight_kg: kg > 0 ? kg : '', items_total: itemsN > 0 ? itemsN : '', bags: bagsN
     }, laundryId);
+    valid.forEach(function (it) {
+      db.appendRow_(SHEETS.WASH_ITEMS, {
+        id: db.nextId_(SHEETS.WASH_ITEMS, 'wi'), wash_id: '', storage_id: entry.id,
+        item_type_id: it.item_type_id, qty: it.qty
+      });
+    });
     logEvent(actor, 'storage_manual_clean', entry.id, {
-      client_id: clientId, kg: kg || 0, items: items || 0, bags: bagsN, comment: text
+      client_id: clientId, kg: kg || 0, items: itemsN || 0, bags: bagsN, comment: text,
+      breakdown: valid.length ? valid : undefined
     }, laundryId);
     notifyText = '📦 ' + actor + ': чистое внесено вручную — ' +
       clientNameById_(clientId, laundryId) + ': ' + (kg || 0) + ' кг, ' + bagsN +

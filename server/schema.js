@@ -1,7 +1,7 @@
 // Схема данных CleanLab Control — порт src/Schema.gs.
 // Таблицы SQLite = листам Sheets, колонки = HEADERS. Все значения храним как TEXT
 // (даты — строками формата схемы), как и в Sheets.
-const SCHEMA_VERSION = 10;
+const SCHEMA_VERSION = 11;
 
 const SHEETS = {
   SETTINGS: 'Settings',
@@ -27,6 +27,11 @@ const SHEETS = {
 // Мультитенантность: laundry_id — во всех операционных таблицах.
 // Пустой laundry_id в Settings = глобальная настройка (per-tenant строки её перекрывают).
 // WashItems и ItemTypes без laundry_id: тенант через wash_id / справочник глобальный.
+// v11: WashItems.storage_id — разбивка ручных clean-записей склада (P8), у них
+// wash_id='' (стирки нет). Ровно одна из связей заполнена: wash_id (стирка) ИЛИ
+// storage_id (ручная запись). Все чтения WashItems фильтруют по wash_id конкретных
+// стирок тенанта (getDayList/getStorage/отчёты/счета) — строки с wash_id=''
+// в биллинг и производственные отчёты не попадают.
 // BillingItems — глобальный прайс (v7): laundry_id='' у всех строк, список общий
 // для всех прачек. Дефолтные тарифы (ClientTariffs.client_id='') — тоже глобальные;
 // клиентские переопределения цен остаются per-прачка.
@@ -38,7 +43,9 @@ const HEADERS = {
   Washes: ['id', 'client_id', 'wash_date', 'issue_date', 'status',
     'dirty_weight_kg', 'items_total', 'comment', 'created_by', 'created_at',
     'started_at', 'done_at', 'issued_at', 'deferred_from', 'deferred_reason', 'bags', 'laundry_id'],
-  WashItems: ['id', 'wash_id', 'item_type_id', 'qty'],
+  // storage_id (v11) — ручная clean-запись склада, которой принадлежит разбивка;
+  // у позиций стирок пусто.
+  WashItems: ['id', 'wash_id', 'item_type_id', 'qty', 'storage_id'],
   Shifts: ['id', 'date', 'status', 'opened_at', 'closed_at',
     'total_kg', 'washes_done', 'washes_deferred', 'digest_sent', 'laundry_id'],
   // lift_floor — этаж, на который поднимался водитель (пусто/1/2 = без доплаты).
