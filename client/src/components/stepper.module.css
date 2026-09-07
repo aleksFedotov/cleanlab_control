@@ -27,10 +27,10 @@
   background: var(--bluing-soft);
 }
 
-/* Редактируемое значение степпера (ручной ввод числа) — отдельной строкой под кнопками */
+/* Редактируемое значение степпера (ручной ввод числа) — узкое, в ряд с кнопками */
 .stepperInput {
-  flex-basis: 100%;
-  width: 100%;
+  min-width: 56px;
+  width: 76px;
   height: 44px;
   text-align: center;
   font-family: var(--font-mono), ui-monospace, monospace;
