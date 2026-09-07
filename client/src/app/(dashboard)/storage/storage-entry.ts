@@ -101,7 +101,13 @@ export function buildEntries(res: StorageRes, today: string): StorageEntry[] {
       }
     } else {
       const d = daysDiff(e.issue_date, today);
-      if (d > 0) {
+      if (!e.issue_date) {
+        // Стирка на склад без даты выдачи (P9): нейтральная карточка, без красноты
+        e.attn = false;
+        e.statusKey = 'ready';
+        e.statusText = 'На складе';
+        e.rank = 3;
+      } else if (d > 0) {
         e.attn = true;
         e.overdueDays = d;
         e.statusKey = 'late';

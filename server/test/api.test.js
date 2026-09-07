@@ -381,14 +381,14 @@ test('ensureWashesFromDelivery_: визит на завтра → планова
   assert.strictEqual(ctx.api.getDayList(owner, TODAY).washes.length, 0);
 });
 
-test('addUnplannedWash: сегодня/завтра, дедуп открытой стирки клиента', () => {
+test('addUnplannedWash: сегодня без даты выдачи (P9), дедуп открытой стирки клиента', () => {
   const ctx = makeCtx();
   const clientId = seedClient(ctx);
   const worker = loginWorker();
   const w = ctx.api.addUnplannedWash(worker, clientId, 'срочно');
   assert.ok(w.ok);
   assert.strictEqual(w.wash.wash_date, TODAY);
-  assert.strictEqual(w.wash.issue_date, TOMORROW);
+  assert.strictEqual(w.wash.issue_date, '', 'стирка на склад, дату назначит владелец (P9)');
   assert.strictEqual(w.wash.created_by, 'worker');
   assert.ok(!ctx.api.addUnplannedWash(worker, clientId).ok);
 });

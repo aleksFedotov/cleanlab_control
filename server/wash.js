@@ -221,7 +221,8 @@ function holdPartialWash(session, washId) {
   });
 }
 
-// Внеплановая стирка из цеха: сегодня, выдача завтра, created_by по роли.
+// Внеплановая стирка из цеха = стирка на склад: сегодня, без даты выдачи
+// (P9). Дату назначит владелец (updateIssueDate), когда решит отправить запас клиенту.
 function addUnplannedWash(session, clientId, comment) {
   const laundryId = session.laundryId;
   const today = todayStr_();
@@ -235,7 +236,7 @@ function addUnplannedWash(session, clientId, comment) {
     if (dup) return err_('Стирка этого клиента уже в плане на сегодня');
     const w = {
       id: db.nextId_(SHEETS.WASHES, 'wash'), client_id: clientId,
-      wash_date: today, issue_date: addDaysStr_(today, 1), status: 'planned',
+      wash_date: today, issue_date: '', status: 'planned',
       dirty_weight_kg: '', items_total: '', comment: comment || '',
       created_by: session.role, created_at: nowStr_(),
       started_at: '', done_at: '', issued_at: '', deferred_from: '', deferred_reason: ''

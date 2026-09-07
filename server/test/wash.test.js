@@ -669,3 +669,88 @@ test('P8: WashItems ручной записи не влияют на getDayRepor
   assert.deepStrictEqual(sumAfter.clients, sumBefore.clients,
     'сводный отчёт не изменился: позиции с wash_id=\'\' в разбивку по видам не попадают');
 });
+
+
+// --- P9: стирка на склад без даты выдачи ---
+
+test('P9: addUnplannedWash — стирка на склад без даты выдачи', () => {
+  const ctx = makeCtx();
+  const clientId = seedClient(ctx);
+
+  const res = wash.addUnplannedWash(workerSession, clientId, 'запас');
+  assert.ok(res.ok, res.error);
+  assert.strictEqual(res.wash.issue_date, '', 'внеплановая стирка уходит на склад без даты');
+  assert.strictEqual(res.wash.wash_date, TODAY);
+});
+
+test('P9: completeWash по стирке без даты → done (не stored)', () => {
+  const ctx = makeCtx();
+  const clientId = seedClient(ctx);
+  const washId = wash.addUnplannedWash(workerSession, clientId).wash.id;
+  assert.ok(wash.startWash(workerSession, washId, 5).ok);
+
+  const res = wash.completeWash(workerSession, washId, [{ item_type_id: 'itm_1', qty: 2 }], 5, null, 1);
+  assert.ok(res.ok, res.error);
+  assert.strictEqual(res.wash.status, 'done', 'пустая дата выдачи ≠ stored: ждёт решения владельца');
+});
+
+test('P9: addToDelivery — пустая issueDate допустима, дата раньше washDate → ошибка', () => {
+  const ctx = makeCtx();
+  const clientId = seedClient(ctx);
+
+  // «Просто постирать»: без даты выдачи
+  const noDate = ctx.api.addToDelivery(loginOwner(), clientId, TODAY, '');
+  assert.ok(noDate.ok, noDate.error);
+  assert.strictEqual(noDate.wash.issue_date, '');
+
+  // Валидация: выдача раньше стирки
+  const bad = ctx.api.addToDelivery(loginOwner(), clientId, TOMORROW, TODAY);
+  assert.strictEqual(bad.ok, false);
+  assert.strictEqual(bad.error, 'Дата выдачи раньше даты стирки');
+
+  // Регрессия: нормальная дата — как раньше
+  const ok = ctx.api.addToDelivery(loginOwner(), clientId, TODAY, TOMORROW);
+  assert.ok(ok.ok, ok.error);
+  assert.strictEqual(ok.wash.issue_date, TOMORROW);
+});
+
+test('P9: getDeliveryPlan — стирка без даты не в issueToday и не в overdueIssue', () => {
+  const ctx = makeCtx();
+  const owner = loginOwner();
+  const clientId = seedClient(ctx);
+  // Бессрочная завершённая стирка
+  const noDateId = ctx.api.addToDelivery(owner, clientId, TODAY, '').wash.id;
+  assert.ok(wash.startWash(workerSession, noDateId, 5).ok);
+  assert.ok(wash.completeWash(workerSession, noDateId, [{ item_type_id: 'itm_1', qty: 2 }], 5, null, 1).ok);
+  // Просроченная выдача с датой (регрессия): стирка сегодня, дата выдачи уже прошла
+  ctx.db.appendRowTenant_(SHEETS.WASHES, {
+    id: 'wash_od1', client_id: clientId, wash_date: TODAY, issue_date: '2026-08-11',
+    status: 'done', dirty_weight_kg: '4', items_total: '2', comment: '', created_by: 'owner',
+    created_at: '2026-08-11 10:00:00', started_at: '', done_at: '2026-08-11 18:00:00',
+    issued_at: '', deferred_from: '', deferred_reason: '', bags: '1'
+  }, '1');
+
+  const plan = ctx.api.getDeliveryPlan(owner, TODAY);
+  assert.ok(plan.ok);
+  assert.ok(!plan.issueToday.some(function (w) { return w.id === noDateId; }), 'без даты — не «выдача сегодня»');
+  assert.ok(!plan.overdueIssue.some(function (w) { return w.id === noDateId; }), 'без даты — не «просрочено»');
+  assert.ok(plan.overdueIssue.some(function (w) { return w.id === 'wash_od1'; }),
+    'регрессия: стирка с прошедшей датой по-прежнему просрочена');
+});
+
+test('P9: updateIssueDate на стирке без даты — мост «назначить позже» создаёт визит', () => {
+  const ctx = makeCtx();
+  const clientId = seedClient(ctx);
+  const washId = ctx.api.addToDelivery(loginOwner(), clientId, TODAY, '').wash.id;
+  assert.ok(wash.startWash(workerSession, washId, 5).ok);
+  assert.ok(wash.completeWash(workerSession, washId, [{ item_type_id: 'itm_1', qty: 2 }], 5, null, 1).ok);
+
+  const res = wash.updateIssueDate(ownerSession, washId, TOMORROW);
+  assert.ok(res.ok, res.error);
+  assert.strictEqual(res.wash.issue_date, TOMORROW);
+  assert.strictEqual(res.wash.status, 'done', 'правка даты статус не меняет');
+  const visits = ctx.db.readAll_(SHEETS.DELIVERIES).filter(function (v) {
+    return v.client_id === clientId && v.date === TOMORROW;
+  });
+  assert.strictEqual(visits.length, 1, 'по назначенной дате создан визит развоза');
+});

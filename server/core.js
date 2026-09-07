@@ -40,6 +40,7 @@ function mondayOf_(dateStr) {
 // --- Переходы статусов (spec §4.1) ---
 
 function completionStatus_(washDate, issueDate) {
+  if (!issueDate) return 'done'; // стирка на склад: ждёт решения о выдаче
   return issueDate > addDaysStr_(washDate, 1) ? 'stored' : 'done';
 }
 

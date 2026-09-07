@@ -315,8 +315,10 @@ function getDeliveryPlan(session, date) {
     issueToday: all.filter(function (w) {
       return w.issue_date === date && (w.status === 'done' || w.status === 'stored');
     }).map(decorate),
+    // Страж пустой даты: в JS '' < date — true, без него бессрочные стирки
+    // («просто постирать», P9) сыпались бы в «просроченную выдачу»
     overdueIssue: all.filter(function (w) {
-      return w.issue_date < date && (w.status === 'done' || w.status === 'stored');
+      return w.issue_date && w.issue_date < date && (w.status === 'done' || w.status === 'stored');
     }).map(decorate),
     clients: db.getClients_(laundryId).filter(function (c) { return c.active === 'да'; })
   });
@@ -325,9 +327,11 @@ function getDeliveryPlan(session, date) {
 function addToDelivery(session, clientId, washDate, issueDate, comment) {
   const laundryId = session.laundryId;
   return withLock_(function () {
+    // issueDate необязательна (P9): пустая = «просто постирать» на склад без даты
+    if (issueDate && issueDate < washDate) return err_('Дата выдачи раньше даты стирки');
     const w = {
       id: db.nextId_(SHEETS.WASHES, 'wash'), client_id: clientId,
-      wash_date: washDate, issue_date: issueDate, status: 'planned',
+      wash_date: washDate, issue_date: issueDate || '', status: 'planned',
       dirty_weight_kg: '', items_total: '', comment: comment || '',
       created_by: 'owner', created_at: nowStr_(),
       started_at: '', done_at: '', issued_at: '', deferred_from: '', deferred_reason: ''
