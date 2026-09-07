@@ -9,7 +9,7 @@ const db = require('./db');
 const { nowStr_, todayStr_, logEvent, actorOf_ } = require('./audit');
 const { addDaysStr_, err_, ok_, clientName_, resolvePrice_, effectiveTariffs_ } = require('./core');
 const { requireRole_ } = require('./auth');
-const { addStorageEntry_, openStorage_, storageSummaryByClient_ } = require('./storage');
+const { addStorageEntry_, openStorage_, storageSummaryByClient_, storageBagsOf_ } = require('./storage');
 const { resolveRate_ } = require('./payroll');
 
 // LockService в GAS; в однопроцессном Node с синхронным better-sqlite3 не нужен.
@@ -267,13 +267,13 @@ function getDriverRoute(token, date) {
 function takeCleanForVisit_(v, laundryId) {
   const clean = openStorage_(v.client_id, 'clean', laundryId);
   if (!clean.length) return null;
+  const washBags = {};
+  db.findRowsByTenant_(SHEETS.WASHES, function () { return true; }, 2000, laundryId)
+    .forEach(function (r) { washBags[r.obj.id] = Number(r.obj.bags) || 0; });
   let bags = 0;
   clean.forEach(function (r) {
-    // Мешки хранятся на стирке, а не на складской записи
-    if (r.obj.wash_id) {
-      const w = db.findById_(SHEETS.WASHES, r.obj.wash_id);
-      if (w) bags += Number(w.obj.bags) || 0;
-    }
+    // Мешки: явные у записи (ручное внесение, P8), иначе со стирки
+    bags += storageBagsOf_(r.obj, washBags);
     r.obj.consumed_at = 'driver'; // маркер «у водителя»: склад его больше не показывает
     r.obj.visit_id = v.id; // связь с визитом: возврат/откаты матчат по ней (R4)
     db.updateRow_(SHEETS.STORAGE, r.rowNumber, r.obj);

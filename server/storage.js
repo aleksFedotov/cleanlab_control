@@ -13,11 +13,18 @@ function addStorageEntry_(clientId, kind, opts, laundryId) {
   const entry = {
     id: db.nextId_(SHEETS.STORAGE, 'st'), client_id: clientId, kind: kind,
     weight_kg: opts.weight_kg || '', items_total: opts.items_total || '',
+    bags: opts.bags || '',
     wash_id: opts.wash_id || '', visit_id: opts.visit_id || '',
     created_at: nowStr_(), consumed_at: ''
   };
   db.appendRowTenant_(SHEETS.STORAGE, entry, laundryId);
   return entry;
+}
+
+// Мешки записи: явные (ручное внесение, P8) или через стирку (как раньше).
+function storageBagsOf_(s, washBags) {
+  if (s.bags !== '' && s.bags !== undefined) return Number(s.bags) || 0;
+  return washBags[s.wash_id] || 0;
 }
 
 // Открытые (не израсходованные) записи клиента по виду.
@@ -56,10 +63,10 @@ function storageSummaryByClient_(laundryId) {
         summary[s.client_id].clean++;
         summary[s.client_id].cleanKg = round1_((summary[s.client_id].cleanKg || 0) + (Number(s.weight_kg) || 0));
         summary[s.client_id].cleanItems += Number(s.items_total) || 0;
-        summary[s.client_id].cleanBags += washBags[s.wash_id] || 0;
+        summary[s.client_id].cleanBags += storageBagsOf_(s, washBags);
       }
     });
   return summary;
 }
 
-module.exports = { addStorageEntry_, openStorage_, consumeStorage_, storageSummaryByClient_ };
+module.exports = { addStorageEntry_, openStorage_, consumeStorage_, storageSummaryByClient_, storageBagsOf_ };

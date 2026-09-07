@@ -9,7 +9,7 @@ const {
   err_, ok_, round1_, clientName_, resolveBillingItemForType_,
   withLock_, timeStr_, findTenantRow_, ensureShift_, getShiftByDate_
 } = core;
-const { storageSummaryByClient_ } = require('../storage');
+const { storageSummaryByClient_, storageBagsOf_ } = require('../storage');
 const deliveries = require('../deliveries');
 const { getVisitsByDate_, getVisitsByWeek_, decorateVisit_, isOpenVisit_ } = deliveries;
 const { billingItems_ } = require('./billing');
@@ -453,8 +453,12 @@ function getStorage(session) {
   // Складские записи: грязное (от водителя) и чистое (результат стирок), не израсходованные
   // Статусы и даты выдачи стирок — для раскладки clean-записей по секциям склада
   const washById = {};
+  const washBags = {};
   db.findRowsByTenant_(SHEETS.WASHES, function () { return true; }, 1000, laundryId)
-    .forEach(function (r) { washById[r.obj.id] = r.obj; });
+    .forEach(function (r) {
+      washById[r.obj.id] = r.obj;
+      washBags[r.obj.id] = Number(r.obj.bags) || 0;
+    });
   const open = db.findRowsByTenant_(SHEETS.STORAGE, function (s) { return !s.consumed_at; }, 2000, laundryId)
     .map(function (r) {
       const s = r.obj;
@@ -464,7 +468,7 @@ function getStorage(session) {
       // Решение владельца «оставить на складе» по частичной (holdPartialWash)
       s.wash_hold = w && w.status === 'partial' && w.deferred_reason === 'hold' ? 1 : 0;
       s.issue_date = w ? w.issue_date : '';
-      s.bags = w ? (Number(w.bags) || 0) : 0;
+      s.bags = storageBagsOf_(s, washBags); // явные мешки записи, иначе со стирки (P8)
       return s;
     });
   // Остатки частичных стирок: clean-записи, чья стирка в статусе partial, а также

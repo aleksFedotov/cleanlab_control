@@ -1,7 +1,7 @@
 // Схема данных CleanLab Control — порт src/Schema.gs.
 // Таблицы SQLite = листам Sheets, колонки = HEADERS. Все значения храним как TEXT
 // (даты — строками формата схемы), как и в Sheets.
-const SCHEMA_VERSION = 9;
+const SCHEMA_VERSION = 10;
 
 const SHEETS = {
   SETTINGS: 'Settings',
@@ -49,7 +49,9 @@ const HEADERS = {
     'clean_taken_at', 'clean_bags', 'picked_at', 'dirty_handed_at', 'pickup_only', 'lift_floor', 'driver_id', 'laundry_id'],
   // visit_id — связь записи с визитом развоза (R4): уходит со склада/сдаётся
   // по конкретному визиту, откаты матчат по ней, а не по меткам времени.
-  Storage: ['id', 'client_id', 'kind', 'weight_kg', 'items_total',
+  // bags — мешки чистого (P8): явные у ручных записей (без стирки); у записей
+  // из стирок пусто — мешки читаются со стирки через storageBagsOf_.
+  Storage: ['id', 'client_id', 'kind', 'weight_kg', 'items_total', 'bags',
     'wash_id', 'visit_id', 'created_at', 'consumed_at', 'laundry_id'],
   Log: ['ts', 'actor', 'action', 'entity', 'details', 'laundry_id'],
   Laundries: ['id', 'name', 'active'],
