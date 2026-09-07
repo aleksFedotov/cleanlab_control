@@ -578,6 +578,7 @@ export default function WashCardPage() {
       {modal === 'storage' && (
         <StorageCheckModal
           w={w}
+          itemTypes={types}
           checkedDirty={checkedDirty}
           onHasDirty={() => setCheckedMap((m) => ({ ...m, [id]: true }))}
           onClose={() => setModal(null)}

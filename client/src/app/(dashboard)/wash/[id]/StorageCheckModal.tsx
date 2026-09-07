@@ -11,7 +11,7 @@ import { StorageAccountSummary } from '@/components/StorageAccountSummary';
 import { ManualCleanModal } from '@/app/worker/ManualCleanModal';
 import { useApiMutation } from '@/hooks/use-api';
 import { useUiStore } from '@/stores/ui';
-import type { DayWash } from '@/types/api';
+import type { DayWash, ItemType } from '@/types/api';
 import styles from '@/components/storage-check.module.css';
 
 type Verdict = 'has_dirty' | 'no_dirty' | 'already_clean';
@@ -24,12 +24,13 @@ const CARDS: { v: Verdict; title: string; sub: string; icon: typeof WashingMachi
 
 export interface StorageCheckModalProps {
   w: DayWash;
+  itemTypes: ItemType[];
   checkedDirty: boolean;
   onHasDirty: () => void;
   onClose: () => void;
 }
 
-export function StorageCheckModal({ w, checkedDirty, onHasDirty, onClose }: StorageCheckModalProps) {
+export function StorageCheckModal({ w, itemTypes, checkedDirty, onHasDirty, onClose }: StorageCheckModalProps) {
   const router = useRouter();
   const toast = useUiStore((s) => s.toast);
   // P8: ручное внесение чистого — отдельный шаг, после успеха возврат сюда
@@ -73,6 +74,7 @@ export function StorageCheckModal({ w, checkedDirty, onHasDirty, onClose }: Stor
     return (
       <ManualCleanModal
         wash={w}
+        itemTypes={itemTypes}
         successToast="Чистое внесено ✓ — подтвердите проверку склада"
         onClose={() => setManualClean(false)}
       />

@@ -265,7 +265,11 @@ export default function StoragePage() {
       )}
 
       {manualClean && (
-        <ManualCleanModal clients={activeClients} onClose={() => setManualClean(false)} />
+        <ManualCleanModal
+          clients={activeClients}
+          itemTypes={(data?.itemTypes || []).filter((t) => t.active === 'да')}
+          onClose={() => setManualClean(false)}
+        />
       )}
     </div>
   );

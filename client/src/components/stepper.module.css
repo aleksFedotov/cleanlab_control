@@ -1,0 +1,60 @@
+/* Общий степпер (вес / мешки / количество) — вынесен из worker.module.css,
+   используется CompleteWashModal и ManualCleanModal (в т.ч. на страницах владельца). */
+
+.stepper {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.stepperBtn {
+  min-width: 44px;
+  height: 44px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-m);
+  background: var(--surface);
+  color: var(--text-2);
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.stepperBtn:hover {
+  border-color: var(--bluing-border);
+  color: var(--bluing);
+  background: var(--bluing-soft);
+}
+
+/* Редактируемое значение степпера (ручной ввод числа) */
+.stepperInput {
+  min-width: 56px;
+  width: 76px;
+  height: 44px;
+  text-align: center;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+  font-size: 18px;
+  font-weight: 700;
+  color: inherit;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-m);
+  padding: 0 4px;
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+
+.stepperInput::-webkit-inner-spin-button,
+.stepperInput::-webkit-outer-spin-button {
+  display: none;
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.stepperInput:focus {
+  outline: none;
+  border-color: var(--bluing-border);
+  box-shadow: 0 0 0 2px var(--bluing-soft);
+}

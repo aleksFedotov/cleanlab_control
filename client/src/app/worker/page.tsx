@@ -466,9 +466,10 @@ export default function WorkerPage() {
         />
       )}
       {startWash && <StartWashModal w={startWash} onClose={() => setStartId(null)} />}
-      {checkWash && (
+      {checkWash && day.data && (
         <StorageCheckModal
           w={checkWash}
+          itemTypes={day.data.itemTypes || []}
           checkedDirty={!!checkedMap[checkWash.id]}
           onHasDirty={() => setCheckedMap((m) => ({ ...m, [checkWash.id]: true }))}
           onClose={() => setCheckId(null)}

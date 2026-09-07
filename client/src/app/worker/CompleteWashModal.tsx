@@ -7,6 +7,7 @@ import { useState } from 'react';
 import { Check, Clock } from 'lucide-react';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
+import { Stepper } from '@/components/Stepper';
 import { useApiMutation } from '@/hooks/use-api';
 import { useUiStore } from '@/stores/ui';
 import { num } from '@/lib/format';
@@ -24,49 +25,6 @@ const UNIT_STEPS = [
   { delta: -1, label: '−' },
   { delta: 1, label: '+' },
 ];
-
-function Stepper({
-  value,
-  steps,
-  onStep,
-  onValueChange,
-  step = 1,
-}: {
-  value: number;
-  steps: Array<{ delta: number; label: string }>;
-  onStep: (delta: number) => void;
-  onValueChange: (value: number) => void;
-  step?: number;
-}) {
-  return (
-    <div className={styles.stepper}>
-      {steps.map((s) => (
-        <button
-          key={s.label}
-          type="button"
-          className={styles.stepperBtn}
-          onClick={() => onStep(s.delta)}
-        >
-          {s.label}
-        </button>
-      ))}
-      <input
-        type="number"
-        inputMode="numeric"
-        min={0}
-        step={step}
-        className={styles.stepperInput}
-        value={value === 0 ? '' : value}
-        placeholder="0"
-        onChange={(e) => {
-          const v = parseFloat(e.target.value);
-          onValueChange(Number.isNaN(v) ? 0 : Math.max(0, v));
-        }}
-        onFocus={(e) => e.target.select()}
-      />
-    </div>
-  );
-}
 
 function countsToItems(counts: Record<string, number>) {
   return Object.keys(counts)
