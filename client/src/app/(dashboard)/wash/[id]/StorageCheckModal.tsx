@@ -1,10 +1,10 @@
 'use client';
 
-// Проверка склада: три варианта в любом состоянии — подтвердить текущее
-// или изменить на одно из двух других (legacy openStorageCheck,
-// server/public/index.html:919-957).
+// Проверка склада: три карточки-вердикта, выбор + «Подтвердить» (редизайн,
+// .superdesign/tmp/storage-check-approved.html). Снятие стирки — назад на доску.
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { WashingMachine, CheckCircle2, XCircle, Check } from 'lucide-react';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { StorageAccountSummary } from '@/components/StorageAccountSummary';
@@ -12,15 +12,15 @@ import { ManualCleanModal } from '@/app/worker/ManualCleanModal';
 import { useApiMutation } from '@/hooks/use-api';
 import { useUiStore } from '@/stores/ui';
 import type { DayWash } from '@/types/api';
-import styles from './wash-id.module.css';
+import styles from '@/components/storage-check.module.css';
 
 type Verdict = 'has_dirty' | 'no_dirty' | 'already_clean';
 
-const LABELS: Record<Verdict, string> = {
-  has_dirty: 'Есть грязное бельё',
-  no_dirty: 'Нет белья на складе',
-  already_clean: 'Есть чистое бельё',
-};
+const CARDS: { v: Verdict; title: string; sub: string; icon: typeof WashingMachine }[] = [
+  { v: 'has_dirty', title: 'Есть грязное бельё', sub: 'Начать стирку', icon: WashingMachine },
+  { v: 'already_clean', title: 'Есть чистое бельё', sub: 'Готово к выдаче', icon: CheckCircle2 },
+  { v: 'no_dirty', title: 'Нет белья на складе', sub: 'Стирка снимается', icon: XCircle },
+];
 
 export interface StorageCheckModalProps {
   w: DayWash;
@@ -32,9 +32,10 @@ export interface StorageCheckModalProps {
 export function StorageCheckModal({ w, checkedDirty, onHasDirty, onClose }: StorageCheckModalProps) {
   const router = useRouter();
   const toast = useUiStore((s) => s.toast);
-  const [pending, setPending] = useState<Verdict | null>(null);
   // P8: ручное внесение чистого — отдельный шаг, после успеха возврат сюда
   const [manualClean, setManualClean] = useState(false);
+  // Выбранный вердикт (по умолчанию — текущий); submit только по «Подтвердить»
+  const [picked, setPicked] = useState<Verdict | null>(null);
 
   const mutation = useApiMutation('confirmStorageCheck', { invalidate: 'operational' });
 
@@ -49,17 +50,14 @@ export function StorageCheckModal({ w, checkedDirty, onHasDirty, onClose }: Stor
             ? 'already_clean'
             : 'no_dirty';
 
-  const order: Verdict[] = [
-    current,
-    ...(['has_dirty', 'no_dirty', 'already_clean'] as Verdict[]).filter((v) => v !== current),
-  ];
+  const blockedClean = !w.has_clean;
+  const selected = picked ?? (current === 'already_clean' && blockedClean ? 'no_dirty' : current);
 
-  function pick(verdict: Verdict) {
-    setPending(verdict);
-    mutation.mutate([w.id, verdict], {
+  function submit() {
+    mutation.mutate([w.id, selected], {
       onSuccess: () => {
         onClose();
-        if (verdict === 'has_dirty') {
+        if (selected === 'has_dirty') {
           onHasDirty();
           toast('Грязное подтверждено ✓');
           // остаёмся в карточке — появится «В работу»
@@ -68,7 +66,6 @@ export function StorageCheckModal({ w, checkedDirty, onHasDirty, onClose }: Stor
           router.push('/wash'); // стирка снята — назад на доску
         }
       },
-      onError: () => setPending(null),
     });
   }
 
@@ -83,38 +80,48 @@ export function StorageCheckModal({ w, checkedDirty, onHasDirty, onClose }: Stor
   }
 
   return (
-    <Modal open onClose={onClose} title="Проверка склада">
+    <Modal open onClose={onClose} title="Проверка склада" titleRight={w.client_name}>
       <div className={styles.form}>
-        <div className={styles.meta}>
-          <b>{w.client_name}</b>
-        </div>
         <StorageAccountSummary storage={w.storage} />
-        {order.map((v, i) => {
-          const blocked = v === 'already_clean' && !w.has_clean;
-          return (
-            <div key={v}>
-              <Button
-                variant={i === 0 ? 'primary' : v === 'no_dirty' ? 'danger' : 'ghost'}
-                onClick={() => pick(v)}
-                busy={pending === v && mutation.isPending}
-                disabled={(mutation.isPending && pending !== v) || blocked}
-              >
-                {i === 0 ? 'Подтвердить: ' : 'Изменить: '}
-                {LABELS[v]}
-              </Button>
-              {blocked && (
-                <>
-                  <div className={styles.meta}>По учёту чистого на складе нет</div>
-                  <Button variant="ghost" onClick={() => setManualClean(true)}>
-                    Внести чистое вручную…
-                  </Button>
-                </>
-              )}
-            </div>
-          );
-        })}
-        <div>
-          <Button variant="subtle" onClick={onClose} disabled={mutation.isPending}>
+        <div className={styles.cards}>
+          {CARDS.map(({ v, title, sub, icon: Icon }) => {
+            const blocked = v === 'already_clean' && blockedClean;
+            const isSelected = selected === v && !blocked;
+            return (
+              <div key={v}>
+                <button
+                  type="button"
+                  className={`${styles.card} ${isSelected ? styles.selected : ''} ${blocked ? styles.disabled : ''}`}
+                  onClick={() => !blocked && setPicked(v)}
+                  disabled={blocked}
+                  aria-pressed={isSelected}
+                >
+                  <span className={styles.badge}>
+                    <Icon size={20} aria-hidden />
+                  </span>
+                  <span className={styles.cardBody}>
+                    <div className={styles.cardTitle}>{title}</div>
+                    <div className={styles.cardSub}>{sub}</div>
+                  </span>
+                  {isSelected && <Check size={20} className={styles.check} aria-hidden />}
+                </button>
+                {blocked && (
+                  <>
+                    <div className={styles.blockedNote}>По учёту чистого на складе нет</div>
+                    <button type="button" className={styles.manualLink} onClick={() => setManualClean(true)}>
+                      Внести чистое вручную…
+                    </button>
+                  </>
+                )}
+              </div>
+            );
+          })}
+        </div>
+        <div className={styles.actions}>
+          <Button className={styles.confirmBtn} onClick={submit} busy={mutation.isPending}>
+            Подтвердить
+          </Button>
+          <Button variant="subtle" className={styles.backBtn} onClick={onClose} disabled={mutation.isPending}>
             Назад
           </Button>
         </div>

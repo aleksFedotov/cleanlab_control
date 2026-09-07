@@ -1,24 +1,114 @@
-/* Блок «Сейчас по учёту» (P8) — спокойная плашка с цифрами склада. */
+/* Блок «По учёту» (P8) — спокойная плашка с цифрами склада. */
 
 .box {
   background: var(--surface-2, var(--surface));
   border: 1px solid var(--border);
   border-radius: var(--radius-m);
-  padding: 10px 12px;
+  padding: 12px;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 8px;
 }
 
 .title {
-  font-size: 12px;
-  font-weight: 600;
+  font-size: 11px;
+  font-weight: 700;
   color: var(--text-3);
   text-transform: uppercase;
-  letter-spacing: 0.03em;
+  letter-spacing: 0.05em;
+}
+
+.rows {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text-2);
 }
 
 .row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.row b {
+  color: var(--text);
+}
+
+.iconClean {
+  color: var(--bluing);
+  flex-shrink: 0;
+}
+
+.iconDirty {
+  color: var(--text-3);
+  flex-shrink: 0;
+}
+
+/* Раскрывашка «Детально по типам» */
+
+.details {
+  margin-top: 4px;
+}
+
+.summary {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 32px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--bluing);
+}
+
+.summary::-webkit-details-marker {
+  display: none;
+}
+
+.summary:hover {
+  color: var(--bluing-hover);
+}
+
+.summaryCount {
+  color: var(--text-3);
+  font-weight: 400;
+}
+
+.chevron {
+  transition: transform 0.2s ease;
+}
+
+.details[open] .chevron {
+  transform: rotate(90deg);
+}
+
+.detailList {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.detailRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 0;
   font-size: 13px;
   color: var(--text-2);
+}
+
+.detailRow + .detailRow {
+  border-top: 1px solid var(--border);
+}
+
+.detailQty {
+  font-weight: 600;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
 }

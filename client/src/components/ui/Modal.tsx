@@ -8,11 +8,13 @@ export interface ModalProps {
   open: boolean;
   onClose: () => void;
   title: string;
+  // Доп. контент справа от заголовка (например, имя клиента)
+  titleRight?: ReactNode;
   children?: ReactNode;
   footer?: ReactNode;
 }
 
-export function Modal({ open, onClose, title, children, footer }: ModalProps) {
+export function Modal({ open, onClose, title, titleRight, children, footer }: ModalProps) {
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
@@ -27,7 +29,10 @@ export function Modal({ open, onClose, title, children, footer }: ModalProps) {
   return createPortal(
     <div className={styles.overlay} onClick={onClose}>
       <div className={styles.panel} onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
-        <div className={styles.title}>{title}</div>
+        <div className={styles.head}>
+          <div className={styles.title}>{title}</div>
+          {titleRight && <div className={styles.titleRight}>{titleRight}</div>}
+        </div>
         <div className={styles.body}>{children}</div>
         {footer && <div className={styles.footer}>{footer}</div>}
       </div>
