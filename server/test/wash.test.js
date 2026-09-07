@@ -558,7 +558,31 @@ test('P8: getDayList — карточка несёт storage с цифрами �
   const list = ctx.api.getDayList(owner, TODAY);
   assert.ok(list.ok);
   const card = list.washes.find(function (w) { return w.id === washId; });
-  assert.deepStrictEqual(card.storage, { dirty: 1, clean: 1, clean_kg: 6, clean_items: 15, clean_bags: 2 });
+  assert.deepStrictEqual(card.storage,
+    { dirty: 1, clean: 1, clean_kg: 6, clean_items: 15, clean_bags: 2, clean_detail: [] });
   const empty = list.washes.find(function (w) { return w.id === emptyWashId; });
-  assert.deepStrictEqual(empty.storage, { dirty: 0, clean: 0, clean_kg: 0, clean_items: 0, clean_bags: 0 });
+  assert.deepStrictEqual(empty.storage,
+    { dirty: 0, clean: 0, clean_kg: 0, clean_items: 0, clean_bags: 0, clean_detail: [] });
+});
+
+test('clean_detail: разбивка чистого по типам из WashItems; ручные записи не входят', () => {
+  const ctx = makeCtx();
+  const owner = loginOwner();
+  const clientId = seedClient(ctx);
+  // Завершённая стирка → clean-запись со стиркой (2 типа)
+  const doneId = plannedWash(ctx, clientId);
+  assert.ok(wash.startWash(workerSession, doneId, 9.5).ok);
+  assert.ok(wash.completeWash(workerSession, doneId, [
+    { item_type_id: 'itm_1', qty: 4 }, { item_type_id: 'itm_2', qty: 3 }
+  ], 9.5, null, 2).ok);
+  // Ручное чистое — в clean_detail не попадает
+  assert.ok(wash.addManualClean(ownerSession, clientId, 2, 5, 1, 'ручное').ok);
+  const washId = plannedWash(ctx, clientId);
+
+  const card = ctx.api.getDayList(owner, TODAY).washes.find(function (w) { return w.id === washId; });
+  assert.deepStrictEqual(card.storage.clean_detail, [
+    { name: 'пододеяльник', qty: 4 },
+    { name: 'простыня', qty: 3 }
+  ], 'сортировка по убыванию qty, имена из ItemTypes');
+  assert.strictEqual(card.storage.clean_items, 12, 'итог штук — с ручной записью');
 });

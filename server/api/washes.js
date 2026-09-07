@@ -91,6 +91,29 @@ function getDayList(session, date) {
       });
     const types = {};
     db.getItemTypes_().forEach(function (t) { types[t.id] = t.name; });
+    // Детализация чистого на складе по типам (модалка проверки склада): только
+    // clean-записи со стиркой — у ручных (wash_id='') по-типовой разбивки нет.
+    // Один проход по Storage и один по WashItems, сумма qty по client_id+типу.
+    const cleanWashClient = {};
+    db.findRowsByTenant_(SHEETS.STORAGE, function (s) {
+      return !s.consumed_at && s.kind === 'clean' && s.wash_id;
+    }, 2000, laundryId).forEach(function (r) {
+      cleanWashClient[r.obj.wash_id] = r.obj.client_id;
+    });
+    const cleanQtyByClientType = {};
+    db.findRowsBy_(SHEETS.WASH_ITEMS, function (wi) { return !!cleanWashClient[wi.wash_id]; }, 100000)
+      .forEach(function (r) {
+        const wi = r.obj;
+        const cid = cleanWashClient[wi.wash_id];
+        const byType = cleanQtyByClientType[cid] = cleanQtyByClientType[cid] || {};
+        byType[wi.item_type_id] = (byType[wi.item_type_id] || 0) + (Number(wi.qty) || 0);
+      });
+    const cleanDetailByClient = {};
+    Object.keys(cleanQtyByClientType).forEach(function (cid) {
+      cleanDetailByClient[cid] = Object.keys(cleanQtyByClientType[cid])
+        .map(function (tid) { return { name: types[tid] || tid, qty: cleanQtyByClientType[cid][tid] }; })
+        .sort(function (a, b) { return b.qty - a.qty; });
+    });
     // P2: типы белья, идущие в счёт поштучно — работник должен отобрать их до взвешивания.
     // Эффективная привязка: ClientItemBilling ?? ItemTypes.billing_item_id (core.resolveBillingItemForType_).
     const itemTypesById = {};
@@ -126,7 +149,8 @@ function getDayList(session, date) {
       w.has_dirty = s.dirty > 0;
       w.has_clean = s.clean > 0;
       w.storage = { dirty: s.dirty, clean: s.clean,
-        clean_kg: s.cleanKg, clean_items: s.cleanItems, clean_bags: s.cleanBags };
+        clean_kg: s.cleanKg, clean_items: s.cleanItems, clean_bags: s.cleanBags,
+        clean_detail: cleanDetailByClient[w.client_id] || [] };
       // Настройки клиента: свой список белья и режим учёта (пусто = все типы / both)
       const cl = clients[w.client_id] || {};
       w.client_item_types = db.parseJsonList_(cl.item_types);
