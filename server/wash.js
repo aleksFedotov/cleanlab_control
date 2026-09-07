@@ -345,6 +345,13 @@ function confirmStorageCheck(session, washId, verdict) {
       logEvent(actorOf_(session), 'storage_check', washId, { verdict: verdict }, laundryId);
       return ok_({ wash: w });
     }
+    // already_clean: факт чистого на складе проверяется (P8) — иначе зелёная
+    // карточка при пустом складе. Чистое «у водителя» openStorage_ отсекает.
+    if (verdict === 'already_clean' &&
+        openStorage_(w.client_id, 'clean', laundryId).length === 0) {
+      return err_('Чистого белья этого клиента на складе нет. ' +
+        'Если бельё физически на полке — внесите его вручную.');
+    }
     w.status = verdict === 'no_dirty' ? 'no_linen' : 'ready_clean';
     w.done_at = nowStr_();
     db.updateRow_(SHEETS.WASHES, found.rowNumber, w);

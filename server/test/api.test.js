@@ -479,8 +479,13 @@ test('confirmStorageCheck: no_dirty → no_linen; has_dirty возвращает
   assert.strictEqual(back.wash.status, 'planned');
   assert.strictEqual(back.wash.done_at, '');
   assert.strictEqual(ctx.db.readAll_('Storage').filter(s => s.kind === 'dirty').length, 1);
-  // already_clean → ready_clean
-  const washId2 = ctx.api.addToDelivery(owner, seedClient(ctx, { name: 'Спа Б' }), TODAY, TOMORROW).wash.id;
+  // already_clean → ready_clean (P8: только при открытой clean-записи клиента)
+  const clientB = seedClient(ctx, { name: 'Спа Б' });
+  const washId2 = ctx.api.addToDelivery(owner, clientB, TODAY, TOMORROW).wash.id;
+  ctx.db.appendRowTenant_('Storage', {
+    id: 'st_clean1', client_id: clientB, kind: 'clean', weight_kg: '5',
+    items_total: '10', wash_id: '', visit_id: '', created_at: TODAY, consumed_at: ''
+  }, '1');
   assert.strictEqual(ctx.api.confirmStorageCheck(worker, washId2, 'already_clean').wash.status, 'ready_clean');
 });
 
