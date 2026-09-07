@@ -360,6 +360,42 @@ function confirmStorageCheck(session, washId, verdict) {
   });
 }
 
+// Ручное внесение чистого на склад (P8): бельё физически на полке, а записи
+// в системе нет (досистемный запас, бумажные накладные, потерянная запись).
+// wash_id принципиально пустой — стирки за записью нет, в производственные
+// отчёты запись не попадает. Мешки обязательны: это сверка водителя.
+// Комментарий обязателен: исключительный путь, «откуда бельё» фиксируется.
+function addManualClean(session, clientId, weightKg, itemsTotal, bags, comment) {
+  const laundryId = session.laundryId;
+  const actor = actorOf_(session);
+  let notifyText = null;
+  const result = db.transaction_(function () {
+    const found = findTenantRow_(SHEETS.CLIENTS, clientId, laundryId);
+    if (!found || found.obj.active !== 'да') return err_('Клиент не найден или неактивен');
+    const bagsN = Number(bags);
+    if (!(Number.isInteger(bagsN) && bagsN > 0)) return err_('Укажите количество мешков');
+    const countOnly = found.obj.accounting === 'count';
+    const kg = round1_(weightKg);
+    const items = Math.floor(Number(itemsTotal) || 0);
+    if (!countOnly && !(kg > 0)) return err_('Укажите вес чистого белья');
+    if (countOnly && !(items > 0)) return err_('Укажите количество штук');
+    const text = String(comment || '').trim();
+    if (!text) return err_('Укажите комментарий — откуда бельё');
+    const entry = addStorageEntry_(clientId, 'clean', {
+      weight_kg: kg > 0 ? kg : '', items_total: items > 0 ? items : '', bags: bagsN
+    }, laundryId);
+    logEvent(actor, 'storage_manual_clean', entry.id, {
+      client_id: clientId, kg: kg || 0, items: items || 0, bags: bagsN, comment: text
+    }, laundryId);
+    notifyText = '📦 ' + actor + ': чистое внесено вручную — ' +
+      clientNameById_(clientId, laundryId) + ': ' + (kg || 0) + ' кг, ' + bagsN +
+      ' мешк. (' + text + ')';
+    return ok_({ entry: entry });
+  });
+  if (result.ok) notifyOwnerOnWorkerAction_(session, notifyText, laundryId);
+  return result;
+}
+
 function markIssued(session, washId) {
   const laundryId = session.laundryId;
   return db.transaction_(function () {
@@ -500,6 +536,6 @@ function notReadyForDelivery_(date, laundryId) {
 module.exports = {
   notifyOwnerOnWorkerAction_, clientNameById_,
   startWash, completeWash, editWashData, deferWash, holdPartialWash, addUnplannedWash,
-  cancelWash, deleteWash, confirmStorageCheck, markIssued, updateIssueDate, notReadyForDelivery_,
+  cancelWash, deleteWash, confirmStorageCheck, addManualClean, markIssued, updateIssueDate, notReadyForDelivery_,
   issueForVisit_, unissueForVisit_
 };

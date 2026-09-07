@@ -327,6 +327,11 @@ function confirmStorageCheck(session, washId, verdict) {
   return wash.confirmStorageCheck(session, washId, verdict);
 }
 
+// Ручное внесение чистого на склад (P8): работник и владелец.
+function addManualClean(session, clientId, weightKg, itemsTotal, bags, comment) {
+  return wash.addManualClean(session, clientId, weightKg, itemsTotal, bags, comment);
+}
+
 function markIssued(session, washId) {
   return wash.markIssued(session, washId);
 }
@@ -658,7 +663,7 @@ module.exports = {
   weekMaterialized_, copyPrevWeek_,
   getDayList, startWash, completeWash, editWashData, deferWash, holdPartialWash, addUnplannedWash,
   getShiftCloseState, closeShift,
-  getDeliveryPlan, addToDelivery, cancelWash, deleteWash, confirmStorageCheck, markIssued, updateIssueDate,
+  getDeliveryPlan, addToDelivery, cancelWash, deleteWash, confirmStorageCheck, addManualClean, markIssued, updateIssueDate,
   getWeekPlan, addWeekCard, moveWeekCard, removeWeekCard,
   getStorage, getDayReport, getSummaryReport, getFinanceSummary
 };

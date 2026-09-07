@@ -28,7 +28,7 @@ const {
 } = require('./api/laundries');
 const {
   startWash, completeWash, editWashData, deferWash, holdPartialWash, addUnplannedWash,
-  cancelWash, deleteWash, confirmStorageCheck, markIssued, updateIssueDate, notReadyForDelivery_
+  cancelWash, deleteWash, confirmStorageCheck, addManualClean, markIssued, updateIssueDate, notReadyForDelivery_
 } = require('./wash');
 const {
   ensureWashesFromDelivery_, materializeTodayAllLaundries_,
@@ -53,7 +53,7 @@ const API_ROLES = {
   editWashData: OWNER_WORKER, deferWash: OWNER_WORKER, holdPartialWash: OWNER,
   addUnplannedWash: OWNER_WORKER, getShiftCloseState: OWNER_WORKER, closeShift: OWNER_WORKER,
   getDeliveryPlan: OWNER, addToDelivery: OWNER, cancelWash: OWNER, deleteWash: OWNER_WORKER,
-  confirmStorageCheck: OWNER_WORKER, markIssued: OWNER, updateIssueDate: OWNER,
+  confirmStorageCheck: OWNER_WORKER, addManualClean: OWNER_WORKER, markIssued: OWNER, updateIssueDate: OWNER,
   getWeekPlan: OWNER, addWeekCard: OWNER, moveWeekCard: OWNER, removeWeekCard: OWNER,
   getStorage: OWNER, getDayReport: OWNER, getSummaryReport: OWNER, getFinanceSummary: OWNER,
   // api/clients.js (saveItemType: базовая роль owner|worker, правка уточняется в теле)
@@ -91,7 +91,7 @@ const { login, logout, switchLaundry, requireRole_ } = require('./auth');
 const sessionFirst = {
   getDayList, startWash, completeWash, editWashData, deferWash, holdPartialWash, addUnplannedWash,
   getShiftCloseState, closeShift,
-  getDeliveryPlan, addToDelivery, cancelWash, deleteWash, confirmStorageCheck, markIssued, updateIssueDate,
+  getDeliveryPlan, addToDelivery, cancelWash, deleteWash, confirmStorageCheck, addManualClean, markIssued, updateIssueDate,
   getWeekPlan,
   getStorage, getDayReport, getSummaryReport, getFinanceSummary,
   saveClient, deleteClient, purgeClient, saveItemType, deleteItemType, rememberClientItemType, getRefs,
