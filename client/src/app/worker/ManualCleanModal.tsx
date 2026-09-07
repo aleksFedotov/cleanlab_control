@@ -23,12 +23,17 @@ const UNIT_STEPS = [
   { delta: -1, label: '−' },
   { delta: 1, label: '+' },
 ];
+const WEIGHT_STEPS = [
+  { delta: -1, label: '−1' },
+  { delta: -0.1, label: '−0.1' },
+  { delta: 0.1, label: '+0.1' },
+  { delta: 1, label: '+1' },
+  { delta: 5, label: '+5' },
+];
 
 type FormValues = {
   clientId: string;
-  weightKg?: number;
   itemsTotal?: number;
-  bags: number;
   comment: string;
 };
 
@@ -41,9 +46,7 @@ const optNum = z.preprocess(
 function buildSchema(needClient: boolean) {
   return z.object({
     clientId: needClient ? z.string().min(1, 'Выберите клиента') : z.string(),
-    weightKg: optNum,
     itemsTotal: optNum,
-    bags: z.number({ error: 'Укажите мешки' }).int('Целое число').positive('Мешков должно быть > 0'),
     comment: z.string().trim().min(1, 'Укажите, откуда бельё'),
   });
 }
@@ -95,6 +98,11 @@ export function ManualCleanModal(props: ManualCleanModalProps) {
   // По-типовой ввод количества (как CompleteWashModal): степперы по видам белья
   const [counts, setCounts] = useState<Record<string, number>>({});
   const [itemsErr, setItemsErr] = useState('');
+  // Вес и мешки — степперы как в CompleteWashModal (не RHF-поля)
+  const [weight, setWeight] = useState(0);
+  const [weightErr, setWeightErr] = useState('');
+  const [bags, setBags] = useState(0);
+  const [bagsErr, setBagsErr] = useState('');
 
   // Видимые виды: список клиента (DayWash.client_item_types / Clients.item_types)
   // или весь справочник
@@ -119,13 +127,18 @@ export function ManualCleanModal(props: ManualCleanModalProps) {
 
   const onSubmit = handleSubmit((v) => {
     // Вес обязателен, кроме accounting='count'; штуки при count — сумма по видам > 0
-    if (accounting !== 'count' && (!v.weightKg || v.weightKg <= 0)) {
-      setError('weightKg', { message: 'Укажите вес (> 0)' });
+    if (accounting !== 'count' && weight <= 0) {
+      setWeightErr('Укажите вес (> 0)');
       return;
     }
     if (accounting === 'count' && (showItemList ? itemsSum <= 0 : !v.itemsTotal || v.itemsTotal <= 0)) {
       if (showItemList) setItemsErr('Укажите штуки (> 0)');
       else setError('itemsTotal', { message: 'Укажите штуки (> 0)' });
+      return;
+    }
+    // Мешки обязательны всегда: по ним водитель сверяет выдачу
+    if (bags <= 0) {
+      setBagsErr('Укажите количество мешков');
       return;
     }
     const clientId = props.wash ? props.wash.client_id : v.clientId;
@@ -136,9 +149,9 @@ export function ManualCleanModal(props: ManualCleanModalProps) {
       : [];
     mutation.mutate([
       clientId,
-      accounting === 'count' ? '' : v.weightKg || '',
+      accounting === 'count' ? '' : weight || '',
       showItemList ? itemsSum || '' : v.itemsTotal || '',
-      v.bags,
+      bags,
       v.comment.trim(),
       items,
     ]);
@@ -176,21 +189,43 @@ export function ManualCleanModal(props: ManualCleanModalProps) {
           </label>
         )}
         {accounting !== 'count' && (
-          <label className={styles.field}>
-            <span className={styles.fieldLabel}>Вес, кг</span>
-            <input
-              type="number"
-              inputMode="decimal"
-              step="0.1"
-              min="0"
-              {...register('weightKg', { valueAsNumber: true })}
+          <div className={styles.field}>
+            <span className={styles.fieldLabel}>Вес чистого белья, кг</span>
+            <Stepper
+              value={weight}
+              steps={WEIGHT_STEPS}
+              onStep={(d) => {
+                setWeightErr('');
+                setWeight((v) => Math.max(0, Math.round((v + d) * 10) / 10));
+              }}
+              onValueChange={(v) => {
+                setWeightErr('');
+                setWeight(Math.round(v * 10) / 10);
+              }}
+              step={0.1}
             />
-            {errors.weightKg && <span className={styles.fieldErr}>{errors.weightKg.message}</span>}
-          </label>
+            {weightErr && <span className={styles.fieldErr}>{weightErr}</span>}
+          </div>
         )}
+        <div className={styles.field}>
+          <span className={styles.fieldLabel}>Мешки</span>
+          <Stepper
+            value={bags}
+            steps={UNIT_STEPS}
+            onStep={(d) => {
+              setBagsErr('');
+              setBags((v) => Math.max(0, v + d));
+            }}
+            onValueChange={(v) => {
+              setBagsErr('');
+              setBags(Math.max(0, Math.round(v)));
+            }}
+          />
+          {bagsErr && <span className={styles.fieldErr}>{bagsErr}</span>}
+        </div>
         {showItemList ? (
           <div className={styles.field}>
-            <span className={styles.fieldLabel}>Количество по видам</span>
+            <span className={styles.fieldLabel}>Количество вещей</span>
             {vis.map((t) => (
               <div key={t.id} className={styles.itemRow}>
                 <span className={styles.itemName}>{t.name}</span>
@@ -227,17 +262,6 @@ export function ManualCleanModal(props: ManualCleanModalProps) {
             )}
           </label>
         )}
-        <label className={styles.field}>
-          <span className={styles.fieldLabel}>Мешков</span>
-          <input
-            type="number"
-            inputMode="numeric"
-            step="1"
-            min="1"
-            {...register('bags', { valueAsNumber: true })}
-          />
-          {errors.bags && <span className={styles.fieldErr}>{errors.bags.message}</span>}
-        </label>
         <label className={styles.field}>
           <span className={styles.fieldLabel}>Комментарий — откуда бельё</span>
           <textarea rows={2} {...register('comment')} />
