@@ -119,10 +119,14 @@ function getDayList(session, date) {
     // Декорация карточки дня — общая для washes и overdue (P7)
     const decorate = function (w) {
       w.client_name = clientName_(w.client_id, clients);
-      // Состояние склада для раскраски «К работе» (check-storage из спеки)
-      const s = storage[w.client_id] || { dirty: 0, clean: 0 };
+      // Состояние склада для раскраски «К работе» (check-storage из спеки);
+      // цифры — для модалки проверки склада до выбора вердикта (P8)
+      const s = storage[w.client_id] ||
+        { dirty: 0, clean: 0, cleanKg: 0, cleanItems: 0, cleanBags: 0 };
       w.has_dirty = s.dirty > 0;
       w.has_clean = s.clean > 0;
+      w.storage = { dirty: s.dirty, clean: s.clean,
+        clean_kg: s.cleanKg, clean_items: s.cleanItems, clean_bags: s.cleanBags };
       // Настройки клиента: свой список белья и режим учёта (пусто = все типы / both)
       const cl = clients[w.client_id] || {};
       w.client_item_types = db.parseJsonList_(cl.item_types);
