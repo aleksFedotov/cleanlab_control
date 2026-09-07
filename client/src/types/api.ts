@@ -36,6 +36,8 @@ export interface DayWash extends Wash {
   client_name: string;
   has_dirty: boolean;
   has_clean: boolean;
+  // P8: цифры склада клиента (из storageSummaryByClient_) — для StorageCheckModal
+  storage: { dirty: number; clean: number; clean_kg: number; clean_items: number; clean_bags: number };
   client_item_types: string[];
   client_accounting: 'weight' | 'count' | 'both';
   // Остаток частичной стирки: часть уже постирана в предыдущем заходе

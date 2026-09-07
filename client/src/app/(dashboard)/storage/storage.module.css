@@ -10,6 +10,16 @@
   position: relative;
 }
 
+.searchRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.searchRow .searchWrap {
+  flex: 1;
+}
+
 .searchWrap input {
   width: 100%;
   padding-left: 36px;

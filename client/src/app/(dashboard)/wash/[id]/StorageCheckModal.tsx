@@ -7,6 +7,8 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
+import { StorageAccountSummary } from '@/components/StorageAccountSummary';
+import { ManualCleanModal } from '@/app/worker/ManualCleanModal';
 import { useApiMutation } from '@/hooks/use-api';
 import { useUiStore } from '@/stores/ui';
 import type { DayWash } from '@/types/api';
@@ -31,6 +33,8 @@ export function StorageCheckModal({ w, checkedDirty, onHasDirty, onClose }: Stor
   const router = useRouter();
   const toast = useUiStore((s) => s.toast);
   const [pending, setPending] = useState<Verdict | null>(null);
+  // P8: ручное внесение чистого — отдельный шаг, после успеха возврат сюда
+  const [manualClean, setManualClean] = useState(false);
 
   const mutation = useApiMutation('confirmStorageCheck', { invalidate: 'operational' });
 
@@ -68,24 +72,47 @@ export function StorageCheckModal({ w, checkedDirty, onHasDirty, onClose }: Stor
     });
   }
 
+  if (manualClean) {
+    return (
+      <ManualCleanModal
+        wash={w}
+        successToast="Чистое внесено ✓ — подтвердите проверку склада"
+        onClose={() => setManualClean(false)}
+      />
+    );
+  }
+
   return (
     <Modal open onClose={onClose} title="Проверка склада">
       <div className={styles.form}>
         <div className={styles.meta}>
           <b>{w.client_name}</b>
         </div>
-        {order.map((v, i) => (
-          <Button
-            key={v}
-            variant={i === 0 ? 'primary' : v === 'no_dirty' ? 'danger' : 'ghost'}
-            onClick={() => pick(v)}
-            busy={pending === v && mutation.isPending}
-            disabled={mutation.isPending && pending !== v}
-          >
-            {i === 0 ? 'Подтвердить: ' : 'Изменить: '}
-            {LABELS[v]}
-          </Button>
-        ))}
+        <StorageAccountSummary storage={w.storage} />
+        {order.map((v, i) => {
+          const blocked = v === 'already_clean' && !w.has_clean;
+          return (
+            <div key={v}>
+              <Button
+                variant={i === 0 ? 'primary' : v === 'no_dirty' ? 'danger' : 'ghost'}
+                onClick={() => pick(v)}
+                busy={pending === v && mutation.isPending}
+                disabled={(mutation.isPending && pending !== v) || blocked}
+              >
+                {i === 0 ? 'Подтвердить: ' : 'Изменить: '}
+                {LABELS[v]}
+              </Button>
+              {blocked && (
+                <>
+                  <div className={styles.meta}>По учёту чистого на складе нет</div>
+                  <Button variant="ghost" onClick={() => setManualClean(true)}>
+                    Внести чистое вручную…
+                  </Button>
+                </>
+              )}
+            </div>
+          );
+        })}
         <div>
           <Button variant="subtle" onClick={onClose} disabled={mutation.isPending}>
             Назад

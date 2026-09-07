@@ -5,7 +5,7 @@
 // + список карточек белья; тап по карточке — модалка с действиями (storage-card-modal).
 import { useEffect, useMemo, useState } from 'react';
 import { ChevronDown, ChevronUp, Package, Search } from 'lucide-react';
-import { useStorage } from '@/hooks/use-api';
+import { useStorage, useRefs } from '@/hooks/use-api';
 import { useUiStore } from '@/stores/ui';
 import { StatRow } from '@/components/ui/StatRow';
 import { StatCard } from '@/components/ui/StatCard';
@@ -20,6 +20,7 @@ import { items as itemsFmt } from '@/lib/format';
 import type { StorageEntry } from './storage-entry';
 import { buildEntries, metaOf } from './storage-entry';
 import { StorageCardModal } from './storage-card-modal';
+import { ManualCleanModal } from '@/app/worker/ManualCleanModal';
 import styles from './storage.module.css';
 
 const FILTERS = [
@@ -32,10 +33,13 @@ const FILTERS = [
 
 export default function StoragePage() {
   const { data, isLoading, isError, error, refetch } = useStorage();
+  const refs = useRefs();
   const toast = useUiStore((s) => s.toast);
   const [filter, setFilter] = useState('all');
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState<StorageEntry | null>(null);
+  // P8: ручное внесение чистого (владелец) — модалка с выбором клиента
+  const [manualClean, setManualClean] = useState(false);
   // Раскрытые группы клиентов (accordion): client_id → true
   const [openMap, setOpenMap] = useState<Record<string, boolean>>({});
 
@@ -49,6 +53,11 @@ export default function StoragePage() {
     });
     return m;
   }, [data]);
+
+  const activeClients = useMemo(
+    () => (refs.data?.clients || []).filter((c) => c.active === 'да'),
+    [refs.data]
+  );
 
   // Ошибка API — тост (спека §7); блок с «Повторить» — ниже, если данных нет.
   useEffect(() => {
@@ -147,16 +156,21 @@ export default function StoragePage() {
         <StatCard label="Чистого белья" value={stats.totalKg} unit="кг" />
       </StatRow>
 
-      <div className={styles.searchWrap}>
-        <span className={styles.searchIcon}>
-          <Search size={16} aria-hidden />
-        </span>
-        <input
-          type="search"
-          placeholder="Поиск по клиенту…"
-          value={query}
-          onChange={(ev) => setQuery(ev.target.value)}
-        />
+      <div className={styles.searchRow}>
+        <div className={styles.searchWrap}>
+          <span className={styles.searchIcon}>
+            <Search size={16} aria-hidden />
+          </span>
+          <input
+            type="search"
+            placeholder="Поиск по клиенту…"
+            value={query}
+            onChange={(ev) => setQuery(ev.target.value)}
+          />
+        </div>
+        <Button variant="ghost" onClick={() => setManualClean(true)}>
+          ＋ Внести чистое
+        </Button>
       </div>
 
       <FilterPills
@@ -248,6 +262,10 @@ export default function StoragePage() {
           types={types}
           onClose={() => setSelected(null)}
         />
+      )}
+
+      {manualClean && (
+        <ManualCleanModal clients={activeClients} onClose={() => setManualClean(false)} />
       )}
     </div>
   );
