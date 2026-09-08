@@ -6,6 +6,7 @@
 import { useState } from 'react';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
+import { Stepper } from '@/components/Stepper';
 import { useApiMutation } from '@/hooks/use-api';
 import { useUiStore } from '@/stores/ui';
 import { num } from '@/lib/format';
@@ -23,32 +24,6 @@ const UNIT_STEPS = [
   { delta: -1, label: '−' },
   { delta: 1, label: '+' },
 ];
-
-function Stepper({
-  value,
-  steps,
-  onStep,
-}: {
-  value: number;
-  steps: Array<{ delta: number; label: string }>;
-  onStep: (delta: number) => void;
-}) {
-  return (
-    <div className={styles.stepper}>
-      {steps.map((s) => (
-        <button
-          key={s.label}
-          type="button"
-          className={styles.stepperBtn}
-          onClick={() => onStep(s.delta)}
-        >
-          {s.label}
-        </button>
-      ))}
-      <span className={styles.stepperVal}>{value}</span>
-    </div>
-  );
-}
 
 export interface EditDoneWashModalProps {
   w: DayWash;
@@ -127,12 +102,19 @@ export function EditDoneWashModal({ w, itemTypes, onClose }: EditDoneWashModalPr
               value={weight}
               steps={WEIGHT_STEPS}
               onStep={(d) => setWeight((v) => Math.max(0, Math.round((v + d) * 10) / 10))}
+              onValueChange={(v) => setWeight(Math.round(v * 10) / 10)}
+              step={0.1}
             />
           </div>
         )}
         <div>
           <div className={styles.fieldLabel}>Мешки</div>
-          <Stepper value={bags} steps={UNIT_STEPS} onStep={(d) => setBags((v) => Math.max(0, v + d))} />
+          <Stepper
+            value={bags}
+            steps={UNIT_STEPS}
+            onStep={(d) => setBags((v) => Math.max(0, v + d))}
+            onValueChange={(v) => setBags(Math.round(v))}
+          />
         </div>
         {acc !== 'weight' && vis.length > 0 && (
           <div>
@@ -144,6 +126,9 @@ export function EditDoneWashModal({ w, itemTypes, onClose }: EditDoneWashModalPr
                   value={counts[t.id] || 0}
                   steps={UNIT_STEPS}
                   onStep={(d) => stepCount(t.id, d)}
+                  onValueChange={(v) =>
+                    setCounts((m) => ({ ...m, [t.id]: Math.max(0, Math.round(v)) }))
+                  }
                 />
               </div>
             ))}
