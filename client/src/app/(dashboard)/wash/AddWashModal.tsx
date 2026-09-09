@@ -1,9 +1,12 @@
 'use client';
 
 // Внеплановая стирка на сегодня (legacy openAddWash, server/public/index.html:1012-1030).
+// Выбор клиента — поиск + видимый список (паттерн из delivery/AddVisitModal).
+import { useMemo, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
+import { Check } from 'lucide-react';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { useApiMutation } from '@/hooks/use-api';
@@ -25,15 +28,32 @@ export interface AddWashModalProps {
 
 export function AddWashModal({ clients, onClose }: AddWashModalProps) {
   const toast = useUiStore((s) => s.toast);
+  const [query, setQuery] = useState('');
 
   const {
     register,
     handleSubmit,
+    setValue,
+    watch,
     formState: { errors },
   } = useForm<FormValues>({
     resolver: zodResolver(schema),
-    defaultValues: { clientId: clients[0]?.id || '', comment: '' },
+    defaultValues: { clientId: '', comment: '' },
   });
+
+  const selectedId = watch('clientId');
+
+  const list = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    const filtered = needle
+      ? clients.filter(
+          (c) =>
+            c.name.toLowerCase().includes(needle) ||
+            (c.address || '').toLowerCase().includes(needle)
+        )
+      : clients;
+    return filtered.slice().sort((a, b) => a.name.localeCompare(b.name, 'ru'));
+  }, [clients, query]);
 
   const mutation = useApiMutation('addUnplannedWash', {
     invalidate: 'operational',
@@ -64,17 +84,47 @@ export function AddWashModal({ clients, onClose }: AddWashModalProps) {
       }
     >
       <div className={styles.form}>
-        <label className={styles.field}>
+        <div className={styles.field}>
           <span className={styles.fieldLabel}>Клиент</span>
-          <select {...register('clientId')}>
-            {clients.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </select>
+          <input
+            type="search"
+            className={styles.search}
+            placeholder="Поиск по названию или адресу…"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            autoFocus
+          />
+          <div className={styles.pickList}>
+            {list.length === 0 && <div className={styles.pickEmpty}>Никого не найдено</div>}
+            {list.map((c) => {
+              const active = c.id === selectedId;
+              return (
+                <div
+                  key={c.id}
+                  className={`${styles.pickRow} ${active ? styles.pickRowActive : ''}`}
+                  onClick={() => setValue('clientId', c.id, { shouldValidate: true })}
+                >
+                  <div className={styles.pickMain}>
+                    <div className={styles.pickName}>{c.name}</div>
+                    {(c.type || c.address) && (
+                      <div className={styles.pickMeta}>
+                        {c.type || ''}
+                        {c.type && c.address ? ' · ' : ''}
+                        {c.address || ''}
+                      </div>
+                    )}
+                  </div>
+                  {active && (
+                    <span className={styles.pickCheck}>
+                      <Check size={16} />
+                    </span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
           {errors.clientId && <span className={styles.fieldErr}>{errors.clientId.message}</span>}
-        </label>
+        </div>
         <label className={styles.field}>
           <input type="text" placeholder="Комментарий" {...register('comment')} />
         </label>
