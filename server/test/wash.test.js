@@ -754,3 +754,69 @@ test('P9: updateIssueDate на стирке без даты — мост «на�
   });
   assert.strictEqual(visits.length, 1, 'по назначенной дате создан визит развоза');
 });
+
+// P10: снятие даты выдачи — updateIssueDate(id, '')
+function doneWashWithDate(ctx, clientId, issueDate) {
+  const washId = ctx.api.addToDelivery(loginOwner(), clientId, TODAY, issueDate).wash.id;
+  assert.ok(wash.startWash(workerSession, washId, 5).ok);
+  assert.ok(wash.completeWash(workerSession, washId, [{ item_type_id: 'itm_1', qty: 2 }], 5, null, 1).ok);
+  return washId;
+}
+
+test('P10: снятие даты — дата пустая, статус прежний, визитов не создано, лог «→ снята»', () => {
+  const ctx = makeCtx();
+  const clientId = seedClient(ctx);
+  const washId = doneWashWithDate(ctx, clientId, '2026-09-10');
+  const deliveriesBefore = ctx.db.readAll_(SHEETS.DELIVERIES).length;
+
+  const statusBefore = ctx.db.findById_(SHEETS.WASHES, washId).obj.status;
+
+  const res = wash.updateIssueDate(ownerSession, washId, '');
+  assert.ok(res.ok, res.error);
+  assert.strictEqual(res.wash.issue_date, '');
+  assert.strictEqual(res.wash.status, statusBefore, 'снятие даты статус не меняет');
+  assert.strictEqual(ctx.db.readAll_(SHEETS.DELIVERIES).length, deliveriesBefore,
+    'снятие даты не создаёт визитов (регрессия на безусловный ensureVisit_)');
+
+  const log = ctx.db.readTailByTenant_(SHEETS.LOG, 1000, '1').filter(function (e) {
+    return e.action === 'wash_edit' && e.entity === washId;
+  });
+  assert.strictEqual(log.length, 1);
+  assert.strictEqual(JSON.parse(log[0].details).issue_date, '2026-09-10 → снята');
+});
+
+test('P10: no-op — снятие даты у стирки без даты отклоняется', () => {
+  const ctx = makeCtx();
+  const clientId = seedClient(ctx);
+  const washId = doneWashWithDate(ctx, clientId, '');
+  const deliveriesBefore = ctx.db.readAll_(SHEETS.DELIVERIES).length;
+
+  const res = wash.updateIssueDate(ownerSession, washId, '');
+  assert.ok(!res.ok);
+  assert.strictEqual(res.error, 'Дата не изменилась');
+  assert.strictEqual(ctx.db.readAll_(SHEETS.DELIVERIES).length, deliveriesBefore, 'визитов не создано');
+});
+
+test('P10: регрессия — назначение даты по-прежнему создаёт визит', () => {
+  const ctx = makeCtx();
+  const clientId = seedClient(ctx);
+  const washId = doneWashWithDate(ctx, clientId, '');
+
+  const res = wash.updateIssueDate(ownerSession, washId, '2026-09-12');
+  assert.ok(res.ok, res.error);
+  const visits = ctx.db.readAll_(SHEETS.DELIVERIES).filter(function (v) {
+    return v.client_id === clientId && v.date === '2026-09-12';
+  });
+  assert.strictEqual(visits.length, 1, 'по назначенной дате создан визит развоза');
+});
+
+test('P10: статусный барьер — planned-стирке дату менять нельзя (проверка до no-op guard)', () => {
+  const ctx = makeCtx();
+  const clientId = seedClient(ctx);
+  const washId = ctx.api.addToDelivery(loginOwner(), clientId, TODAY, '').wash.id;
+  assert.strictEqual(ctx.db.findById_(SHEETS.WASHES, washId).obj.status, 'planned');
+
+  const res = wash.updateIssueDate(ownerSession, washId, '');
+  assert.ok(!res.ok);
+  assert.strictEqual(res.error, 'Менять дату выдачи можно только у завершённой стирки');
+});

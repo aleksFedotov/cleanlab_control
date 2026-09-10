@@ -513,11 +513,15 @@ function updateIssueDate(session, washId, issueDate) {
       return err_('Менять дату выдачи можно только у завершённой стирки');
     }
     const old = found.obj.issue_date;
+    if (issueDate === old) return err_('Дата не изменилась');
     found.obj.issue_date = issueDate;
     db.updateRow_(SHEETS.WASHES, found.rowNumber, found.obj);
-    logEvent(actorOf_(session), 'wash_edit', washId, { issue_date: old + ' → ' + issueDate }, laundryId);
-    // Чистое с новой датой выдачи появляется в плане/развозе на этот день
-    ensureVisit_(found.obj.client_id, issueDate, laundryId, actorOf_(session));
+    logEvent(actorOf_(session), 'wash_edit', washId,
+      { issue_date: issueDate ? old + ' → ' + issueDate : old + ' → снята' }, laundryId);
+    // Визит создаём только при НАЗНАЧЕНИИ даты. Снятие даты визит НЕ отменяет:
+    // если на старую дату визит уже есть, владелец убирает его на странице «План»
+    // (cancelDeliveryVisit) — автоотмена могла бы снести чужие планы.
+    if (issueDate) ensureVisit_(found.obj.client_id, issueDate, laundryId, actorOf_(session));
     return ok_({ wash: found.obj });
   });
 }

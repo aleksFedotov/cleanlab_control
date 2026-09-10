@@ -38,6 +38,7 @@ export function StorageCardModal({ entry: e, types, onClose }: StorageCardModalP
   const toast = useUiStore((s) => s.toast);
   const [view, setView] = useState<View>('main');
   const [confirmIssue, setConfirmIssue] = useState(false);
+  const [confirmClear, setConfirmClear] = useState(false);
   const today = todayStr();
 
   const addWash = useApiMutation('addUnplannedWash', {
@@ -64,6 +65,10 @@ export function StorageCardModal({ entry: e, types, onClose }: StorageCardModalP
   const updateIssue = useApiMutation('updateIssueDate', {
     invalidate: 'operational',
     onSuccess: () => { onClose(); toast('Дата обновлена ✓'); },
+  });
+  const clearIssue = useApiMutation('updateIssueDate', {
+    invalidate: 'operational',
+    onSuccess: () => { setConfirmClear(false); onClose(); toast('Дата выдачи снята ✓'); },
   });
 
   const deferForm = useForm<DateForm>({
@@ -216,7 +221,7 @@ export function StorageCardModal({ entry: e, types, onClose }: StorageCardModalP
             </div>
             {positions && <div className={styles.meta}>{positions}</div>}
             <div className={styles.meta}>
-              Выдача: <b>{e.issue_date}</b>
+              Выдача: <b>{e.issue_date || 'не назначена'}</b>
               {overdueDays > 0 && (
                 <>
                   {' · '}
@@ -238,6 +243,11 @@ export function StorageCardModal({ entry: e, types, onClose }: StorageCardModalP
               <Button variant="ghost" className={styles.actionBtn} onClick={() => setView('issueDate')}>
                 Изменить дату
               </Button>
+              {e.issue_date && (
+                <Button variant="ghost" className={styles.actionBtn} onClick={() => setConfirmClear(true)}>
+                  Снять дату выдачи
+                </Button>
+              )}
             </div>
           </>
         )}
@@ -250,6 +260,14 @@ export function StorageCardModal({ entry: e, types, onClose }: StorageCardModalP
         text={`Отметить выдачу клиенту «${e.client_name}»?`}
         okLabel="Выдано"
         busy={markIssued.isPending}
+      />
+      <ConfirmDialog
+        open={confirmClear}
+        onClose={() => setConfirmClear(false)}
+        onConfirm={() => clearIssue.mutate([e.id, ''])}
+        text={`Снять дату выдачи у «${e.client_name}»? Карточка станет нейтральной «На складе». Если на эту дату уже есть визит в развозе — он останется, удалите его на странице «План».`}
+        okLabel="Снять дату"
+        busy={clearIssue.isPending}
       />
     </>
   );
