@@ -200,6 +200,15 @@ function resolvePrice_(tariffs, clientId, billingItemId) {
   return null;
 }
 
+// Per-клиентский порог платной доставки: клиентская строка ClientTariffs с
+// непустым max_kg перекрывает дефолт позиции (BillingItems.max_kg).
+function resolveThresholdKg_(tariffs, clientId, thresholdItem) {
+  const own = (tariffs || []).filter(function (t) {
+    return t.client_id === clientId && t.billing_item_id === thresholdItem.id && t.max_kg;
+  })[0];
+  return (own && own.max_kg) || thresholdItem.max_kg;
+}
+
 // Привязка типа белья к позиции счёта: ClientItemBilling клиента (пустое
 // billing_item_id = «у этого клиента тип идёт в вес») → ItemTypes.billing_item_id
 // → '' (весовая позиция по умолчанию). '' = строки в счёте не даёт (считается в кг).
@@ -308,6 +317,16 @@ function buildInvoice_(input) {
 
   // Рейсы: ноги визитов клиента в периоде (cancelled/empty не тарифицируются)
   const trips = items.filter(function (b) { return b.kind === 'trip'; });
+  // Пороговая позиция: per-клиентское переопределение max_kg (пусто = дефолт позиции).
+  // Работаем на копии объекта позиции — input.billingItems не мутируем.
+  const threshold = trips.filter(function (b) { return b.max_kg && b.oneway !== 'да'; })[0];
+  let thresholdKg = threshold ? threshold.max_kg : '';
+  if (threshold) {
+    thresholdKg = resolveThresholdKg_(input.tariffs, client.id, threshold);
+    if (thresholdKg !== threshold.max_kg) {
+      trips[trips.indexOf(threshold)] = Object.assign({}, threshold, { max_kg: thresholdKg });
+    }
+  }
   const lift = items.filter(function (b) { return b.kind === 'lift'; })[0];
   const clientWashes = (input.washes || []).filter(function (w) {
     return w.client_id === client.id && w.status !== 'cancelled';
@@ -349,7 +368,9 @@ function buildInvoice_(input) {
       total += amount;
     }
     lines.push({
-      billing_item_id: b.id, name: b.name, ext_code: b.ext_code || '',
+      billing_item_id: b.id,
+      name: (threshold && b.id === threshold.id) ? 'Доставка менее ' + thresholdKg + ' кг' : b.name,
+      ext_code: b.ext_code || '',
       unit: b.unit, qty: qty, price: price, amount: amount
     });
   });
@@ -409,7 +430,7 @@ module.exports = {
   completionStatus_, TRANSITIONS, checkTransition_, applyDefer_, canEditWashData_,
   isDayWash_, sortDayList_, shiftBlockers_, parseDetails_, buildDayReport_,
   formatWashLine_, formatDigest_,
-  INVOICE_WASH_STATUSES, resolvePrice_, resolveBillingItemForType_, effectiveTariffs_,
+  INVOICE_WASH_STATUSES, resolvePrice_, resolveThresholdKg_, resolveBillingItemForType_, effectiveTariffs_,
   pickByTier_, pickTripPosition_, pickupWeightKg_, deliveryWeightKg_, buildInvoice_,
   err_, ok_, round1_, clientName_,
   withLock_, timeStr_, findTenantRow_, ensureShift_, getShiftByDate_

@@ -169,15 +169,34 @@ function listTariffs(session, clientId) {
 
 // Upsert по (client_id, billing_item_id); price=''/null — снять переопределение.
 // clientId пусто = глобальный дефолт (общий для всех прачек, laundry_id='').
-function saveTariff(session, clientId, billingItemId, price) {
+// maxKg (только клиент + пороговая trip-позиция): undefined — не трогать,
+// ''/null — снять переопределение порога, иначе целое > 0. Строка удаляется,
+// только когда пусты и цена, и порог.
+function saveTariff(session, clientId, billingItemId, price, maxKg) {
   const laundryId = session.laundryId;
   return withLock_(function () {
-    if (!db.findById_(SHEETS.BILLING_ITEMS, billingItemId)) {
+    const bi = db.findById_(SHEETS.BILLING_ITEMS, billingItemId);
+    if (!bi) {
       return err_('Позиция прайса не найдена');
     }
     clientId = clientId || '';
     if (clientId && !findTenantRow_(SHEETS.CLIENTS, clientId, laundryId)) {
       return err_('Клиент не найден');
+    }
+    const isThreshold = bi.obj.kind === 'trip' && bi.obj.max_kg && bi.obj.oneway !== 'да';
+    let nextThreshold;
+    if (maxKg !== undefined) {
+      if (!clientId || !isThreshold) {
+        return err_('Порог можно переопределить только клиенту для позиции платной доставки');
+      }
+      const v = String(maxKg === null ? '' : maxKg).trim();
+      if (v === '') {
+        nextThreshold = '';
+      } else {
+        const n = Number(v);
+        if (!Number.isInteger(n) || n <= 0) return err_('Порог — целое число больше 0');
+        nextThreshold = String(n);
+      }
     }
     // Дефолт глобальный — ищем среди дефолтов любой прачки; клиентское
     // переопределение — только в своей прачке.
@@ -185,31 +204,41 @@ function saveTariff(session, clientId, billingItemId, price) {
       if (t.client_id !== clientId || t.billing_item_id !== billingItemId) return false;
       return clientId ? String(t.laundry_id) === String(laundryId) : true;
     }, 10000)[0];
-    if (price === '' || price === null || price === undefined) {
+    const priceEmpty = price === '' || price === null || price === undefined;
+    const effThreshold = nextThreshold !== undefined
+      ? nextThreshold
+      : (existing && existing.obj.max_kg) || '';
+    if (priceEmpty && !effThreshold) {
       if (existing) {
         db.deleteRow_(SHEETS.CLIENT_TARIFFS, existing.rowNumber);
         logEvent(actorOf_(session), 'tariff_set', billingItemId,
-          { client_id: clientId, price: '', removed: true }, laundryId);
+          { client_id: clientId, price: '', max_kg: '', removed: true }, laundryId);
       }
       return ok_({});
     }
-    const p = Number(price);
-    if (!(p >= 0)) return err_('Некорректная цена');
+    let priceStr = '';
+    if (!priceEmpty) {
+      const p = Number(price);
+      if (!(p >= 0)) return err_('Некорректная цена');
+      priceStr = String(p);
+    }
     let saved;
     if (existing) {
-      existing.obj.price = String(p);
+      existing.obj.price = priceStr;
+      existing.obj.max_kg = effThreshold;
       db.updateRow_(SHEETS.CLIENT_TARIFFS, existing.rowNumber, existing.obj);
       saved = existing.obj;
     } else {
       saved = {
         id: db.nextId_(SHEETS.CLIENT_TARIFFS, 'trf'),
         laundry_id: clientId ? String(laundryId) : '',
-        client_id: clientId, billing_item_id: billingItemId, price: String(p)
+        client_id: clientId, billing_item_id: billingItemId,
+        price: priceStr, max_kg: effThreshold
       };
       db.appendRow_(SHEETS.CLIENT_TARIFFS, saved);
     }
     logEvent(actorOf_(session), 'tariff_set', billingItemId,
-      { client_id: clientId, price: saved.price }, laundryId);
+      { client_id: clientId, price: saved.price, max_kg: saved.max_kg || '' }, laundryId);
     return ok_({ tariff: saved });
   });
 }

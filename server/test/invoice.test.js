@@ -584,6 +584,60 @@ test('пороговая позиция: смена порога 30 → 20 пе�
   assert.strictEqual(line(inv, bi.light).name, 'Доставка менее 20 кг');
 });
 
+test('per-клиентский порог доставки: max_kg в ClientTariffs перекрывает дефолт', () => {
+  const { ctx, owner, bi } = mkBillingCtx();
+  addClient(ctx, 'cli_th2');
+  ctx.api.saveTariff(owner, '', bi.light, 300);
+
+  // Двуногий визит с партией 40 кг
+  const w40 = addWash(ctx, { client_id: 'cli_th2', wash_date: '2026-08-03', status: 'issued', kg: 40, issued_at: '2026-08-04 12:00:00' });
+  addVisit(ctx, { client_id: 'cli_th2', date: '2026-08-04', picked_at: '2026-08-04 10:00:00', delivered_at: '2026-08-04 12:00:00' });
+  addDirtyStorage(ctx, 'cli_th2', '2026-08-04', w40);
+
+  // Дефолт 30: 40 кг — бесплатно, строки нет
+  let inv = invoice(ctx, owner, 'cli_th2');
+  assert.strictEqual(line(inv, bi.light), undefined);
+
+  // Валидация порога
+  assert.strictEqual(ctx.api.saveTariff(owner, 'cli_th2', bi.light, 300, '0').ok, false);
+  assert.strictEqual(ctx.api.saveTariff(owner, 'cli_th2', bi.light, 300, 'abc').ok, false);
+  // Порог нельзя задать глобальному дефолту и непороговой позиции
+  assert.strictEqual(ctx.api.saveTariff(owner, '', bi.light, 300, '45').ok, false);
+  assert.strictEqual(ctx.api.saveTariff(owner, 'cli_th2', bi.robe, 100, '45').ok, false);
+
+  // Клиентский порог 45: 40 кг тарифицируется, имя строки из N клиента
+  const r = ctx.api.saveTariff(owner, 'cli_th2', bi.light, '', '45');
+  assert.ok(r.ok, r.error);
+  assert.strictEqual(r.tariff.price, '', 'цена не задана — наследует дефолт');
+  assert.strictEqual(r.tariff.max_kg, '45');
+  inv = invoice(ctx, owner, 'cli_th2');
+  assert.strictEqual(line(inv, bi.light).qty, 2, 'обе ноги тарифицируются');
+  assert.strictEqual(line(inv, bi.light).name, 'Доставка менее 45 кг');
+  assert.strictEqual(line(inv, bi.light).price, 300, 'цена — глобальный дефолт');
+
+  // Смена цены без maxKg (undefined) не затирает порог
+  assert.ok(ctx.api.saveTariff(owner, 'cli_th2', bi.light, 350).ok);
+  inv = invoice(ctx, owner, 'cli_th2');
+  assert.strictEqual(line(inv, bi.light).name, 'Доставка менее 45 кг');
+  assert.strictEqual(line(inv, bi.light).price, 350);
+
+  // Снятие цены при заданном пороге не удаляет строку тарифа
+  assert.ok(ctx.api.saveTariff(owner, 'cli_th2', bi.light, '').ok);
+  assert.strictEqual(
+    ctx.api.listTariffs(owner, 'cli_th2').tariffs
+      .find(t => t.billing_item_id === bi.light && t.client_id === 'cli_th2').max_kg,
+    '45');
+
+  // Снятие порога ('') → возврат к дефолту 30: 40 кг снова бесплатно
+  assert.ok(ctx.api.saveTariff(owner, 'cli_th2', bi.light, '', '').ok);
+  assert.strictEqual(
+    ctx.api.listTariffs(owner, 'cli_th2').tariffs
+      .find(t => t.billing_item_id === bi.light && t.client_id === 'cli_th2'),
+    undefined, 'пустые цена и порог — строка удалена');
+  inv = invoice(ctx, owner, 'cli_th2');
+  assert.strictEqual(line(inv, bi.light), undefined);
+});
+
 test('migrateToV4_: повторный запуск не дублирует прайс (v7 — прайс глобальный)', () => {
   const { ctx } = mkBillingCtx(); // 7 глобальных позиций из openTest
   // Прайс глобальный: новые прачки не получают свои копии, повторный запуск — no-op.

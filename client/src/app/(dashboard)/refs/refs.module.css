@@ -54,6 +54,17 @@
   padding: 4px 8px;
 }
 
+/* Цена + порог кг у пороговой позиции доставки в одной ячейке строки тарифа */
+.tariffInputs {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.thresholdInput {
+  width: 60px;
+}
+
 .tariffHead,
 .tariffRow {
   display: grid;

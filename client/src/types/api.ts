@@ -377,6 +377,7 @@ export interface Tariff {
   client_id: string; // '' = дефолт прачки
   billing_item_id: string;
   price: string;
+  max_kg?: string; // per-клиентский порог платной доставки; '' = дефолт позиции
   laundry_id: string;
 }
 

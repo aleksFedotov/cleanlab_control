@@ -81,7 +81,10 @@ const HEADERS = {
   BillingItems: ['id', 'laundry_id', 'name', 'unit', 'kind', 'oneway', 'max_kg', 'per_floor', 'ext_code', 'sort', 'active'],
   // Тарифы: client_id пусто → дефолт прачки; строка клиента перекрывает дефолт.
   // Upsert по (client_id, billing_item_id); price='' — снять переопределение.
-  ClientTariffs: ['id', 'client_id', 'billing_item_id', 'price', 'laundry_id'],
+  // max_kg — per-клиентское переопределение порога платной доставки (только
+  // пороговая trip-позиция, только клиентские строки); пусто = дефолт из
+  // BillingItems.max_kg.
+  ClientTariffs: ['id', 'client_id', 'billing_item_id', 'price', 'laundry_id', 'max_kg'],
   // Per-клиентская привязка типа белья к позиции счёта. billing_item_id пусто =
   // «у этого клиента тип идёт в вес», даже если глобально тип привязан к wash_pcs.
   // Нет строки → ItemTypes.billing_item_id → весовая позиция по умолчанию.
