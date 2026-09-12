@@ -6,6 +6,7 @@
 // Запуск:
 //   node scripts/purge-week-copies.js          # dry-run: бэкап + список кандидатов
 //   node scripts/purge-week-copies.js --apply  # удаление
+//   --keep-date=YYYY-MM-DD                     # дату не трогаем (можно несколько раз)
 // Путь к БД: DB_PATH из env, иначе server/data/cleanlab.sqlite.
 
 const path = require('path');
@@ -13,6 +14,9 @@ const Database = require('better-sqlite3');
 
 const dbPath = process.env.DB_PATH || path.join(__dirname, '..', 'data', 'cleanlab.sqlite');
 const apply = process.argv.includes('--apply');
+// --keep-date=YYYY-MM-DD (можно несколько) — эти дни не трогаем
+const keepDates = process.argv.filter(function (a) { return a.indexOf('--keep-date=') === 0; })
+  .map(function (a) { return a.slice('--keep-date='.length); });
 const tz = process.env.APP_TZ || 'Europe/Moscow';
 const today = new Intl.DateTimeFormat('sv-SE', { timeZone: tz }).format(new Date());
 
@@ -31,7 +35,12 @@ async function main() {
   console.log('Бэкап: ' + backupPath);
   console.log('Порог даты (' + tz + '): ' + today + '\n');
 
-  const rows = db.prepare(SELECT).all(today);
+  const found = db.prepare(SELECT).all(today);
+  const rows = found.filter(function (r) { return keepDates.indexOf(r.date) === -1; });
+  if (keepDates.length) {
+    console.log('Исключено по --keep-date (' + keepDates.join(', ') + '): ' +
+      (found.length - rows.length) + ' визит(ов)\n');
+  }
   if (!rows.length) {
     console.log('Кандидатов на удаление нет.');
     return;
