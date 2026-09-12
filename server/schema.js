@@ -77,8 +77,10 @@ const HEADERS = {
   // kind: wash_weight | wash_pcs | trip | lift. oneway=да — позиция для визита с одной
   // ногой; max_kg — верхняя граница яруса веса ноги; per_floor=да (только lift) —
   // цена за каждый этаж выше 2-го, иначе за факт подъёма. ext_code — код НФ для 1С.
+  // min_kg (только wash_weight) — минимальный вес стирки за период в счёте:
+  // если Σ кг периода > 0 и < min_kg, в счёт идёт min_kg; пусто = без минимума.
   // На прачку — ровно одна активная позиция wash_weight (весовая по умолчанию).
-  BillingItems: ['id', 'laundry_id', 'name', 'unit', 'kind', 'oneway', 'max_kg', 'per_floor', 'ext_code', 'sort', 'active'],
+  BillingItems: ['id', 'laundry_id', 'name', 'unit', 'kind', 'oneway', 'max_kg', 'per_floor', 'ext_code', 'sort', 'active', 'min_kg'],
   // Тарифы: client_id пусто → дефолт прачки; строка клиента перекрывает дефолт.
   // Upsert по (client_id, billing_item_id); price='' — снять переопределение.
   // max_kg — per-клиентское переопределение порога платной доставки (только

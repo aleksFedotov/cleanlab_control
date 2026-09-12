@@ -38,9 +38,14 @@ function saveBillingItem(session, item) {
         return saveLogisticsItem_(session, found, item, laundryId);
       }
     }
-    const name = String(item.name || '').trim();
+    // При правке (item.id) поля, не переданные вызовом (инлайн-правки шлют
+    // только своё поле), наследуются из текущей строки.
+    const prev = item.id ? db.findById_(SHEETS.BILLING_ITEMS, item.id) : null;
+    const name = String(item.name !== undefined ? item.name : (prev ? prev.obj.name : '')).trim();
     if (!name) return err_('Укажите название позиции');
-    const active = item.active === 'нет' ? 'нет' : 'да';
+    const active = item.active !== undefined
+      ? (item.active === 'нет' ? 'нет' : 'да')
+      : (prev ? prev.obj.active : 'да');
     // Ровно одна активная весовая позиция на весь глобальный прайс (весовая по умолчанию)
     if (kind === 'wash_weight' && active === 'да') {
       const dup = billingItems_().filter(function (b) {
@@ -48,11 +53,26 @@ function saveBillingItem(session, item) {
       })[0];
       if (dup) return err_('Активная весовая позиция уже есть: ' + dup.name);
     }
+    // min_kg — только весовой позиции; пусто/0 = без минимума. При правке без
+    // поля (форма прайса его не шлёт) текущее значение сохраняется.
+    let minKg = '';
+    if (kind === 'wash_weight') {
+      if (item.min_kg === undefined && prev) {
+        minKg = prev.obj.min_kg || '';
+      } else {
+        const raw = String(item.min_kg || '').trim();
+        if (raw && raw !== '0') {
+          const n = Number(raw);
+          if (!Number.isInteger(n) || n <= 0) return err_('Минимум кг — целое число больше 0');
+          minKg = String(n);
+        }
+      }
+    }
     const normalized = {
       name: name, unit: kind === 'wash_weight' ? 'кг' : 'шт', kind: kind,
       oneway: '', max_kg: '', per_floor: '',
-      ext_code: String(item.ext_code || '').trim(),
-      active: active
+      ext_code: String(item.ext_code !== undefined ? item.ext_code : (prev ? prev.obj.ext_code : '')).trim(),
+      active: active, min_kg: minKg
     };
     let saved;
     if (item.id) {
@@ -70,7 +90,8 @@ function saveBillingItem(session, item) {
       db.appendRow_(SHEETS.BILLING_ITEMS, saved);
     }
     logEvent(actorOf_(session), 'billing_item_save', saved.id,
-      { name: saved.name, kind: saved.kind, active: saved.active }, laundryId);
+      { name: saved.name, kind: saved.kind, active: saved.active,
+        min_kg: kind === 'wash_weight' ? saved.min_kg : undefined }, laundryId);
     return ok_({ item: saved });
   });
 }

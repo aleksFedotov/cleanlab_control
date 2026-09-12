@@ -148,6 +148,54 @@ function ThresholdCell({ item }: { item: BillingItem }) {
   );
 }
 
+// Инлайн-поле минимума кг в счёте на весовой позиции: целое > 0 или пусто
+// (без минимума). Если Σ кг периода > 0 и меньше минимума — в счёт идёт минимум.
+function MinKgCell({ item }: { item: BillingItem }) {
+  const [value, setValue] = useState(item.min_kg || '');
+  const toast = useUiStore((s) => s.toast);
+  const save = useApiMutation('saveBillingItem', {
+    invalidate: ['billingItems'],
+    onSuccess: () => useUiStore.getState().toast('Минимум сохранён'),
+  });
+  return (
+    <input
+      className={styles.priceInput}
+      type="text"
+      inputMode="numeric"
+      placeholder="—"
+      value={value}
+      onClick={(e) => e.stopPropagation()}
+      onChange={(e) => setValue(e.target.value)}
+      onBlur={() => {
+        const v = value.trim();
+        if (v === (item.min_kg || '')) return;
+        if (v) {
+          const n = Number(v);
+          if (!Number.isInteger(n) || n <= 0) {
+            toast('Минимум — целое число больше 0 или пусто', 'err');
+            setValue(item.min_kg || '');
+            return;
+          }
+          if (!window.confirm(
+            `Установить минимум ${n} кг в счёте? Прошлые периоды в счетах и «Финансах» пересчитаются.`
+          )) {
+            setValue(item.min_kg || '');
+            return;
+          }
+          save.mutate({ id: item.id, kind: item.kind, min_kg: String(n) });
+        } else {
+          if (!window.confirm('Снять минимум кг? Прошлые периоды пересчитаются.')) {
+            setValue(item.min_kg || '');
+            return;
+          }
+          save.mutate({ id: item.id, kind: item.kind, min_kg: '' });
+        }
+      }}
+      aria-label="Минимум кг в счёте"
+    />
+  );
+}
+
 // Клиенты/виды белья видны на операционных экранах (стирка, развоз, склад) —
 // инвалидируем refs + все операционные чтения.
 const REFS_INVALIDATE = ['refs', ...OPERATIONAL_PREFIXES];
@@ -453,6 +501,14 @@ export default function RefsPage() {
     { key: 'unit', title: 'Ед.' },
     { key: 'ext_code', title: 'Код НФ', render: (b: BillingItem) => b.ext_code || '—' },
     {
+      key: 'min_kg',
+      title: 'Минимум, кг',
+      align: 'right',
+      mono: true,
+      render: (b: BillingItem) =>
+        b.kind === 'wash_weight' ? <MinKgCell item={b} /> : '—',
+    },
+    {
       key: 'price',
       title: 'Цена по умолч.',
       align: 'right',
@@ -716,6 +772,7 @@ export default function RefsPage() {
             />
             <div className={styles.hint}>
               В счёте должна быть ровно одна активная весовая позиция — в неё идёт всё бельё без штучной привязки.
+              «Минимум, кг»: если за период стирки были, но вес меньше минимума — в счёт идёт минимум (пусто = без минимума, прошлые периоды пересчитаются).
             </div>
             {logisticsItems.length > 0 && (
               <>

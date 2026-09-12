@@ -299,9 +299,16 @@ function buildInvoice_(input) {
     return w.client_id === client.id && INVOICE_WASH_STATUSES.indexOf(w.status) !== -1 &&
       w.wash_date >= from && w.wash_date <= to;
   });
+  // min_kg позиции — минимум за период: стирки были, но Σ вес меньше
+  // минимума → в счёт идёт минимум (стирок не было → строки нет).
   let kg = 0;
   washes.forEach(function (w) { kg += Number(w.dirty_weight_kg) || 0; });
-  if (weightItem) add(weightItem.id, round1_(kg));
+  if (weightItem) {
+    let qty = round1_(kg);
+    const minKg = Number(weightItem.min_kg) || 0;
+    if (qty > 0 && minKg > 0 && qty < minKg) qty = minKg;
+    add(weightItem.id, qty);
+  }
 
   // Штучные строки: WashItems этих стирок по цепочке привязки, тип «в весе» строки не даёт
   const washIds = {};

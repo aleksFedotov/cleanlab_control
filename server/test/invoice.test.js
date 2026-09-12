@@ -638,6 +638,48 @@ test('per-клиентский порог доставки: max_kg в ClientTari
   assert.strictEqual(line(inv, bi.light), undefined);
 });
 
+test('минимум кг в счёте: min_kg весовой позиции поднимает итог периода', () => {
+  const { ctx, owner, bi } = mkBillingCtx();
+  addClient(ctx, 'cli_min');
+  ctx.api.saveTariff(owner, '', bi.weight, 100);
+
+  // Валидация: только целое > 0 (или пусто)
+  assert.strictEqual(ctx.api.saveBillingItem(owner, { id: bi.weight, kind: 'wash_weight', min_kg: 'abc' }).ok, false);
+  assert.strictEqual(ctx.api.saveBillingItem(owner, { id: bi.weight, kind: 'wash_weight', min_kg: '-5' }).ok, false);
+  assert.strictEqual(ctx.api.saveBillingItem(owner, { id: bi.weight, kind: 'wash_weight', min_kg: '3.5' }).ok, false);
+
+  // Минимум 14: 5 кг → в счёт 14 кг
+  const r = ctx.api.saveBillingItem(owner, { id: bi.weight, kind: 'wash_weight', min_kg: '14' });
+  assert.ok(r.ok, r.error);
+  assert.strictEqual(r.item.min_kg, '14');
+  addWash(ctx, { client_id: 'cli_min', wash_date: '2026-08-03', status: 'issued', kg: 5, issued_at: '2026-08-04 12:00:00' });
+  let inv = invoice(ctx, owner, 'cli_min');
+  assert.strictEqual(line(inv, bi.weight).qty, 14);
+  assert.strictEqual(line(inv, bi.weight).amount, 1400);
+
+  // Больше минимума — не режется
+  addWash(ctx, { client_id: 'cli_min', wash_date: '2026-08-05', status: 'issued', kg: 20, issued_at: '2026-08-06 12:00:00' });
+  inv = invoice(ctx, owner, 'cli_min');
+  assert.strictEqual(line(inv, bi.weight).qty, 25, '5 + 20 = 25 > 14');
+
+  // Стирок нет — минимум не выставляется
+  addClient(ctx, 'cli_min0');
+  inv = invoice(ctx, owner, 'cli_min0');
+  assert.strictEqual(line(inv, bi.weight), undefined);
+
+  // Форма прайса (без min_kg) не затирает минимум
+  assert.ok(ctx.api.saveBillingItem(owner, {
+    id: bi.weight, kind: 'wash_weight', name: 'Услуги прачечной (постельное бельё)',
+    ext_code: '', active: 'да'
+  }).ok);
+  assert.strictEqual(ctx.api.listBillingItems(owner).items.find(i => i.id === bi.weight).min_kg, '14');
+
+  // Снятие минимума: 5 + 20 = 25 кг как есть
+  assert.ok(ctx.api.saveBillingItem(owner, { id: bi.weight, kind: 'wash_weight', min_kg: '' }).ok);
+  inv = invoice(ctx, owner, 'cli_min');
+  assert.strictEqual(line(inv, bi.weight).qty, 25);
+});
+
 test('migrateToV4_: повторный запуск не дублирует прайс (v7 — прайс глобальный)', () => {
   const { ctx } = mkBillingCtx(); // 7 глобальных позиций из openTest
   // Прайс глобальный: новые прачки не получают свои копии, повторный запуск — no-op.

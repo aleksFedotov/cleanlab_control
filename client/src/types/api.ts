@@ -365,6 +365,7 @@ export interface BillingItem {
   ext_code: string;
   sort: string;
   active: string; // 'да' | 'нет'
+  min_kg?: string; // минимум кг в счёте за период (только wash_weight); '' = без минимума
 }
 
 export interface BillingItemsRes {
