@@ -30,6 +30,7 @@ function open(dbPath = DB_PATH) {
   migrateToV6_(db);
   migrateToV7_(db);
   migrateToV9_(db);
+  migrateToV12_(db);
   return db;
 }
 
@@ -44,6 +45,7 @@ function openTest(dbPath = ':memory:') {
   migrateToV6_(testDb);
   migrateToV7_(testDb);
   migrateToV9_(testDb);
+  migrateToV12_(testDb);
   return testDb;
 }
 
@@ -132,6 +134,7 @@ function migrateToV4_(d = db) {
       oneway: item.oneway || '',
       max_kg: item.max_kg || '',
       per_floor: item.per_floor || '',
+      per_visit: item.per_visit || '',
       ext_code: '',
       sort: String(idx + 1),
       active: 'да'
@@ -144,11 +147,13 @@ function migrateToV4_(d = db) {
 // Заодно удаляются её строки из ClientTariffs. Self-made trip/lift позиции,
 // созданные до запрета, не трогаем — они становятся замороженными legacy.
 // Идемпотентно: без совпадений ничего не делает. Чтение по всей таблице
-// (rowid нужен для удаления).
+// (rowid нужен для удаления). v12: per_visit=да («Доставка», P11) не трогаем —
+// это не та legacy-позиция.
 function migrateToV6_(d = db) {
   const plainTrips = d.prepare(
     `SELECT rowid AS _rowid, id FROM "BillingItems"
-     WHERE kind = 'trip' AND (max_kg IS NULL OR max_kg = '') AND (oneway IS NULL OR oneway != 'да')`
+     WHERE kind = 'trip' AND (max_kg IS NULL OR max_kg = '') AND (oneway IS NULL OR oneway != 'да')
+       AND (per_visit IS NULL OR per_visit != 'да')`
   ).all();
   plainTrips.forEach(function (t) {
     d.prepare(`DELETE FROM "ClientTariffs" WHERE billing_item_id = ?`).run(t.id);
@@ -261,6 +266,39 @@ function migrateToV9_(d = db) {
   setTenantSetting_('', 'STORAGE_VISIT_ID_BACKFILL', 'done', d);
 }
 
+
+// Миграция v12 (P11): позиция «Доставка» (trip, per_visit=да) для платной
+// доставки клиентов типа А. Вставляется сразу после пороговой позиции
+// (sort сдвигается у всех нижестоящих). Идемпотентно: если per_visit-позиция
+// уже есть (сид свежей установки) — no-op, иначе был бы дубль.
+function migrateToV12_(d = db) {
+  const exists = d.prepare(
+    `SELECT COUNT(*) AS n FROM "BillingItems" WHERE kind = 'trip' AND per_visit = 'да'`
+  ).get();
+  if (exists.n > 0) return;
+  const threshold = d.prepare(
+    `SELECT rowid AS _rowid, sort FROM "BillingItems"
+     WHERE kind = 'trip' AND max_kg IS NOT NULL AND max_kg != '' AND (oneway IS NULL OR oneway != 'да')
+     ORDER BY rowid LIMIT 1`
+  ).get();
+  const sortAfter = threshold ? (Number(threshold.sort) || 0) : 0;
+  d.prepare(`UPDATE "BillingItems" SET sort = CAST((CAST(sort AS INTEGER) + 1) AS TEXT) WHERE CAST(sort AS INTEGER) > ?`)
+    .run(sortAfter);
+  appendRow_('BillingItems', {
+    id: nextId_('BillingItems', 'bi', d),
+    laundry_id: '',
+    name: 'Доставка',
+    unit: 'рейс',
+    kind: 'trip',
+    oneway: '',
+    max_kg: '',
+    per_floor: '',
+    per_visit: 'да',
+    ext_code: '',
+    sort: String(sortAfter + 1),
+    active: 'да'
+  }, d);
+}
 
 function setTenantSetting_(laundryId, key, value, d = db) {
   const found = findRowsBy_('Settings', function (r) {
@@ -473,6 +511,6 @@ module.exports = {
   readAll_, readTail_, appendRow_, nextId_, findRowsBy_, findById_,
   updateRow_, deleteRow_, parseJsonList_,
   readAllByTenant_, readTailByTenant_, findRowsByTenant_, appendRowTenant_,
-  setTenantSetting_, migrateToV2_, migrateToV3_, migrateToV4_, migrateToV6_, migrateToV7_, migrateToV9_,
+  setTenantSetting_, migrateToV2_, migrateToV3_, migrateToV4_, migrateToV6_, migrateToV7_, migrateToV9_, migrateToV12_,
   invalidateRefCache_, getSettings_, getClients_, getItemTypes_, transaction_
 };

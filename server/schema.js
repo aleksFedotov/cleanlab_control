@@ -1,7 +1,7 @@
 // Схема данных CleanLab Control — порт src/Schema.gs.
 // Таблицы SQLite = листам Sheets, колонки = HEADERS. Все значения храним как TEXT
 // (даты — строками формата схемы), как и в Sheets.
-const SCHEMA_VERSION = 11;
+const SCHEMA_VERSION = 12;
 
 const SHEETS = {
   SETTINGS: 'Settings',
@@ -37,7 +37,7 @@ const SHEETS = {
 // клиентские переопределения цен остаются per-прачка.
 const HEADERS = {
   Settings: ['key', 'value', 'laundry_id'],
-  Clients: ['id', 'name', 'contact', 'address', 'type', 'active', 'comment', 'item_types', 'accounting', 'inn', 'kpp', 'legal_address', 'laundry_id', 'access_note'],
+  Clients: ['id', 'name', 'contact', 'address', 'type', 'active', 'comment', 'item_types', 'accounting', 'inn', 'kpp', 'legal_address', 'laundry_id', 'access_note', 'paid_delivery'],
   // billing_item_id — позиция прайса (BillingItems kind=wash_pcs), пусто = в счёт по весу.
   ItemTypes: ['id', 'name', 'sort', 'active', 'billing_item_id'],
   Washes: ['id', 'client_id', 'wash_date', 'issue_date', 'status',
@@ -80,7 +80,9 @@ const HEADERS = {
   // min_kg (только wash_weight) — минимальный вес стирки за период в счёте:
   // если Σ кг периода > 0 и < min_kg, в счёт идёт min_kg; пусто = без минимума.
   // На прачку — ровно одна активная позиция wash_weight (весовая по умолчанию).
-  BillingItems: ['id', 'laundry_id', 'name', 'unit', 'kind', 'oneway', 'max_kg', 'per_floor', 'ext_code', 'sort', 'active', 'min_kg'],
+  // per_visit=да (только trip) — позиция «Доставка» за визит целиком (P11),
+  // применяется к клиентам с paid_delivery=да; в пул ног не входит.
+  BillingItems: ['id', 'laundry_id', 'name', 'unit', 'kind', 'oneway', 'max_kg', 'per_floor', 'ext_code', 'sort', 'active', 'min_kg', 'per_visit'],
   // Тарифы: client_id пусто → дефолт прачки; строка клиента перекрывает дефолт.
   // Upsert по (client_id, billing_item_id); price='' — снять переопределение.
   // max_kg — per-клиентское переопределение порога платной доставки (только
@@ -112,12 +114,15 @@ const START_ITEM_TYPES = [
 // P2.2: логистические позиции фиксированы (создание trip/lift закрыто), позиция
 // «Доставка» (рейс без яруса) удалена миграцией v6 — доставка от N кг бесплатна.
 // Пороговая позиция — единственная trip с max_kg и oneway ≠ да.
+// P11: «Доставка» (per_visit=да) — платный рейс для клиентов с paid_delivery=да,
+// в пул ног не входит (отличается от удалённой v6 безъярусной маркером per_visit).
 const START_BILLING_ITEMS = [
   { name: 'Услуги прачечной (постельное бельё)', unit: 'кг', kind: 'wash_weight' },
   { name: 'Услуги прачечной (Халат)', unit: 'шт', kind: 'wash_pcs' },
   { name: 'Услуги прачечной (Подушка, Одеяло, Наматрасник)', unit: 'шт', kind: 'wash_pcs' },
   { name: 'Услуги прачечной (Штора)', unit: 'шт', kind: 'wash_pcs' },
   { name: 'Доставка менее 30 кг', unit: 'рейс', kind: 'trip', max_kg: '30' },
+  { name: 'Доставка', unit: 'рейс', kind: 'trip', per_visit: 'да' },
   { name: 'Доставка в одну сторону/Забор', unit: 'рейс', kind: 'trip', oneway: 'да' },
   { name: 'Подъём на этаж', unit: 'этаж', kind: 'lift', per_floor: 'да' }
 ];
