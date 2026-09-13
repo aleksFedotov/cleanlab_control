@@ -7,8 +7,8 @@ const { makeCtx, loginOwner, loginWorker, loginDriver } = require('./helpers/ser
 const FROM = '2026-08-01';
 const TO = '2026-08-31';
 
-// Контекст + id стартовых позиций прайса (сид миграции v4, P2.2 — 7 позиций,
-// plain-trip «Доставка» удалена миграцией v6).
+// Контекст + id стартовых позиций прайса (сид миграции v4: 8 позиций,
+// включая per_visit «Доставку» P11; plain-trip без per_visit удалена миграцией v6).
 function mkBillingCtx() {
   const ctx = makeCtx();
   const owner = loginOwner();
@@ -19,17 +19,19 @@ function mkBillingCtx() {
     pillow: items.find(i => i.name.indexOf('Подушка') !== -1).id,
     curtain: items.find(i => i.name.indexOf('Штора') !== -1).id,
     light: items.find(i => i.kind === 'trip' && i.max_kg === '30').id,
+    round: items.find(i => i.kind === 'trip' && i.per_visit === 'да').id,
     oneway: items.find(i => i.kind === 'trip' && i.oneway === 'да').id,
     lift: items.find(i => i.kind === 'lift').id
   };
   return { ctx, owner, bi };
 }
 
-function addClient(ctx, id, name) {
-  ctx.db.appendRowTenant_('Clients', {
+function addClient(ctx, id, name, extra) {
+  ctx.db.appendRowTenant_('Clients', Object.assign({
     id: id, name: name || id, contact: '', address: '', type: 'отель', active: 'да',
-    comment: '', item_types: '', accounting: '', inn: '', kpp: '', legal_address: ''
-  }, '1');
+    comment: '', item_types: '', accounting: '', inn: '', kpp: '', legal_address: '',
+    paid_delivery: ''
+  }, extra || {}), '1');
   ctx.db.invalidateRefCache_();
   return id;
 }
@@ -445,11 +447,11 @@ test('эталон 3: 422×75 + халаты 10×155 + «менее 30 кг» 14
 test('миграция v4: стартовый прайс сидится один раз (идемпотентно)', () => {
   const { ctx, owner } = mkBillingCtx();
   const before = ctx.api.listBillingItems(owner).items;
-  assert.strictEqual(before.length, 7, 'P2.2: 7 позиций, без plain-trip «Доставка»');
+  assert.strictEqual(before.length, 8, '8 позиций: 7 P2.2 + per_visit «Доставка» (P11)');
   assert.strictEqual(before.filter(i => i.kind === 'wash_weight' && i.active === 'да').length, 1);
   ctx.db.migrateToV4_();
   ctx.db.migrateToV4_();
-  assert.strictEqual(ctx.api.listBillingItems(owner).items.length, 7);
+  assert.strictEqual(ctx.api.listBillingItems(owner).items.length, 8);
 });
 
 test('миграция v6: «Доставка» и её тарифы удалены, идемпотентно, чужие прачки не тронуты', () => {
@@ -475,12 +477,12 @@ test('миграция v6: «Доставка» и её тарифы удале�
   assert.strictEqual(
     ctx.db.readAllByTenant_('ClientTariffs', '2').filter(t => t.billing_item_id === 'bi_old_trip').length,
     0, 'тарифы удалённой позиции удалены');
-  // Прачка 1 (уже на v6) не тронута; список глобальный (v7): 7 + пороговая прачки 2
-  assert.strictEqual(ctx.api.listBillingItems(owner).items.length, 8);
+  // Прачка 1 (уже на v6) не тронута; список глобальный (v7): 8 + пороговая прачки 2
+  assert.strictEqual(ctx.api.listBillingItems(owner).items.length, 9);
   // Повторный запуск — без изменений
   ctx.db.migrateToV6_();
   assert.strictEqual(ctx.db.readAllByTenant_('BillingItems', '2').length, items2.length);
-  assert.strictEqual(ctx.api.listBillingItems(owner).items.length, 8);
+  assert.strictEqual(ctx.api.listBillingItems(owner).items.length, 9);
   // Пороговая позиция прачки 1 — та же, что в хелпере
   assert.ok(ctx.api.listBillingItems(owner).items.find(i => i.id === bi.light));
 });
@@ -552,6 +554,15 @@ test('saveBillingItem/deleteBillingItem: trip и lift фиксированы (P2
   }).ok, false);
   // Код НФ — разрешён
   assert.ok(ctx.api.saveBillingItem(owner, { id: bi.oneway, kind: 'trip', ext_code: 'DLV-1' }).ok);
+  // P11: per_visit «Доставка» — тоже системная: только код НФ, архивация/переименование закрыты
+  assert.strictEqual(ctx.api.deleteBillingItem(owner, bi.round).ok, false);
+  assert.strictEqual(ctx.api.saveBillingItem(owner, {
+    id: bi.round, kind: 'trip', active: 'нет'
+  }).ok, false);
+  assert.strictEqual(ctx.api.saveBillingItem(owner, {
+    id: bi.round, kind: 'trip', name: 'Рейс'
+  }).ok, false);
+  assert.ok(ctx.api.saveBillingItem(owner, { id: bi.round, kind: 'trip', ext_code: 'DLV-2' }).ok);
 });
 
 test('пороговая позиция: смена порога 30 → 20 пересчитывает счёт и имя', () => {
@@ -686,9 +697,9 @@ test('migrateToV4_: повторный запуск не дублирует пр
   ctx.db.appendRow_('Laundries', { id: '2', name: 'П2', active: 'да' });
   ctx.db.appendRow_('Laundries', { id: '3', name: 'П3', active: 'да' });
   ctx.db.migrateToV4_();
-  assert.strictEqual(ctx.db.readAll_('BillingItems').length, 7, 'прайс один на все прачки');
+  assert.strictEqual(ctx.db.readAll_('BillingItems').length, 8, 'прайс один на все прачки');
   ctx.db.migrateToV4_();
-  assert.strictEqual(ctx.db.readAll_('BillingItems').length, 7);
+  assert.strictEqual(ctx.db.readAll_('BillingItems').length, 8);
 });
 
 // --- Этаж от водителя ---
@@ -768,4 +779,168 @@ test('старт стирки связывает dirty-запись склада
   const st = ctx.db.findRowsBy_('Storage', function (s) { return s.client_id === 'cli_s'; }, 10)[0];
   assert.strictEqual(st.obj.wash_id, w, 'dirty-запись связана со стиркой');
   assert.ok(st.obj.consumed_at, 'запись израсходована');
+});
+
+// --- P11: платная доставка для части клиентов (per_visit «Доставка») ---
+
+test('P11 тип А: полный рейс ≥ порога → 1 × «Доставка», пороговой и oneway строк нет', () => {
+  const { ctx, owner, bi } = mkBillingCtx();
+  addClient(ctx, 'cli_pd', 'Платный', { paid_delivery: 'да' });
+  [bi.light, bi.oneway].forEach(id => ctx.api.saveTariff(owner, '', id, 300));
+  ctx.api.saveTariff(owner, '', bi.round, 500);
+
+  // Двуногий визит, партия 31 кг ≥ порога
+  const w = addWash(ctx, { client_id: 'cli_pd', wash_date: '2026-08-03', status: 'issued', kg: 31, issued_at: '2026-08-04 12:00:00' });
+  addVisit(ctx, { client_id: 'cli_pd', date: '2026-08-04', picked_at: '2026-08-04 10:00:00', delivered_at: '2026-08-04 12:00:00' });
+  addDirtyStorage(ctx, 'cli_pd', '2026-08-04', w);
+
+  const inv = invoice(ctx, owner, 'cli_pd');
+  assert.deepStrictEqual(
+    { qty: line(inv, bi.round).qty, price: line(inv, bi.round).price, amount: line(inv, bi.round).amount },
+    { qty: 1, price: 500, amount: 500 });
+  assert.strictEqual(line(inv, bi.round).name, 'Доставка');
+  assert.strictEqual(line(inv, bi.light), undefined, 'порог к типу А не применяется');
+  assert.strictEqual(line(inv, bi.oneway), undefined, 'oneway к типу А не применяется');
+});
+
+test('P11 тип А: рейс в одну сторону → 1 × «Доставка», oneway нет', () => {
+  const { ctx, owner, bi } = mkBillingCtx();
+  addClient(ctx, 'cli_pd1', undefined, { paid_delivery: 'да' });
+  ctx.api.saveTariff(owner, '', bi.round, 500);
+  ctx.api.saveTariff(owner, '', bi.oneway, 300);
+
+  addVisit(ctx, { client_id: 'cli_pd1', date: '2026-08-08', picked_at: '2026-08-08 10:00:00' });
+
+  const inv = invoice(ctx, owner, 'cli_pd1');
+  assert.strictEqual(line(inv, bi.round).qty, 1, 'один рейс = одна цена, нога не удешевляет');
+  assert.strictEqual(line(inv, bi.oneway), undefined);
+});
+
+test('P11 тип А без цены на «Доставку» → missing_prices, строка с amount null', () => {
+  const { ctx, owner, bi } = mkBillingCtx();
+  addClient(ctx, 'cli_pd0', undefined, { paid_delivery: 'да' });
+
+  addVisit(ctx, { client_id: 'cli_pd0', date: '2026-08-08', picked_at: '2026-08-08 10:00:00', delivered_at: '2026-08-08 12:00:00' });
+
+  const inv = invoice(ctx, owner, 'cli_pd0');
+  assert.strictEqual(line(inv, bi.round).price, null);
+  assert.strictEqual(line(inv, bi.round).amount, null);
+  assert.deepStrictEqual(inv.missing_prices, [bi.round]);
+});
+
+test('P11 регрессия типа Б: без галочки счёт построчно как до тикета', () => {
+  const { ctx, owner, bi } = mkBillingCtx();
+  addClient(ctx, 'cli_b1');
+  [bi.light, bi.oneway].forEach(id => ctx.api.saveTariff(owner, '', id, 300));
+  ctx.api.saveTariff(owner, '', bi.round, 500, 'дефолтная цена «Доставки» задана, но тип Б её не ловит');
+
+  // Полный рейс ≥ порога → доставки нет
+  const w1 = addWash(ctx, { client_id: 'cli_b1', wash_date: '2026-08-03', status: 'issued', kg: 31, issued_at: '2026-08-04 12:00:00' });
+  addVisit(ctx, { client_id: 'cli_b1', date: '2026-08-04', picked_at: '2026-08-04 10:00:00', delivered_at: '2026-08-04 12:00:00' });
+  addDirtyStorage(ctx, 'cli_b1', '2026-08-04', w1);
+  // Ноги < порога → 2 × пороговая
+  const w2 = addWash(ctx, { client_id: 'cli_b1', wash_date: '2026-08-05', status: 'issued', kg: 29, issued_at: '2026-08-06 12:00:00' });
+  addVisit(ctx, { client_id: 'cli_b1', date: '2026-08-06', picked_at: '2026-08-06 10:00:00', delivered_at: '2026-08-06 12:00:00' });
+  addDirtyStorage(ctx, 'cli_b1', '2026-08-06', w2);
+  // Одна нога → oneway
+  addVisit(ctx, { client_id: 'cli_b1', date: '2026-08-08', picked_at: '2026-08-08 10:00:00' });
+
+  const inv = invoice(ctx, owner, 'cli_b1');
+  assert.strictEqual(line(inv, bi.round), undefined, 'per_visit-позиция не попадает в пул ног');
+  assert.strictEqual(line(inv, bi.light).qty, 2);
+  assert.strictEqual(line(inv, bi.oneway).qty, 1);
+  const tripLines = inv.lines.filter(l =>
+    ctx.api.listBillingItems(owner).items.find(i => i.id === l.billing_item_id).kind === 'trip');
+  assert.strictEqual(tripLines.length, 2);
+});
+
+test('P11: planned/cancelled/empty визиты не дают доставочных строк в обоих режимах', () => {
+  const { ctx, owner, bi } = mkBillingCtx();
+  addClient(ctx, 'cli_npd');
+  addClient(ctx, 'cli_pdx', undefined, { paid_delivery: 'да' });
+  ctx.api.saveTariff(owner, '', bi.round, 500);
+  ctx.api.saveTariff(owner, '', bi.oneway, 300);
+
+  ['cli_npd', 'cli_pdx'].forEach(cid => {
+    addVisit(ctx, { client_id: cid, date: '2026-08-03', status: 'planned' });
+    addVisit(ctx, { client_id: cid, date: '2026-08-04', status: 'cancelled', picked_at: '2026-08-04 10:00:00' });
+    addVisit(ctx, { client_id: cid, date: '2026-08-05', status: 'empty', delivered_at: '2026-08-05 12:00:00' });
+  });
+
+  ['cli_npd', 'cli_pdx'].forEach(cid => {
+    const inv = invoice(ctx, owner, cid);
+    const tripLines = inv.lines.filter(l =>
+      ctx.api.listBillingItems(owner).items.find(i => i.id === l.billing_item_id).kind === 'trip');
+    assert.strictEqual(tripLines.length, 0, 'у ' + cid + ' нет доставочных строк');
+  });
+});
+
+test('P11: лифт считается одинаково у типа А и типа Б', () => {
+  const { ctx, owner, bi } = mkBillingCtx();
+  addClient(ctx, 'cli_lb');
+  addClient(ctx, 'cli_la', undefined, { paid_delivery: 'да' });
+  ctx.api.saveTariff(owner, '', bi.lift, 300);
+  ctx.api.saveTariff(owner, '', bi.round, 500);
+  ctx.api.saveTariff(owner, '', bi.oneway, 100);
+
+  ['cli_lb', 'cli_la'].forEach(cid => {
+    addVisit(ctx, { client_id: cid, date: '2026-08-03', delivered_at: '2026-08-03 12:00:00', lift_floor: '4' });
+  });
+
+  const invB = invoice(ctx, owner, 'cli_lb');
+  const invA = invoice(ctx, owner, 'cli_la');
+  assert.strictEqual(line(invB, bi.lift).qty, 2);
+  assert.strictEqual(line(invA, bi.lift).qty, 2);
+  assert.strictEqual(line(invA, bi.round).qty, 1, 'у типа А тот же визит даёт и рейс');
+  assert.strictEqual(line(invB, bi.round), undefined);
+});
+
+test('P11 миграция v12: позиция создаётся, идемпотентно, свежая установка — без дубля', () => {
+  const { ctx, owner, bi } = mkBillingCtx();
+  const items = () => ctx.api.listBillingItems(owner).items;
+  // Свежая установка: сид уже содержит позицию — прогон миграции no-op
+  assert.strictEqual(items().filter(i => i.kind === 'trip' && i.per_visit === 'да').length, 1);
+  ctx.db.migrateToV12_();
+  assert.strictEqual(items().filter(i => i.per_visit === 'да').length, 1, 'повторный прогон без дубля');
+
+  // Старая БД без позиции: удаляем и возвращаем sort'ы к раскладке до P11
+  // (7 позиций: пороговая=5, oneway=6, lift=7)
+  const found = ctx.db.findById_('BillingItems', bi.round);
+  ctx.db.deleteRow_('BillingItems', found.rowNumber);
+  [bi.oneway, bi.lift].forEach(function (id, i) {
+    const f = ctx.db.findById_('BillingItems', id);
+    f.obj.sort = String(6 + i);
+    ctx.db.updateRow_('BillingItems', f.rowNumber, f.obj);
+  });
+  assert.strictEqual(items().filter(i => i.per_visit === 'да').length, 0);
+  ctx.db.migrateToV12_();
+  const after = items();
+  assert.strictEqual(after.filter(i => i.kind === 'trip' && i.per_visit === 'да').length, 1, 'позиция создана');
+  const created = after.find(i => i.per_visit === 'да');
+  assert.strictEqual(created.name, 'Доставка');
+  assert.strictEqual(created.unit, 'рейс');
+  assert.strictEqual(created.active, 'да');
+  // Сразу после пороговой: пороговая sort=5, новая sort=6, нижестоящие сдвинуты
+  const light = after.find(i => i.id === bi.light);
+  assert.strictEqual(Number(created.sort), Number(light.sort) + 1);
+  const sorts = after.map(i => Number(i.sort)).sort((a, b) => a - b);
+  assert.deepStrictEqual(sorts, [1, 2, 3, 4, 5, 6, 7, 8], 'sort непрерывен, без сдвиговых дыр');
+  // Повторный прогон — без дубля
+  ctx.db.migrateToV12_();
+  assert.strictEqual(items().filter(i => i.per_visit === 'да').length, 1);
+});
+
+test('P11: per-клиентская цена на «Доставку» перекрывает дефолт', () => {
+  const { ctx, owner, bi } = mkBillingCtx();
+  addClient(ctx, 'cli_pa', undefined, { paid_delivery: 'да' });
+  addClient(ctx, 'cli_pb', undefined, { paid_delivery: 'да' });
+  ctx.api.saveTariff(owner, '', bi.round, 500);
+  ctx.api.saveTariff(owner, 'cli_pa', bi.round, 700);
+
+  ['cli_pa', 'cli_pb'].forEach(cid => {
+    addVisit(ctx, { client_id: cid, date: '2026-08-03', delivered_at: '2026-08-03 12:00:00' });
+  });
+
+  assert.strictEqual(line(invoice(ctx, owner, 'cli_pa'), bi.round).price, 700, 'переопределение клиента');
+  assert.strictEqual(line(invoice(ctx, owner, 'cli_pb'), bi.round).price, 500, 'дефолт прачки');
 });

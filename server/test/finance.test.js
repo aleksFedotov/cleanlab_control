@@ -7,7 +7,7 @@ const { makeCtx, loginOwner, loginWorker, loginDriver, seedLaundry2 } = require(
 const FROM = '2026-08-01';
 const TO = '2026-08-31';
 
-// Контекст + id стартовых позиций прайса (сид миграции v4, P2.2 — 7 позиций).
+// Контекст + id стартовых позиций прайса (сид миграции v4: 7 позиций P2.2 + per_visit «Доставка» P11).
 function mkBillingCtx() {
   const ctx = makeCtx();
   const owner = loginOwner();

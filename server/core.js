@@ -323,7 +323,12 @@ function buildInvoice_(input) {
   });
 
   // Рейсы: ноги визитов клиента в периоде (cancelled/empty не тарифицируются)
-  const trips = items.filter(function (b) { return b.kind === 'trip'; });
+  // per_visit-позиции в пул ног не входят: безъярусная trip-позиция иначе
+  // ловит ВСЕ рейсы ВСЕХ клиентов через pickByTier_ fallback (именно поэтому
+  // миграция v6 удаляла старую безъярусную «Доставку»).
+  const round = items.filter(function (b) { return b.kind === 'trip' && b.per_visit === 'да'; })[0];
+  const trips = items.filter(function (b) { return b.kind === 'trip' && b.per_visit !== 'да'; });
+  const paidDelivery = client.paid_delivery === 'да' && !!round;
   // Пороговая позиция: per-клиентское переопределение max_kg (пусто = дефолт позиции).
   // Работаем на копии объекта позиции — input.billingItems не мутируем.
   const threshold = trips.filter(function (b) { return b.max_kg && b.oneway !== 'да'; })[0];
@@ -347,13 +352,19 @@ function buildInvoice_(input) {
     const legs = [];
     if (v.picked_at) legs.push('pickup');
     if (v.delivered_at) legs.push('delivery');
-    legs.forEach(function (leg) {
-      const legKg = leg === 'pickup'
-        ? pickupWeightKg_(v, input.storageRows, washesById)
-        : deliveryWeightKg_(v, clientWashes);
-      const pos = pickTripPosition_(trips, legKg, legs.length === 1);
-      if (pos) add(pos.id, 1);
-    });
+    if (paidDelivery) {
+      // Тип А: один рейс = одна строка «Доставка», вес и число ног не важны.
+      // Визит без ног (planned/empty) не тарифицируется — «всегда» = «когда рейс был».
+      if (legs.length) add(round.id, 1);
+    } else {
+      legs.forEach(function (leg) {
+        const legKg = leg === 'pickup'
+          ? pickupWeightKg_(v, input.storageRows, washesById)
+          : deliveryWeightKg_(v, clientWashes);
+        const pos = pickTripPosition_(trips, legKg, legs.length === 1);
+        if (pos) add(pos.id, 1);
+      });
+    }
     // Подъём: этаж выше 2-го; per_floor=да — за каждый этаж выше 2-го, иначе за факт
     const floor = Math.floor(Number(v.lift_floor) || 0);
     if (floor > 2 && lift) add(lift.id, lift.per_floor === 'да' ? floor - 2 : 1);

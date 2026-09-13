@@ -86,7 +86,7 @@ test('миграция v7: дубли позиций сливаются, ссы�
   ctx.db.migrateToV7_();
 
   const items = ctx.db.readAll_('BillingItems');
-  assert.strictEqual(items.length, 7, 'дубль слит');
+  assert.strictEqual(items.length, 8, 'дубль слит');
   assert.ok(items.every(i => i.laundry_id === ''), 'все позиции глобальные');
   assert.strictEqual(ctx.db.findById_('BillingItems', 'bi_dup_robe'), null);
 
@@ -101,7 +101,7 @@ test('миграция v7: дубли позиций сливаются, ссы�
 
   // Идемпотентность
   ctx.db.migrateToV7_();
-  assert.strictEqual(ctx.db.readAll_('BillingItems').length, 7);
+  assert.strictEqual(ctx.db.readAll_('BillingItems').length, 8);
   assert.strictEqual(ctx.db.readAll_('ClientTariffs').filter(x => x.billing_item_id === robe).length,
     t.filter(x => x.billing_item_id === robe).length);
 });

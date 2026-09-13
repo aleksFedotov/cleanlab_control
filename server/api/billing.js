@@ -97,14 +97,16 @@ function saveBillingItem(session, item) {
 }
 
 // Правка фиксированных логистических позиций (P2.2).
-// Системный набор: пороговая (trip с max_kg, oneway ≠ да), oneway-trip, lift per_floor.
-// Пороговой разрешены max_kg и ext_code (имя генерируется из N); oneway/lift —
-// только ext_code; legacy (созданные до запрета) — только архивация (active).
+// Системный набор: пороговая (trip с max_kg, oneway ≠ да), oneway-trip, lift per_floor,
+// per_visit «Доставка» (P11). Пороговой разрешены max_kg и ext_code (имя генерируется
+// из N); oneway/lift/per_visit — только ext_code; legacy (созданные до запрета) —
+// только архивация (active).
 function saveLogisticsItem_(session, found, item, laundryId) {
   const it = found.obj;
   const isThreshold = it.kind === 'trip' && it.max_kg && it.oneway !== 'да';
   const isSystem = isThreshold
     || (it.kind === 'trip' && it.oneway === 'да')
+    || (it.kind === 'trip' && it.per_visit === 'да')
     || (it.kind === 'lift' && it.per_floor === 'да');
   const attempt = function (field, val) {
     return val !== undefined && String(val) !== String(it[field] || '');

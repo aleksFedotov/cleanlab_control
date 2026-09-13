@@ -24,6 +24,9 @@ function saveClient(session, client) {
         ['weight', 'count', 'both'].indexOf(client.accounting) === -1) {
       client.accounting = '';
     }
+    if (client.paid_delivery !== undefined) {
+      client.paid_delivery = client.paid_delivery === 'да' ? 'да' : '';
+    }
     let saved;
     if (client.id) {
       const found = findTenantRow_(SHEETS.CLIENTS, client.id, laundryId);
@@ -40,7 +43,8 @@ function saveClient(session, client) {
         active: 'да', comment: client.comment || '',
         item_types: client.item_types || '', accounting: client.accounting || '',
         inn: client.inn || '', kpp: client.kpp || '', legal_address: client.legal_address || '',
-        access_note: normalizeAccessNote_(client.access_note)
+        access_note: normalizeAccessNote_(client.access_note),
+        paid_delivery: client.paid_delivery === 'да' ? 'да' : ''
       };
       db.appendRowTenant_(SHEETS.CLIENTS, saved, laundryId);
     }
