@@ -65,6 +65,7 @@ function ProfileTab({
     kpp: client.kpp || '',
     legal_address: client.legal_address || '',
     access_note: client.access_note || '',
+    paid_delivery: client.paid_delivery === 'да',
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
   // Режим «Виды белья»: null — из данных ([] = все виды), локальный override —
@@ -96,7 +97,7 @@ function ProfileTab({
     setErrors((e) => ({ ...e, [field]: '' }));
     const next = { ...fields, [field]: value };
     onSaving?.();
-    save.mutate({ ...next, id: client.id });
+    save.mutate({ ...next, paid_delivery: next.paid_delivery ? 'да' : '', id: client.id });
   }
 
   // Текст: сохранение по onBlur, только если изменилось
@@ -293,6 +294,25 @@ function ProfileTab({
             saveField('accounting', v);
           }}
         />
+        <div className={pillStyles.row} style={{ marginTop: 8 }}>
+          <button
+            type="button"
+            className={`${pillStyles.pill} ${fields.paid_delivery ? pillStyles.active : ''}`}
+            aria-pressed={fields.paid_delivery}
+            onClick={() => {
+              const next = !fields.paid_delivery;
+              setFields({ ...fields, paid_delivery: next });
+              saveField('paid_delivery', next ? 'да' : '');
+            }}
+          >
+            Платная доставка (каждый рейс)
+          </button>
+        </div>
+        {fields.paid_delivery && (
+          <div className={styles.hint}>
+            Каждый состоявшийся рейс — по цене позиции «Доставка»; порог и «в одну сторону» не применяются
+          </div>
+        )}
       </div>
     </div>
   );

@@ -55,6 +55,7 @@ export function ClientCreateModal({ onClose }: { onClose: () => void }) {
       kpp: '',
       legal_address: '',
       access_note: '',
+      paid_delivery: '',
     });
   }
 

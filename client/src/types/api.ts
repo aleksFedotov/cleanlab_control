@@ -85,6 +85,8 @@ export interface Client {
   laundry_id: string;
   // «Как добраться» — подсказка для водителей (P2.4), до 2000 символов
   access_note: string;
+  // Платная доставка каждый рейс (P11): 'да' = тип А, '' = тип Б (порог/oneway)
+  paid_delivery?: string;
 }
 
 export interface ItemType {
@@ -366,6 +368,7 @@ export interface BillingItem {
   sort: string;
   active: string; // 'да' | 'нет'
   min_kg?: string; // минимум кг в счёте за период (только wash_weight); '' = без минимума
+  per_visit?: string; // 'да' у позиции «Доставка» (P11): рейс целиком, для клиентов с paid_delivery
 }
 
 export interface BillingItemsRes {

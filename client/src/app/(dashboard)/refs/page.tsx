@@ -589,7 +589,7 @@ export default function RefsPage() {
       align: 'right',
       render: (b: BillingItem) =>
         // legacy (не из системного набора): только архивация/возврат
-        !isThresholdTrip(b) && !(b.kind === 'trip' && b.oneway === 'да') && !(b.kind === 'lift' && b.per_floor === 'да') ? (
+        !isThresholdTrip(b) && !(b.kind === 'trip' && b.oneway === 'да') && !(b.kind === 'trip' && b.per_visit === 'да') && !(b.kind === 'lift' && b.per_floor === 'да') ? (
           <span className={styles.rowActions}>
             {b.active === 'да' ? (
               <Button
@@ -781,6 +781,7 @@ export default function RefsPage() {
                 <div className={styles.hint}>
                   Позиции фиксированы: редактируются только цены и коды НФ, у «Доставки менее N кг» —
                   ещё и порог N (прошлые периоды пересчитаются). Доставка от N кг — бесплатно;
+                  «Доставка» — платный рейс для клиентов с галочкой «Платная доставка» в карточке;
                   цены и порог для конкретного клиента — в карточке клиента (вкладка «Цены»).
                 </div>
               </>
