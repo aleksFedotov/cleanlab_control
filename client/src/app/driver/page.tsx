@@ -345,7 +345,7 @@ export default function DriverPage() {
       {/* ===== Диалоги ===== */}
 
       {/* Действия/правка по точке (P6): общий модал — маршрут, история, «Развоз» владельца */}
-      <VisitEditModal visit={visitTarget} onClose={() => setVisitId(null)} />
+      <VisitEditModal visit={visitTarget} onClose={() => setVisitId(null)} viewerRole="driver" />
 
       <ConfirmDialog
         open={takeAllOpen}

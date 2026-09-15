@@ -13,10 +13,11 @@ import type { DecoratedVisit } from '@/types/api';
 import { useApiMutation } from '@/hooks/use-api';
 import { useUiStore } from '@/stores/ui';
 import { num, bags } from '@/lib/format';
-import { timeOf } from '@/lib/dates';
+import { timeOf, todayStr } from '@/lib/dates';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { ExtraWorkModal } from '@/components/payroll/ExtraWorkModal';
 import styles from './VisitEditModal.module.css';
 
 // Водительский тип визита шире (address/access_note), у владельца их нет — оба optional
@@ -25,6 +26,7 @@ export type VisitEditTarget = DecoratedVisit & { address?: string; access_note?:
 export interface VisitEditModalProps {
   visit: VisitEditTarget | null;
   onClose: () => void;
+  viewerRole?: 'driver' | 'owner'; // кнопка «Доп. работа» (P12.1) — только driver
 }
 
 type DriverAction = 'take_clean' | 'deliver_clean' | 'pickup_dirty' | 'both' | 'empty';
@@ -73,13 +75,14 @@ function correctionsFor(v: VisitEditTarget): Array<{ op: CorrectOp; label: strin
   return rows;
 }
 
-export function VisitEditModal({ visit, onClose }: VisitEditModalProps) {
+export function VisitEditModal({ visit, onClose, viewerRole }: VisitEditModalProps) {
   const toast = useUiStore((s) => s.toast);
   const [floor, setFloor] = useState(1);
   const [noteOpen, setNoteOpen] = useState(false);
   const [takeConfirm, setTakeConfirm] = useState(false);
   const [undoTarget, setUndoTarget] = useState<{ op: CorrectOp; what: string } | null>(null);
   const [returnConfirm, setReturnConfirm] = useState(false);
+  const [extraOpen, setExtraOpen] = useState(false);
 
   // Этаж и блок «Как пройти» сбрасываются при смене точки
   // (adjust-state-during-render вместо эффекта — рекомендация react.dev)
@@ -88,6 +91,7 @@ export function VisitEditModal({ visit, onClose }: VisitEditModalProps) {
     setPrevVisitId(visit?.id);
     setFloor(Math.max(1, Math.floor(num(visit?.lift_floor)) || 1));
     setNoteOpen(false);
+    setExtraOpen(false);
   }
 
   const actionMut = useApiMutation('driverAction', {
@@ -232,6 +236,11 @@ export function VisitEditModal({ visit, onClose }: VisitEditModalProps) {
                 ))}
               </>
             )}
+            {viewerRole === 'driver' && visit.date <= todayStr() && (
+              <Button variant="ghost" className={styles.bigBtn} onClick={() => setExtraOpen(true)}>
+                ＋ Доп. работа
+              </Button>
+            )}
           </>
         )}
       </Modal>
@@ -278,6 +287,18 @@ export function VisitEditModal({ visit, onClose }: VisitEditModalProps) {
         }
         okLabel="Отменить действие"
         busy={correctMut.isPending}
+      />
+
+      {/* P12.1: доп. работа с точки — дата визита (не «сегодня»), клиент заблокирован.
+          Карточка визита остаётся открытой после сохранения */}
+      <ExtraWorkModal
+        open={extraOpen}
+        onClose={() => setExtraOpen(false)}
+        mode="driver"
+        date={visit?.date}
+        clientId={visit?.client_id}
+        clientName={visit?.client_name}
+        lockClient
       />
     </>
   );

@@ -23,18 +23,34 @@ export interface ExtraWorkModalProps {
   employees?: PayrollEmployee[];
   // owner: правка существующей записи
   editing?: ExtraWorkListItem | null;
+  // P12.1: предзаполненный клиент из карточки визита (clientName — для option,
+  // если клиента нет в списке активных), lockClient — select заблокирован
+  clientId?: string;
+  clientName?: string;
+  lockClient?: boolean;
 }
 
-export function ExtraWorkModal({ open, onClose, mode, date, employees = [], editing }: ExtraWorkModalProps) {
+export function ExtraWorkModal({ open, onClose, mode, date, employees = [], editing, clientId, clientName, lockClient }: ExtraWorkModalProps) {
   // Монтируем форму заново при каждом открытии — черновик сбрасывается сам
   if (!open) return null;
-  return <ExtraWorkForm onClose={onClose} mode={mode} date={date} employees={employees} editing={editing} />;
+  return (
+    <ExtraWorkForm
+      onClose={onClose}
+      mode={mode}
+      date={date}
+      employees={employees}
+      editing={editing}
+      clientId={clientId}
+      clientName={clientName}
+      lockClient={lockClient}
+    />
+  );
 }
 
-function ExtraWorkForm({ onClose, mode, date, employees = [], editing }: Omit<ExtraWorkModalProps, 'open'>) {
+function ExtraWorkForm({ onClose, mode, date, employees = [], editing, clientId: presetClientId, clientName, lockClient }: Omit<ExtraWorkModalProps, 'open'>) {
   const drivers = employees.filter((e) => e.role === 'driver');
   const [userId, setUserId] = useState(editing?.user_id || drivers[0]?.user_id || '');
-  const [clientId, setClientId] = useState(editing?.client_id || '');
+  const [clientId, setClientId] = useState(editing?.client_id || presetClientId || '');
   const [workDate, setWorkDate] = useState(editing?.date || date || todayStr());
   const [amount, setAmount] = useState(editing ? String(editing.amount) : '');
   const [comment, setComment] = useState(editing?.comment || '');
@@ -103,8 +119,11 @@ function ExtraWorkForm({ onClose, mode, date, employees = [], editing }: Omit<Ex
         )}
         <label className={styles.field}>
           <span className={styles.label}>Клиент</span>
-          <select value={clientId} onChange={(e) => setClientId(e.target.value)}>
+          <select value={clientId} disabled={lockClient} onChange={(e) => setClientId(e.target.value)}>
             <option value="">— выберите —</option>
+            {lockClient && presetClientId && clientName && !(clients.data?.clients || []).some((c) => c.id === presetClientId) && (
+              <option value={presetClientId}>{clientName}</option>
+            )}
             {(clients.data?.clients || []).map((c) => (
               <option key={c.id} value={c.id}>
                 {c.name}
