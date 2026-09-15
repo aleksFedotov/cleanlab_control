@@ -243,16 +243,16 @@ test('R1-char: права — worker на owner-методах получает 
 // --- Снапшот публичного API ---
 
 const API_SNAPSHOT = [
-  'addDeliveryVisit', 'addManualClean', 'addToDelivery', 'addUnplannedWash', 'addWeekCard', 'cancelWash',
+  'addDeliveryVisit', 'addExtraWork', 'addManualClean', 'addToDelivery', 'addUnplannedWash', 'addWeekCard', 'cancelWash',
   'closeShift', 'completeWash', 'confirmStorageCheck', 'correctVisit', 'createLaundry', 'createUser',
   'deactivateLaundry', 'deactivateUser', 'deferWash', 'deleteBillingItem', 'deleteClient',
-  'deleteItemType', 'deletePayAdjustment', 'deleteUser', 'deleteWash', 'driverAction',
-  'driverHandover', 'driverReturnClean', 'driverTakeAllClean', 'editWashData', 'getClientInvoice', 'getDayList',
+  'deleteExtraWork', 'deleteItemType', 'deletePayAdjustment', 'deleteUser', 'deleteWash', 'driverAction',
+  'driverHandover', 'driverReturnClean', 'driverTakeAllClean', 'editExtraWork', 'editWashData', 'getClientInvoice', 'getDayList',
   'getDayReport', 'getDeliveryPlan', 'getDeliveryPointStats', 'getDeliveryVisits',
   'getDriverRoute', 'getFinanceSummary', 'getMyPayroll', 'getPayroll', 'getRefs',
   'getShiftCloseState', 'getStorage', 'getSummaryReport', 'getTvData', 'getWeekPlan',
   'getWorkHours', 'holdPartialWash', 'listBillingItems', 'listClientItemBilling',
-  'listLaundries', 'listPayAdjustments', 'listPayRates', 'listPaySettings', 'listTariffs',
+  'listClientsBrief', 'listExtraWorks', 'listLaundries', 'listPayAdjustments', 'listPayRates', 'listPaySettings', 'listTariffs',
   'listUsers', 'login', 'logout', 'makeTelegramBindCode', 'markIssued', 'moveDeliveryVisit',
   'moveWeekCard', 'purgeClient', 'reactivateUser', 'rememberClientItemType',
   'removeDeliveryVisit', 'removeWeekCard', 'resetUserPassword', 'saveBillingItem',
@@ -261,7 +261,7 @@ const API_SNAPSHOT = [
   'startWash', 'switchLaundry', 'updateIssueDate', 'updateLaundry', 'updateUser'
 ];
 
-test('R1-char: снапшот — состав публичного api не изменился (80 методов)', () => {
+test('R1-char: снапшот — состав публичного api не изменился (85 методов)', () => {
   const api = require('../api').api;
   assert.deepStrictEqual(Object.keys(api).sort(), API_SNAPSHOT);
 });

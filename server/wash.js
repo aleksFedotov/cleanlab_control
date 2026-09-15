@@ -13,12 +13,12 @@ const { addStorageEntry_, consumeStorage_, openStorage_, storageSummaryByClient_
 const deliveries = require('./deliveries');
 const { getVisitsByDate_, ensureVisit_, isOpenVisit_ } = deliveries;
 
-// Уведомление владельцу в Telegram о действиях работника со стирками
-// (добавление/перенос/удаление). Действия самого владельца не шлём.
+// Уведомление владельцу в Telegram о действиях работника/водителя
+// (добавление/перенос/удаление стирок, доп. работы). Действия самого владельца не шлём.
 // Вызов — только после коммита транзакции команды: отправка асинхронна
 // (HTTP) и по откаченной команде уходить не должна.
 function notifyOwnerOnWorkerAction_(session, text, laundryId) {
-  if (session.role !== 'worker') return;
+  if (session.role !== 'worker' && session.role !== 'driver') return;
   require('./telegram').sendTelegram_(null, text, laundryId).catch(function () {});
 }
 

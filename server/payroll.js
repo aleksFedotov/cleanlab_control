@@ -9,7 +9,7 @@
 // Округление — один раз на итоге периода. Мультитенантность — по session.laundryId.
 const { SHEETS } = require('./schema');
 const db = require('./db');
-const { nowStr_, logEvent, actorOf_ } = require('./audit');
+const { nowStr_, todayStr_, logEvent, actorOf_ } = require('./audit');
 const { err_, ok_ } = require('./core');
 const { requireRole_ } = require('./auth');
 
@@ -99,6 +99,17 @@ function computePayroll_(input) {
     u[a.date] = (u[a.date] || 0) + amt;
   });
 
+  // Доп. работы по user_id и дням (P12): отдельная строка, с корректировками
+  // не смешиваем.
+  const extrasBy = {};
+  (input.extraWorks || []).forEach(function (x) {
+    if (x.date < from || x.date > to) return;
+    const amt = Number(x.amount) || 0;
+    if (!amt) return;
+    const u = extrasBy[x.user_id] || (extrasBy[x.user_id] = {});
+    u[x.date] = (u[x.date] || 0) + amt;
+  });
+
   const employees = users.map(function (u) {
     const rateRow = ratesByUser[u.id];
     const pointRate = resolveRate_('point_rate', rateRow, settings);
@@ -106,11 +117,12 @@ function computePayroll_(input) {
     const shiftBase = resolveRate_('shift_base', rateRow, settings);
     const shiftNorm = resolveRate_('shift_norm_hours', rateRow, settings);
     const adj = adjBy[u.id] || {};
+    const extras = extrasBy[u.id] || {};
 
     const dayMap = {};
-    let points = 0, liftFloors = 0, hours = 0, adjustmentsTotal = 0;
+    let points = 0, liftFloors = 0, hours = 0, adjustmentsTotal = 0, extrasTotal = 0;
     function day(date) {
-      return dayMap[date] || (dayMap[date] = { date: date, points: 0, lift_floors: 0, hours: 0, amount: 0 });
+      return dayMap[date] || (dayMap[date] = { date: date, points: 0, lift_floors: 0, hours: 0, extras: 0, amount: 0 });
     }
     if (u.role === 'driver') {
       // Свои точки (driver_id) + общие без атрибуции (старые данные)
@@ -142,6 +154,11 @@ function computePayroll_(input) {
       day(date).amount += adj[date];
       adjustmentsTotal += adj[date];
     });
+    Object.keys(extras).forEach(function (date) {
+      day(date).extras += extras[date];
+      day(date).amount += extras[date];
+      extrasTotal += extras[date];
+    });
 
     const amountPoints = points * pointRate.value;
     const amountLifts = liftFloors * liftRate.value;
@@ -154,8 +171,8 @@ function computePayroll_(input) {
       point_rate: pointRate.value, lift_floor_rate: liftRate.value,
       shift_base: shiftBase.value, shift_norm_hours: shiftNorm.value,
       amount_points: amountPoints, amount_lifts: amountLifts, amount_shift: amountShift,
-      adjustments_total: adjustmentsTotal,
-      total: Math.round(amountPoints + amountLifts + amountShift + adjustmentsTotal),
+      adjustments_total: adjustmentsTotal, extras_total: extrasTotal,
+      total: Math.round(amountPoints + amountLifts + amountShift + adjustmentsTotal + extrasTotal),
       rate_missing: pointRate.missing || liftRate.missing || shiftBase.missing || shiftNorm.missing,
       days: days
     };
@@ -180,6 +197,9 @@ function loadPayrollInput_(laundryId, from, to) {
       .map(function (r) { return r.obj; }),
     adjustments: db.findRowsByTenant_(SHEETS.PAY_ADJUSTMENTS, function (a) {
       return a.date >= from && a.date <= to;
+    }, max, laundryId).map(function (r) { return r.obj; }),
+    extraWorks: db.findRowsByTenant_(SHEETS.EXTRA_WORKS, function (x) {
+      return x.date >= from && x.date <= to;
     }, max, laundryId).map(function (r) { return r.obj; }),
     settings: db.getSettings_(laundryId)
   };
@@ -212,7 +232,8 @@ function getMyPayroll(token, from, to) {
     points: me.points, lift_floors: me.lift_floors,
     point_rate: me.point_rate, lift_floor_rate: me.lift_floor_rate,
     amount_points: me.amount_points, amount_lifts: me.amount_lifts,
-    adjustments_total: me.adjustments_total, total: me.total,
+    adjustments_total: me.adjustments_total, extras_total: me.extras_total,
+    total: me.total,
     rate_missing: me.rate_missing, days: me.days
   });
 }
@@ -343,6 +364,156 @@ function deletePayAdjustment(token, adjId) {
   return ok_({ deleted: true });
 }
 
+// --- Доп. работы (P12): работа сотрудника вне развоза ---
+
+// Общая валидация полей доп. работы: дата (не в будущем), клиент прачки
+// (active='да'), сумма > 0, непустой комментарий.
+function validateExtraWork_(session, clientId, date, amount, comment) {
+  if (!DATE_RE.test(date || '')) return 'Некорректная дата';
+  if (date > todayStr_()) return 'Дата не может быть в будущем';
+  const client = db.getClients_(session.laundryId).filter(function (c) {
+    return String(c.id) === String(clientId);
+  })[0];
+  if (!client) return 'Клиент не найден';
+  if (client.active !== 'да') return 'Клиент неактивен';
+  const amt = Number(amount);
+  if (amount === '' || amount === null || amount === undefined || !isFinite(amt) || amt <= 0) {
+    return 'Сумма: положительное число';
+  }
+  if (!String(comment || '').trim()) return 'Комментарий обязателен';
+  return null;
+}
+
+// Водитель вносит за себя; owner — за любого водителя прачки (userId обязателен).
+function addExtraWork(token, clientId, date, amount, comment, userId) {
+  const session = requireRole_(token, ['driver', 'owner']);
+  if (!session) return err_('Нет доступа');
+  const laundryId = session.laundryId;
+  const bad = validateExtraWork_(session, clientId, date, amount, comment);
+  if (bad) return err_(bad);
+  let targetUserId;
+  if (session.role === 'driver') {
+    targetUserId = String(session.userId);
+  } else {
+    const target = checkTarget_(session, userId);
+    if (!target) return err_('Нет доступа');
+    if (target.obj.role !== 'driver') return err_('Цель — водитель прачки');
+    targetUserId = String(userId);
+  }
+  const client = db.getClients_(laundryId).filter(function (c) {
+    return String(c.id) === String(clientId);
+  })[0];
+  const entry = {
+    id: db.nextId_(SHEETS.EXTRA_WORKS, 'exw'), user_id: targetUserId,
+    date: date, client_id: String(clientId), amount: String(Number(amount)),
+    comment: String(comment).trim(),
+    created_by: session.name, created_at: nowStr_(),
+    edited_by: '', edited_at: ''
+  };
+  db.appendRowTenant_(SHEETS.EXTRA_WORKS, entry, laundryId);
+  logEvent(actorOf_(session), 'extra_work_add', entry.id,
+    { user_id: targetUserId, date: date, client_id: String(clientId), amount: Number(amount), comment: entry.comment }, laundryId);
+  // Деньги, внесённые водителем, — сразу владельцу в Telegram (модель «доверие +
+  // уведомление + правка»). Ленивый require: статический создаёт цикл
+  // payroll → wash → deliveries → payroll.
+  if (session.role === 'driver') {
+    require('./wash').notifyOwnerOnWorkerAction_(session,
+      '💪 ' + session.name + ': доп. работа — ' + client.name + ', ' + Number(amount) + ' ₽ (' + entry.comment + ')',
+      laundryId);
+  }
+  return ok_({ extraWork: entry });
+}
+
+// Правка записи (owner): date/client_id/amount/comment + след edited_by/edited_at.
+function editExtraWork(token, id, fields) {
+  const session = requireRole_(token, ['owner']);
+  if (!session) return err_('Нет доступа');
+  const laundryId = session.laundryId;
+  const found = db.findById_(SHEETS.EXTRA_WORKS, id);
+  if (!found || found.obj.laundry_id !== String(laundryId)) return err_('Доп. работа не найдена');
+  fields = fields || {};
+  const w = found.obj;
+  const date = fields.date !== undefined ? fields.date : w.date;
+  const clientId = fields.client_id !== undefined ? fields.client_id : w.client_id;
+  const amount = fields.amount !== undefined ? fields.amount : w.amount;
+  const comment = fields.comment !== undefined ? fields.comment : w.comment;
+  const bad = validateExtraWork_(session, clientId, date, amount, comment);
+  if (bad) return err_(bad);
+  const old = { date: w.date, client_id: w.client_id, amount: w.amount, comment: w.comment };
+  w.date = date;
+  w.client_id = String(clientId);
+  w.amount = String(Number(amount));
+  w.comment = String(comment).trim();
+  w.edited_by = actorOf_(session);
+  w.edited_at = nowStr_();
+  db.updateRow_(SHEETS.EXTRA_WORKS, found.rowNumber, w);
+  logEvent(actorOf_(session), 'extra_work_edit', id, { old: old, now: { date: w.date, client_id: w.client_id, amount: w.amount, comment: w.comment } }, laundryId);
+  return ok_({ extraWork: w });
+}
+
+// Удаление: driver — только свои; owner — любые своей прачки.
+function deleteExtraWork(token, id) {
+  const session = requireRole_(token, ['driver', 'owner']);
+  if (!session) return err_('Нет доступа');
+  const laundryId = session.laundryId;
+  const found = db.findById_(SHEETS.EXTRA_WORKS, id);
+  if (!found || found.obj.laundry_id !== String(laundryId)) return err_('Доп. работа не найдена');
+  if (session.role === 'driver' && found.obj.user_id !== String(session.userId)) {
+    return err_('Нет доступа');
+  }
+  db.deleteRow_(SHEETS.EXTRA_WORKS, found.rowNumber);
+  logEvent(actorOf_(session), 'extra_work_del', id, {
+    user_id: found.obj.user_id, date: found.obj.date, client_id: found.obj.client_id,
+    amount: found.obj.amount, comment: found.obj.comment
+  }, laundryId);
+  return ok_({ deleted: true });
+}
+
+// Список доп. работ: driver — только свои (userId принудительно его);
+// owner — все прачки, опционально по сотруднику и периоду.
+function listExtraWorks(token, userId, from, to) {
+  const session = requireRole_(token, ['driver', 'owner']);
+  if (!session) return err_('Нет доступа');
+  const laundryId = session.laundryId;
+  if ((from && !DATE_RE.test(from)) || (to && !DATE_RE.test(to))) {
+    return err_('Некорректный период');
+  }
+  if (from && to && from > to) return err_('Некорректный период');
+  const namesBy = {};
+  db.findRowsByTenant_(SHEETS.USERS, function () { return true; }, 100000, laundryId)
+    .forEach(function (r) { namesBy[r.obj.id] = r.obj.name; });
+  const clientsBy = {};
+  db.getClients_(laundryId).forEach(function (c) { clientsBy[String(c.id)] = c.name; });
+  const effUserId = session.role === 'driver' ? String(session.userId) : (userId ? String(userId) : null);
+  const list = db.findRowsByTenant_(SHEETS.EXTRA_WORKS, function (x) {
+    if (effUserId && x.user_id !== effUserId) return false;
+    if (from && x.date < from) return false;
+    if (to && x.date > to) return false;
+    return true;
+  }, 100000, laundryId).map(function (r) {
+    const o = r.obj;
+    return {
+      id: o.id, user_id: o.user_id, user_name: namesBy[o.user_id] || o.user_id,
+      date: o.date, client_id: o.client_id, client_name: clientsBy[o.client_id] || o.client_id,
+      amount: Number(o.amount) || 0, comment: o.comment,
+      created_by: o.created_by, created_at: o.created_at,
+      edited_by: o.edited_by, edited_at: o.edited_at
+    };
+  });
+  return ok_({ extraWorks: list });
+}
+
+// Лёгкий справочник клиентов для модалки доп. работ (driver): только id+name
+// активных, без контактов/адресов/ИНН.
+function listClientsBrief(token) {
+  const session = requireRole_(token, ['driver', 'owner']);
+  if (!session) return err_('Нет доступа');
+  const clients = db.getClients_(session.laundryId)
+    .filter(function (c) { return c.active === 'да'; })
+    .map(function (c) { return { id: c.id, name: c.name }; });
+  return ok_({ clients: clients });
+}
+
 // Действующие дефолтные ставки прачки (owner): Settings → встроенный дефолт.
 function listPaySettings(token) {
   const session = requireRole_(token, ['owner']);
@@ -394,5 +565,6 @@ module.exports = {
   computePayroll_, resolveRate_,
   getPayroll, getMyPayroll, listPayRates,
   savePayRate, savePayAdjustment, deletePayAdjustment, listPayAdjustments,
-  listPaySettings, savePaySettings
+  listPaySettings, savePaySettings,
+  addExtraWork, editExtraWork, deleteExtraWork, listExtraWorks, listClientsBrief
 };

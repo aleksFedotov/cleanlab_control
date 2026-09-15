@@ -79,7 +79,9 @@ const API_ROLES = {
   // payroll.js (legacy)
   getPayroll: OWNER, getMyPayroll: ['driver'], listPayRates: OWNER, savePayRate: OWNER,
   savePayAdjustment: OWNER, deletePayAdjustment: OWNER, listPayAdjustments: OWNER,
-  listPaySettings: OWNER, savePaySettings: OWNER
+  listPaySettings: OWNER, savePaySettings: OWNER,
+  addExtraWork: DRIVER_OWNER, editExtraWork: OWNER, deleteExtraWork: DRIVER_OWNER,
+  listExtraWorks: DRIVER_OWNER, listClientsBrief: DRIVER_OWNER
 };
 
 // --- Экспорт и монтирование в Express ---
@@ -142,7 +144,12 @@ const api = {
   deletePayAdjustment: payroll.deletePayAdjustment,
   listPayAdjustments: payroll.listPayAdjustments,
   listPaySettings: payroll.listPaySettings,
-  savePaySettings: payroll.savePaySettings
+  savePaySettings: payroll.savePaySettings,
+  addExtraWork: payroll.addExtraWork,
+  editExtraWork: payroll.editExtraWork,
+  deleteExtraWork: payroll.deleteExtraWork,
+  listExtraWorks: payroll.listExtraWorks,
+  listClientsBrief: payroll.listClientsBrief
 };
 Object.keys(sessionFirst).forEach(function (name) { api[name] = guarded_(name, sessionFirst[name]); });
 
