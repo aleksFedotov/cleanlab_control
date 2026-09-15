@@ -21,7 +21,8 @@ const SHEETS = {
   CLIENT_TARIFFS: 'ClientTariffs',
   CLIENT_ITEM_BILLING: 'ClientItemBilling',
   PAY_RATES: 'PayRates',
-  PAY_ADJUSTMENTS: 'PayAdjustments'
+  PAY_ADJUSTMENTS: 'PayAdjustments',
+  EXTRA_WORKS: 'ExtraWorks'
 };
 
 // Мультитенантность: laundry_id — во всех операционных таблицах.
@@ -98,7 +99,15 @@ const HEADERS = {
   PayRates: ['id', 'user_id', 'point_rate', 'lift_floor_rate', 'shift_base', 'shift_norm_hours', 'laundry_id'],
   // Ручные корректировки зарплаты: amount со знаком (+ премия / − штраф),
   // попадает в период по date. created_by — имя из сессии владельца.
-  PayAdjustments: ['id', 'user_id', 'date', 'amount', 'comment', 'created_by', 'created_at', 'laundry_id']
+  PayAdjustments: ['id', 'user_id', 'date', 'amount', 'comment', 'created_by', 'created_at', 'laundry_id'],
+  // Доп. работы (P12): работа сотрудника вне развоза (погрузка, подъём нестандарта,
+  // вынос и т.п.). Вносит водитель (свои) или owner (за любого). amount > 0 —
+  // начисление сотруднику; клиентская цена для будущего счёта — отдельная величина
+  // (P13). client_id — задел под биллинг: позиция ExtraWorks в счёт выставляется
+  // отдельным тикетом. edited_by/edited_at — след правки owner (деньги + будущий
+  // биллинг: история обязательна).
+  ExtraWorks: ['id', 'user_id', 'date', 'client_id', 'amount', 'comment',
+    'created_by', 'created_at', 'edited_by', 'edited_at', 'laundry_id']
 };
 
 // Стартовое наполнение ItemTypes (spec §3.4).
