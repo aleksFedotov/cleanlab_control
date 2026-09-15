@@ -4,8 +4,8 @@
 // Ставки приходят из getPayroll уже разрешёнными сервером; список корректировок
 // (с удалением) — из listPayAdjustments, в раскрытой строке сотрудника.
 import { useEffect, useMemo, useState } from 'react';
-import { Wallet, ChevronLeft, ChevronRight, Trash2 } from 'lucide-react';
-import { usePayroll, usePayAdjustments, useDeletePayAdjustment, usePaySettings, useSavePaySettings } from '@/hooks/use-api';
+import { Wallet, ChevronLeft, ChevronRight, Trash2, Pencil } from 'lucide-react';
+import { usePayroll, usePayAdjustments, useDeletePayAdjustment, usePaySettings, useSavePaySettings, useExtraWorks, useDeleteExtraWork } from '@/hooks/use-api';
 import { useUiStore } from '@/stores/ui';
 import { DataTable, DataTableColumn } from '@/components/ui/DataTable';
 import { Empty } from '@/components/ui/Empty';
@@ -13,11 +13,12 @@ import { Button } from '@/components/ui/Button';
 import { Skeleton, SkeletonCards } from '@/components/ui/Skeleton';
 import { Accordion } from '@/components/ui/Accordion';
 import { AdjustmentModal } from '@/components/payroll/AdjustmentModal';
+import { ExtraWorkModal } from '@/components/payroll/ExtraWorkModal';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { todayStr, formatDateRu } from '@/lib/dates';
 import { money } from '@/lib/format';
 import { roleLabel } from '@/lib/dicts';
-import type { PayrollEmployee, PayAdjustmentListItem, PaySettings } from '@/types/api';
+import type { PayrollEmployee, PayAdjustmentListItem, PaySettings, ExtraWorkListItem } from '@/types/api';
 import styles from './payroll.module.css';
 
 const MONTHS_NOM = [
@@ -119,12 +120,16 @@ function PaySettingsBlock() {
   );
 }
 
-// Раскрытая строка: начисления по дням + корректировки сотрудника за период
+// Раскрытая строка: начисления по дням + корректировки и доп. работы сотрудника за период
 function DayDetails({ e, from, to }: { e: PayrollEmployee; from: string; to: string }) {
   const adjQ = usePayAdjustments(e.user_id, from, to);
   const adjustments = adjQ.data?.adjustments || [];
+  const extraQ = useExtraWorks(e.user_id, from, to);
+  const extras = extraQ.data?.extraWorks || [];
   const [delTarget, setDelTarget] = useState<PayAdjustmentListItem | null>(null);
   const delMut = useDeletePayAdjustment(() => setDelTarget(null));
+  const [delExtraTarget, setDelExtraTarget] = useState<ExtraWorkListItem | null>(null);
+  const delExtraMut = useDeleteExtraWork(() => setDelExtraTarget(null));
 
   return (
     <>
@@ -177,6 +182,32 @@ function DayDetails({ e, from, to }: { e: PayrollEmployee; from: string; to: str
           </table>
         </>
       )}
+      {extras.length > 0 && (
+        <>
+          <div className={styles.adjTitle}>Доп. работы: {money(e.extras_total)} ₽ (включены в суммы дней)</div>
+          <table className={styles.days}>
+            <tbody>
+              {extras.map((x) => (
+                <tr key={x.id}>
+                  <td>{formatDateRu(x.date, false)}</td>
+                  <td>{money(x.amount)} ₽</td>
+                  <td className={styles.adjComment}>{x.client_name} — {x.comment}</td>
+                  <td>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      aria-label="Удалить доп. работу"
+                      onClick={() => setDelExtraTarget(x)}
+                    >
+                      <Trash2 size={14} />
+                    </Button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
+      )}
       <ConfirmDialog
         open={!!delTarget}
         onClose={() => setDelTarget(null)}
@@ -190,7 +221,96 @@ function DayDetails({ e, from, to }: { e: PayrollEmployee; from: string; to: str
         danger
         busy={delMut.isPending}
       />
+      <ConfirmDialog
+        open={!!delExtraTarget}
+        onClose={() => setDelExtraTarget(null)}
+        onConfirm={() => delExtraTarget && delExtraMut.mutate(delExtraTarget.id)}
+        text={
+          delExtraTarget
+            ? `Удалить доп. работу ${money(delExtraTarget.amount)} ₽ от ${formatDateRu(delExtraTarget.date, false)}${delExtraTarget.comment ? ` («${delExtraTarget.comment}»)` : ''}?`
+            : ''
+        }
+        okLabel="Удалить"
+        danger
+        busy={delExtraMut.isPending}
+      />
     </>
+  );
+}
+
+// --- P12: блок «Доп. работы» за период (таблица + ввод за водителя + правка/удаление) ---
+function ExtraWorksBlock({ employees, from, to }: { employees: PayrollEmployee[]; from: string; to: string }) {
+  const q = useExtraWorks('', from, to);
+  const list = q.data?.extraWorks || [];
+  const [addOpen, setAddOpen] = useState(false);
+  const [editTarget, setEditTarget] = useState<ExtraWorkListItem | null>(null);
+  const [delTarget, setDelTarget] = useState<ExtraWorkListItem | null>(null);
+  const delMut = useDeleteExtraWork(() => setDelTarget(null));
+
+  const columns: DataTableColumn[] = [
+    { key: 'date', title: 'Дата', render: (x: ExtraWorkListItem) => formatDateRu(x.date, false) },
+    { key: 'user', title: 'Сотрудник', render: (x: ExtraWorkListItem) => x.user_name },
+    { key: 'client', title: 'Клиент', render: (x: ExtraWorkListItem) => x.client_name },
+    { key: 'amount', title: 'Сумма', align: 'right', mono: true, render: (x: ExtraWorkListItem) => `${money(x.amount)} ₽` },
+    { key: 'comment', title: 'Комментарий', render: (x: ExtraWorkListItem) => x.comment },
+    {
+      key: 'by',
+      title: 'Запись',
+      render: (x: ExtraWorkListItem) =>
+        x.edited_by ? `${x.created_by} → правил(а) ${x.edited_by}` : x.created_by,
+    },
+    {
+      key: 'actions',
+      title: '',
+      render: (x: ExtraWorkListItem) => (
+        <>
+          <Button size="sm" variant="ghost" aria-label="Редактировать" onClick={() => setEditTarget(x)}>
+            <Pencil size={14} />
+          </Button>
+          <Button size="sm" variant="ghost" aria-label="Удалить" onClick={() => setDelTarget(x)}>
+            <Trash2 size={14} />
+          </Button>
+        </>
+      ),
+    },
+  ];
+
+  return (
+    <Accordion id="extra-works" title="Доп. работы" summary={list.length ? `${list.length} записей` : ''}>
+      <div className={styles.periodRow}>
+        <div className={styles.spacer} />
+        <Button size="sm" onClick={() => setAddOpen(true)} disabled={!employees.length}>
+          + Доп. работа
+        </Button>
+      </div>
+      <DataTable
+        columns={columns}
+        rows={list}
+        keyField="id"
+        empty={<div className={styles.detailEmpty}>Доп. работ за период нет</div>}
+      />
+      <ExtraWorkModal open={addOpen} onClose={() => setAddOpen(false)} mode="owner" employees={employees} />
+      <ExtraWorkModal
+        open={!!editTarget}
+        onClose={() => setEditTarget(null)}
+        mode="owner"
+        employees={employees}
+        editing={editTarget}
+      />
+      <ConfirmDialog
+        open={!!delTarget}
+        onClose={() => setDelTarget(null)}
+        onConfirm={() => delTarget && delMut.mutate(delTarget.id)}
+        text={
+          delTarget
+            ? `Удалить доп. работу ${money(delTarget.amount)} ₽ (${delTarget.user_name}, ${delTarget.client_name})?`
+            : ''
+        }
+        okLabel="Удалить"
+        danger
+        busy={delMut.isPending}
+      />
+    </Accordion>
   );
 }
 
@@ -255,6 +375,13 @@ export default function PayrollPage() {
       render: (e: PayrollEmployee) => (e.adjustments_total !== 0 ? signed(e.adjustments_total) : '—'),
     },
     {
+      key: 'extras',
+      title: 'Доп. работы',
+      align: 'right',
+      mono: true,
+      render: (e: PayrollEmployee) => (e.extras_total !== 0 ? `${money(e.extras_total)} ₽` : '—'),
+    },
+    {
       key: 'total',
       title: 'Итого',
       align: 'right',
@@ -297,6 +424,8 @@ export default function PayrollPage() {
       </div>
 
       <PaySettingsBlock />
+
+      <ExtraWorksBlock employees={employees} from={range.from} to={range.to} />
 
       {query.isPending ? (
         <>
