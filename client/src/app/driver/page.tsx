@@ -5,7 +5,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Truck, History, User, MapPin, Phone, LogOut, KeyRound } from 'lucide-react';
 import type { DriverRouteRes } from '@/types/api';
-import { useDriverRoute, useApiMutation } from '@/hooks/use-api';
+import { useDriverRoute, useApiMutation, useExtraWorks, useDeleteExtraWork } from '@/hooks/use-api';
 import { useRequireRole, useLogout } from '@/hooks/use-session';
 import { useUiStore } from '@/stores/ui';
 import { todayStr, formatDateRu, timeOf } from '@/lib/dates';
@@ -17,6 +17,7 @@ import { Button } from '@/components/ui/Button';
 import { StatusBadge } from '@/components/ui/StatusBadge';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { VisitEditModal } from '@/components/VisitEditModal';
+import { ExtraWorkModal } from '@/components/payroll/ExtraWorkModal';
 import { Empty } from '@/components/ui/Empty';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { DateNav } from '@/components/ui/DateNav';
@@ -60,6 +61,10 @@ export default function DriverPage() {
     if (query.isError) toast(query.error.message || 'Не удалось загрузить маршрут', 'err');
   }, [query.isError, query.error, toast]);
 
+  // Доп. работы за выбранную дату (P12): driver получает только свои
+  const extraQuery = useExtraWorks('', date, date);
+  const extraList = extraQuery.data?.extraWorks || [];
+
   const route = query.data;
   const cargo = route?.cargo || { clean_bags: 0, clean_points: 0, dirty_points: 0 };
   const dayStats = route?.stats || { visited: 0, lift_qty: 0, lift_total: 0, lift_missing: false, lift_pay: 0 };
@@ -75,6 +80,7 @@ export default function DriverPage() {
     invalidate: 'operational',
     onSuccess: (res) => toast(`Передано на склад: ${res.handed} ✓`),
   });
+  const delExtraMut = useDeleteExtraWork(() => toast('Доп. работа удалена'));
   // --- Локальное состояние диалогов ---
   // Модал точки (P6): храним id, сам визит достаём из query-данных — после отмены
   // действия (correctVisit) модал сам перерисуется в режим кнопок
@@ -82,6 +88,8 @@ export default function DriverPage() {
   const [takeAllOpen, setTakeAllOpen] = useState(false);
   const [takeSelOpen, setTakeSelOpen] = useState(false);
   const [handoverOpen, setHandoverOpen] = useState(false);
+  const [extraOpen, setExtraOpen] = useState(false);
+  const [extraDelId, setExtraDelId] = useState<string | null>(null);
   const [checked, setChecked] = useState<Record<string, boolean>>({});
   const [selBusy, setSelBusy] = useState(false);
 
@@ -215,6 +223,26 @@ export default function DriverPage() {
             ))}
           </MobileSection>
         )}
+
+          {/* Доп. работы (P12): вне развоза — погрузка, подъём нестандарта, вынос.
+              Дата — общая с экраном (DateNav). Пустой день — одна кнопка. */}
+          <MobileSection label={extraList.length ? `Доп. работы (${extraList.length})` : 'Доп. работы'}>
+            {extraList.map((x) => (
+              <Card key={x.id} className={styles.compactCard}>
+                <div className={styles.histRow}>
+                  <div className={styles.cardName}>{x.client_name}</div>
+                  <b>{money(x.amount)} ₽</b>
+                </div>
+                <div className={styles.metaDim}>{x.comment}</div>
+                <Button variant="ghost" className={styles.bigBtn} onClick={() => setExtraDelId(x.id)}>
+                  Удалить
+                </Button>
+              </Card>
+            ))}
+            <Button className={styles.bigBtn} onClick={() => setExtraOpen(true)}>
+              ＋ Доп. работа
+            </Button>
+          </MobileSection>
 
           {/* Следующий адрес */}
           {/* {nextVisit && (
@@ -373,6 +401,22 @@ export default function DriverPage() {
         text="Передать всё грязное бельё на склад?"
         okLabel="Передать"
         busy={handoverMut.isPending}
+      />
+
+      {/* Доп. работа: ввод (P12). Дата фиксирована выбранной на экране. */}
+      <ExtraWorkModal open={extraOpen} onClose={() => setExtraOpen(false)} mode="driver" date={date} />
+
+      <ConfirmDialog
+        open={!!extraDelId}
+        onClose={() => setExtraDelId(null)}
+        onConfirm={() => {
+          if (extraDelId) delExtraMut.mutate(extraDelId);
+          setExtraDelId(null);
+        }}
+        text="Удалить запись о доп. работе?"
+        okLabel="Удалить"
+        danger
+        busy={delExtraMut.isPending}
       />
     </MobileLayout>
   );

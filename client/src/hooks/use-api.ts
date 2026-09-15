@@ -13,6 +13,7 @@ import type {
   WorkHoursRes, DeliveryPointStatsRes,
   BillingItemsRes, TariffsRes, ClientItemBillingRes, InvoiceRes,
   PayrollRes, PayRatesRes, PaySettingsRes, MyPayrollRes, PayAdjustmentRes, PayAdjustmentsListRes,
+  ExtraWorksListRes, ClientsBriefRes,
 } from '@/types/api';
 
 function token(): string {
@@ -209,6 +210,25 @@ export function usePayAdjustments(userId?: string, from?: string, to?: string) {
   });
 }
 
+// Доп. работы (P12): driver видит только свои (userId принудительно его),
+// owner — все/по сотруднику; пустые фильтры = все за прачку
+export function useExtraWorks(userId?: string, from?: string, to?: string) {
+  return useQuery({
+    queryKey: qk.extraWorks(userId, from, to),
+    queryFn: () => api<ExtraWorksListRes>('listExtraWorks', token(), userId || '', from || '', to || ''),
+    enabled: !!token(),
+  });
+}
+
+// Лёгкий справочник клиентов для модалки доп. работ (driver + owner)
+export function useClientsBrief() {
+  return useQuery({
+    queryKey: qk.clientsBrief(),
+    queryFn: () => api<ClientsBriefRes>('listClientsBrief', token()),
+    enabled: !!token(),
+  });
+}
+
 // --- Мутации ---
 
 // Инвалидирует операционные чтения (стирка/развоз/неделя/склад/отчёт взаимосвязаны).
@@ -273,6 +293,33 @@ export function useSavePayAdjustment(onSuccess?: (res: PayAdjustmentRes) => void
 export function useDeletePayAdjustment(onSuccess?: () => void) {
   return useApiMutation('deletePayAdjustment', {
     invalidate: ['payroll', 'myPayroll', 'payAdjustments'],
+    onSuccess,
+  });
+}
+
+// --- Доп. работы (P12): мутации ---
+
+// Водитель вносит за себя: mutate([clientId, date, amount, comment]).
+// Owner вносит за водителя: mutate([clientId, date, amount, comment, userId]).
+export function useAddExtraWork(onSuccess?: () => void) {
+  return useApiMutation('addExtraWork', {
+    invalidate: ['payroll', 'myPayroll', 'extraWorks'],
+    onSuccess,
+  });
+}
+
+// Правка записи (owner): mutate([id, fields])
+export function useEditExtraWork(onSuccess?: () => void) {
+  return useApiMutation('editExtraWork', {
+    invalidate: ['payroll', 'myPayroll', 'extraWorks'],
+    onSuccess,
+  });
+}
+
+// Удаление: driver — свои, owner — любые; mutate(id)
+export function useDeleteExtraWork(onSuccess?: () => void) {
+  return useApiMutation('deleteExtraWork', {
+    invalidate: ['payroll', 'myPayroll', 'extraWorks'],
     onSuccess,
   });
 }

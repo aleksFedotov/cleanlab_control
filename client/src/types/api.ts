@@ -429,12 +429,13 @@ export interface InvoiceRes {
 
 // --- Зарплаты (P3): форматы — server/payroll.js ---
 
-// Разбивка начислений по дню (в amount уже включены корректировки дня)
+// Разбивка начислений по дню (в amount уже включены корректировки и доп. работы дня)
 export interface PayrollDay {
   date: string;
   points: number;
   lift_floors: number;
   hours: number;
+  extras: number; // доп. работы за день (P12), 0 если не было
   amount: number;
 }
 
@@ -453,6 +454,7 @@ export interface PayrollEmployee {
   amount_lifts: number;
   amount_shift: number;
   adjustments_total: number; // только сумма: детали корректировок сервер не возвращает
+  extras_total: number; // доп. работы (P12) отдельно от корректировок
   total: number;
   rate_missing: boolean; // стёртый дефолт в Settings без override — ставка 0
   days: PayrollDay[];
@@ -521,6 +523,7 @@ export interface MyPayrollRes {
   amount_points: number;
   amount_lifts: number;
   adjustments_total: number;
+  extras_total: number; // доп. работы (P12)
   total: number;
   rate_missing: boolean;
   days: PayrollDay[];
@@ -541,4 +544,38 @@ export interface PayAdjustmentListItem {
 export interface PayAdjustmentsListRes {
   ok: true;
   adjustments: PayAdjustmentListItem[];
+}
+
+// --- Доп. работы (P12): форматы — server/payroll.js ---
+
+// Лёгкий справочник клиентов для выбора в модалке (driver): только id+name активных
+export interface ClientBrief {
+  id: string;
+  name: string;
+}
+
+export interface ClientsBriefRes {
+  ok: true;
+  clients: ClientBrief[];
+}
+
+// Элемент списка listExtraWorks: подмешаны user_name/client_name
+export interface ExtraWorkListItem {
+  id: string;
+  user_id: string;
+  user_name: string;
+  date: string;
+  client_id: string;
+  client_name: string;
+  amount: number;
+  comment: string;
+  created_by: string;
+  created_at: string;
+  edited_by: string; // пусто, если owner ещё не правил
+  edited_at: string;
+}
+
+export interface ExtraWorksListRes {
+  ok: true;
+  extraWorks: ExtraWorkListItem[];
 }

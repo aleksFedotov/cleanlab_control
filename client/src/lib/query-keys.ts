@@ -23,6 +23,9 @@ export const qk = {
   myPayroll: (from: string, to: string) => ['myPayroll', from, to] as const,
   payAdjustments: (userId?: string, from?: string, to?: string) =>
     ['payAdjustments', userId || '', from || '', to || ''] as const,
+  extraWorks: (userId?: string, from?: string, to?: string) =>
+    ['extraWorks', userId || '', from || '', to || ''] as const,
+  clientsBrief: () => ['clientsBrief'] as const,
 };
 
 // Что инвалидировать после операционных мутаций (стирка/развоз/склад взаимосвязаны).
