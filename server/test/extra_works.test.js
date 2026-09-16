@@ -54,7 +54,7 @@ test('addExtraWork (driver): запись создана с его user_id, Tele
   assert.strictEqual(ev[0].entity, res.extraWork.id);
 });
 
-test('addExtraWork (driver): валидации — сумма, комментарий, клиент, дата', () => {
+test('addExtraWork (driver): валидации — сумма, клиент, дата; комментарий необязателен', () => {
   const ctx = makeCtx();
   const clientId = seedClient(ctx);
   const driver = loginDriver();
@@ -62,7 +62,12 @@ test('addExtraWork (driver): валидации — сумма, коммента
   assert.strictEqual(ctx.api.addExtraWork(driver, clientId, TODAY, 0, 'работа').error, 'Сумма: положительное число');
   assert.strictEqual(ctx.api.addExtraWork(driver, clientId, TODAY, -100, 'работа').error, 'Сумма: положительное число');
   assert.strictEqual(ctx.api.addExtraWork(driver, clientId, TODAY, '', 'работа').error, 'Сумма: положительное число');
-  assert.strictEqual(ctx.api.addExtraWork(driver, clientId, TODAY, 100, '   ').error, 'Комментарий обязателен');
+  // Водителю комментарий не обязателен
+  const noComment = ctx.api.addExtraWork(driver, clientId, TODAY, 100, '   ');
+  assert.ok(!noComment.error);
+  assert.strictEqual(noComment.extraWork.comment, '');
+  // Владельцу — обязателен
+  assert.strictEqual(ctx.api.addExtraWork(loginOwner(), clientId, TODAY, 100, '  ', 'u_driver').error, 'Комментарий обязателен');
   assert.strictEqual(ctx.api.addExtraWork(driver, 'cli_нет', TODAY, 100, 'работа').error, 'Клиент не найден');
   assert.strictEqual(ctx.api.addExtraWork(driver, clientId, '12.08.2026', 100, 'работа').error, 'Некорректная дата');
   assert.strictEqual(ctx.api.addExtraWork(driver, clientId, TOMORROW, 100, 'работа').error, 'Дата не может быть в будущем');
@@ -72,8 +77,8 @@ test('addExtraWork (driver): валидации — сумма, коммента
   assert.ok(ctx.api.deleteClient(loginOwner(), deadId).ok);
   assert.strictEqual(ctx.api.addExtraWork(driver, deadId, TODAY, 100, 'работа').error, 'Клиент неактивен');
 
-  // Ни одной записи не создалось
-  assert.strictEqual(ctx.db.readAllByTenant_('ExtraWorks', '1').length, 0);
+  // Создалась только запись без комментария от водителя
+  assert.strictEqual(ctx.db.readAllByTenant_('ExtraWorks', '1').length, 1);
 });
 
 test('addExtraWork (driver): userId-аргумент игнорируется — всегда за себя', () => {

@@ -71,7 +71,7 @@ function ExtraWorkForm({ onClose, mode, date, employees = [], editing, clientId:
     if (!clientId) return toast('Выберите клиента', 'err');
     const amt = Number(amount);
     if (amount === '' || !isFinite(amt) || amt <= 0) return toast('Сумма: положительное число', 'err');
-    if (!comment.trim()) return toast('Комментарий обязателен', 'err');
+    if ((mode === 'owner' || editing) && !comment.trim()) return toast('Комментарий обязателен', 'err');
     if (editing) {
       editMut.mutate([editing.id, { date: workDate, client_id: clientId, amount: amt, comment: comment.trim() }]);
     } else if (mode === 'owner') {
@@ -151,7 +151,7 @@ function ExtraWorkForm({ onClose, mode, date, employees = [], editing, clientId:
           </label>
         </div>
         <label className={styles.field}>
-          <span className={styles.label}>Что делал</span>
+          <span className={styles.label}>Что делал{mode === 'driver' && !editing ? ' (необязательно)' : ''}</span>
           <input value={comment} onChange={(e) => setComment(e.target.value)} placeholder="погрузка, подъём нестандарта…" />
         </label>
       </div>

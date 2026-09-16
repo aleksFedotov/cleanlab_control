@@ -367,8 +367,9 @@ function deletePayAdjustment(token, adjId) {
 // --- Доп. работы (P12): работа сотрудника вне развоза ---
 
 // Общая валидация полей доп. работы: дата (не в будущем), клиент прачки
-// (active='да'), сумма > 0, непустой комментарий.
-function validateExtraWork_(session, clientId, date, amount, comment) {
+// (active='да'), сумма > 0. Комментарий обязателен только владельцу
+// (requireComment) — водитель может внести без него.
+function validateExtraWork_(session, clientId, date, amount, comment, requireComment) {
   if (!DATE_RE.test(date || '')) return 'Некорректная дата';
   if (date > todayStr_()) return 'Дата не может быть в будущем';
   const client = db.getClients_(session.laundryId).filter(function (c) {
@@ -380,7 +381,7 @@ function validateExtraWork_(session, clientId, date, amount, comment) {
   if (amount === '' || amount === null || amount === undefined || !isFinite(amt) || amt <= 0) {
     return 'Сумма: положительное число';
   }
-  if (!String(comment || '').trim()) return 'Комментарий обязателен';
+  if (requireComment && !String(comment || '').trim()) return 'Комментарий обязателен';
   return null;
 }
 
@@ -389,7 +390,7 @@ function addExtraWork(token, clientId, date, amount, comment, userId) {
   const session = requireRole_(token, ['driver', 'owner']);
   if (!session) return err_('Нет доступа');
   const laundryId = session.laundryId;
-  const bad = validateExtraWork_(session, clientId, date, amount, comment);
+  const bad = validateExtraWork_(session, clientId, date, amount, comment, session.role !== 'driver');
   if (bad) return err_(bad);
   let targetUserId;
   if (session.role === 'driver') {
@@ -406,7 +407,7 @@ function addExtraWork(token, clientId, date, amount, comment, userId) {
   const entry = {
     id: db.nextId_(SHEETS.EXTRA_WORKS, 'exw'), user_id: targetUserId,
     date: date, client_id: String(clientId), amount: String(Number(amount)),
-    comment: String(comment).trim(),
+    comment: String(comment || '').trim(),
     created_by: session.name, created_at: nowStr_(),
     edited_by: '', edited_at: ''
   };
@@ -418,7 +419,7 @@ function addExtraWork(token, clientId, date, amount, comment, userId) {
   // payroll → wash → deliveries → payroll.
   if (session.role === 'driver') {
     require('./wash').notifyOwnerOnWorkerAction_(session,
-      '💪 ' + session.name + ': доп. работа — ' + client.name + ', ' + Number(amount) + ' ₽ (' + entry.comment + ')',
+      '💪 ' + session.name + ': доп. работа — ' + client.name + ', ' + Number(amount) + ' ₽' + (entry.comment ? ' (' + entry.comment + ')' : ''),
       laundryId);
   }
   return ok_({ extraWork: entry });
@@ -437,7 +438,7 @@ function editExtraWork(token, id, fields) {
   const clientId = fields.client_id !== undefined ? fields.client_id : w.client_id;
   const amount = fields.amount !== undefined ? fields.amount : w.amount;
   const comment = fields.comment !== undefined ? fields.comment : w.comment;
-  const bad = validateExtraWork_(session, clientId, date, amount, comment);
+  const bad = validateExtraWork_(session, clientId, date, amount, comment, true);
   if (bad) return err_(bad);
   const old = { date: w.date, client_id: w.client_id, amount: w.amount, comment: w.comment };
   w.date = date;
