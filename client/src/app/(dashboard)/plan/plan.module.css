@@ -124,6 +124,24 @@
   border-color: var(--bluing-border);
 }
 
+/* Очистка дня — тот же стиль, но с красным акцентом на hover */
+.clear {
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-m);
+  color: var(--text-4);
+  padding: 7px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-size: 12.5px;
+}
+
+.clear:hover {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
 /* --- Диалоги --- */
 
 .dialogHint {

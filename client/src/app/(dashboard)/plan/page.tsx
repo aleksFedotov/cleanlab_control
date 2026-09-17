@@ -4,8 +4,10 @@
 // Навигация по неделям — DateNav в хедере layout'а (weekMode); здесь только читаем date из стора.
 // Сервер сам нормализует любой день недели до понедельника (res.monday).
 import { useEffect, useState } from 'react';
-import { CalendarOff, Copy, Plus } from 'lucide-react';
+import { useQueryClient } from '@tanstack/react-query';
+import { CalendarOff, Copy, Plus, Trash2 } from 'lucide-react';
 import { useApiMutation, useWeekPlan } from '@/hooks/use-api';
+import { OPERATIONAL_PREFIXES } from '@/lib/query-keys';
 import { useSectionDate } from '@/hooks/use-section-date';
 import { useUiStore } from '@/stores/ui';
 import { WEEKDAYS, formatDateRu, isToday, todayStr, weekdayOf } from '@/lib/dates';
@@ -14,6 +16,7 @@ import { StatusBadge } from '@/components/ui/StatusBadge';
 import { Button } from '@/components/ui/Button';
 import { Empty } from '@/components/ui/Empty';
 import { Skeleton } from '@/components/ui/Skeleton';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import type { DecoratedVisit } from '@/types/api';
 import { WeekAddDialog } from './week-add-dialog';
 import { WeekCardDialog } from './week-card-dialog';
@@ -27,6 +30,12 @@ export default function PlanPage() {
   const [addDate, setAddDate] = useState<string | null>(null);
   const [copyDate, setCopyDate] = useState<string | null>(null);
   const [card, setCard] = useState<DecoratedVisit | null>(null);
+  // Очистка дня: дата в диалоге подтверждения + флаг идущего удаления
+  const [clearDate, setClearDate] = useState<string | null>(null);
+  const [clearing, setClearing] = useState(false);
+  const qc = useQueryClient();
+  // Удаление без инвалидации — общий рефетч делаем в конце clearDay
+  const delMut = useApiMutation('removeWeekCard');
   // DnD: перетаскиваемая карточка (id + её текущая дата) и колонка под курсором
   const [drag, setDrag] = useState<{ id: string; date: string } | null>(null);
   const [overDate, setOverDate] = useState<string | null>(null);
@@ -69,6 +78,25 @@ export default function PlanPage() {
 
   const res = q.data;
   const clients = res.clients || [];
+  const clearCards = res.days.find((d) => d.date === clearDate)?.cards || [];
+
+  // Полная очистка дня: снимаем все карточки последовательно, потом рефетч
+  async function clearDay() {
+    if (!clearDate) return;
+    setClearing(true);
+    try {
+      for (const c of clearCards) {
+        await delMut.mutateAsync(c.id);
+      }
+      OPERATIONAL_PREFIXES.forEach((p) => qc.invalidateQueries({ queryKey: [p] }));
+      toast(`Очищено: ${clearCards.length}`);
+      setClearDate(null);
+    } catch {
+      // Текст ошибки уже показал useApiMutation
+    } finally {
+      setClearing(false);
+    }
+  }
 
   // Drop в любой день, кроме текущего дня карточки, но не раньше сегодняшней даты
   const today = todayStr();
@@ -161,6 +189,11 @@ export default function PlanPage() {
             <button type="button" className={styles.copy} onClick={() => setCopyDate(d.date)}>
               <Copy size={15} aria-hidden /> Копировать
             </button>
+            {d.cards.length > 0 && (
+              <button type="button" className={styles.clear} onClick={() => setClearDate(d.date)}>
+                <Trash2 size={15} aria-hidden /> Очистить
+              </button>
+            )}
           </section>
         ))}
       </div>
@@ -177,6 +210,15 @@ export default function PlanPage() {
         onClose={() => setCopyDate(null)}
       />
       <WeekCardDialog card={card} onClose={() => setCard(null)} />
+      <ConfirmDialog
+        open={!!clearDate}
+        onClose={() => setClearDate(null)}
+        onConfirm={clearDay}
+        danger
+        busy={clearing}
+        okLabel="Очистить"
+        text={`Удалить все ${clearCards.length} ${plural(clearCards.length, 'точку', 'точки', 'точек')} из плана на ${clearDate ? formatDateRu(clearDate) : ''}?`}
+      />
     </>
   );
 }
