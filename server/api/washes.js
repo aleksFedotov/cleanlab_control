@@ -14,6 +14,7 @@ const deliveries = require('../deliveries');
 const { getVisitsByDate_, getVisitsByWeek_, decorateVisit_, isOpenVisit_ } = deliveries;
 const { billingItems_ } = require('./billing');
 const wash = require('../wash');
+const tgSend = require('../tg-send');
 
 // --- Общие чтения ---
 
@@ -274,15 +275,14 @@ async function closeShift(session, force) {
     unfinished: blockers.map(function (w) { return w.id; }) }, laundryId);
   // Дайджест (spec §8.3): fallback уже отправил → только короткое подтверждение;
   // иначе — полный дайджест. Дайджест и чат владельца — per-tenant.
-  const tg = require('../telegram');
   if (String(s.digest_sent) === 'да') {
-    tg.sendTelegram_(null, 'Смена закрыта в ' + s.closed_at + ' ✓', laundryId).catch(function () {});
+    tgSend.sendTelegram_(null, 'Смена закрыта в ' + s.closed_at + ' ✓', laundryId).catch(function () {});
   } else {
-    await tg.sendDigestLocked_(today, laundryId);
+    await tgSend.sendDigestLocked_(today, laundryId);
   }
   // Предупреждение владельцу: смена закрыта с незавершёнными стирками
   if (blockers.length) {
-    tg.sendTelegram_(null, '⚠ Смена ' + today + ' закрыта с незавершёнными стирками:\n' +
+    tgSend.sendTelegram_(null, '⚠ Смена ' + today + ' закрыта с незавершёнными стирками:\n' +
       blockers.map(function (w) {
         return '• ' + clientName_(w.client_id, clients) + ' — ' + (w.status === 'in_progress' ? 'в работе' : 'не начата');
       }).join('\n') +
@@ -292,7 +292,7 @@ async function closeShift(session, force) {
   const notReady = wash.notReadyForDelivery_(addDaysStr_(today, 1), laundryId);
   if (notReady.length) {
     const REASONS = { washing_incomplete: 'стирка не завершена', partial: 'стирка частичная', no_clean: 'нет чистого белья' };
-    tg.sendTelegram_(null, '⚠ К развозу на ' + addDaysStr_(today, 1) + ' не готовы:\n' +
+    tgSend.sendTelegram_(null, '⚠ К развозу на ' + addDaysStr_(today, 1) + ' не готовы:\n' +
       notReady.map(function (n) { return '• ' + n.client_name + ' — ' + REASONS[n.reason]; }).join('\n'),
       laundryId).catch(function () {});
   }

@@ -11,6 +11,7 @@ const {
 } = core;
 const { addStorageEntry_, consumeStorage_, openStorage_, storageSummaryByClient_ } = require('./storage');
 const { getVisitsByDate_, ensureVisit_, isOpenVisit_ } = require('./visits');
+const tgSend = require('./tg-send');
 
 // Уведомление владельцу в Telegram о действиях работника/водителя
 // (добавление/перенос/удаление стирок, доп. работы). Действия самого владельца не шлём.
@@ -18,7 +19,7 @@ const { getVisitsByDate_, ensureVisit_, isOpenVisit_ } = require('./visits');
 // (HTTP) и по откаченной команде уходить не должна.
 function notifyOwnerOnWorkerAction_(session, text, laundryId) {
   if (session.role !== 'worker' && session.role !== 'driver') return;
-  require('./telegram').sendTelegram_(null, text, laundryId).catch(function () {});
+  tgSend.sendTelegram_(null, text, laundryId).catch(function () {});
 }
 
 function clientNameById_(clientId, laundryId) {
