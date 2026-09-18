@@ -11,6 +11,9 @@ const { config } = require('./config');
 const { todayStr_ } = require('./audit');
 const core = require('./core');
 const { DONE_STATUSES, buildDayReport_, formatWashLine_, formatDigest_, shiftBlockers_, clientName_ } = core;
+const { ensureShift_, getShiftByDate_ } = core;
+const { consumeTelegramBindCode_ } = require('./api/users');
+const { ensureWashesFromDelivery_ } = require('./api/washes');
 
 // Идемпотентность webhook по update_id (Telegram шлёт ретраи) — замена CacheService, TTL 24ч.
 const seenUpdates = new Map(); // key → expiresAt
@@ -59,7 +62,6 @@ async function handleUpdate_(update) {
     }
     return;
   }
-  const { consumeTelegramBindCode_ } = require('./api');
   const laundryId = consumeTelegramBindCode_(candidate);
   if (!laundryId) {
     await sendTelegram_(msg.chat.id, 'Неверный или просроченный код');
@@ -91,7 +93,6 @@ async function sendTelegram_(chatId, text, laundryId) {
 
 // --- Дайджест ---
 function buildDigestText_(date, laundryId) {
-  const { getShiftByDate_ } = require('./api');
   const clients = {};
   db.getClients_(laundryId).forEach(function (c) { clients[c.id] = c; });
   const washes = db.findRowsByTenant_(SHEETS.WASHES, function (w) { return w.wash_date === date; }, 1000, laundryId)
@@ -121,7 +122,6 @@ function buildDigestText_(date, laundryId) {
 // однопроцессная синхронная запись, await нужен только на HTTP-отправку.
 // Флаг digest_sent пишется только после HTTP 200 от Bot API.
 async function sendDigestLocked_(date, laundryId) {
-  const { ensureShift_, getShiftByDate_ } = require('./api');
   let shift = getShiftByDate_(date, laundryId);
   if (shift && String(shift.obj.digest_sent) === 'да') return false;
   if (await sendTelegram_(null, buildDigestText_(date, laundryId), laundryId) !== 200) return false;
@@ -137,7 +137,6 @@ async function sendDigestLocked_(date, laundryId) {
 // Fallback (в GAS — триггер на DIGEST_TIME): шлём, только если смена не закрыта.
 // Проходим по всем активным прачкам — у каждой своя смена и свой чат владельца.
 async function fallbackDigestTrigger() {
-  const { getShiftByDate_, ensureWashesFromDelivery_ } = require('./api');
   const today = todayStr_();
   for (const l of activeLaundries_()) {
     const shift = getShiftByDate_(today, l.id);
