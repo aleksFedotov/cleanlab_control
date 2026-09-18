@@ -12,6 +12,7 @@ const db = require('./db');
 const { nowStr_, todayStr_, logEvent, actorOf_ } = require('./audit');
 const { err_, ok_ } = require('./core');
 const { requireRole_ } = require('./auth');
+const { notifyOwnerOnWorkerAction_ } = require('./wash');
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -415,10 +416,9 @@ function addExtraWork(token, clientId, date, amount, comment, userId) {
   logEvent(actorOf_(session), 'extra_work_add', entry.id,
     { user_id: targetUserId, date: date, client_id: String(clientId), amount: Number(amount), comment: entry.comment }, laundryId);
   // Деньги, внесённые водителем, — сразу владельцу в Telegram (модель «доверие +
-  // уведомление + правка»). Ленивый require: статический создаёт цикл
-  // payroll → wash → deliveries → payroll.
+  // уведомление + правка»). Отправка — после записи доп. работы (вне транзакции).
   if (session.role === 'driver') {
-    require('./wash').notifyOwnerOnWorkerAction_(session,
+    notifyOwnerOnWorkerAction_(session,
       '💪 ' + session.name + ': доп. работа — ' + client.name + ', ' + Number(amount) + ' ₽' + (entry.comment ? ' (' + entry.comment + ')' : ''),
       laundryId);
   }
