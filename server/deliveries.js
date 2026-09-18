@@ -11,6 +11,7 @@ const { addDaysStr_, err_, ok_, clientName_, resolvePrice_, effectiveTariffs_ } 
 const { requireRole_ } = require('./auth');
 const { addStorageEntry_, openStorage_, storageSummaryByClient_, storageBagsOf_ } = require('./storage');
 const { resolveRate_ } = require('./payroll');
+const { notReadyForDelivery_, issueForVisit_, unissueForVisit_ } = require('./wash');
 const { isOpenVisit_, getVisitsByDate_, ensureVisit_ } = require('./visits');
 
 // LockService в GAS; в однопроцессном Node с синхронным better-sqlite3 не нужен.
@@ -62,8 +63,6 @@ function getDeliveryVisits(token, date) {
   const clients = {};
   db.getClients_(laundryId).forEach(function (c) { clients[c.id] = c; });
   const storage = storageSummaryByClient_(laundryId);
-  // Ленивый require: api.js и deliveries.js взаимно зависят (notReadyForDelivery_ в api.js).
-  const { notReadyForDelivery_ } = require('./api');
   return ok_({
     date: date,
     visits: getVisitsByDate_(date, laundryId).map(function (v) { return decorateVisit_(v, clients, storage); }),
@@ -328,7 +327,7 @@ function driverAction(token, visitId, action, liftFloor) {
     if (action === 'deliver_clean' || action === 'both') {
       if (!v.clean_taken_at) return err_('Сначала возьмите чистое на складе');
       // Стирки, чьё чистое уехало к клиенту, помечаются выданными (команда «Стирки»)
-      require('./wash').issueForVisit_(v, laundryId);
+      issueForVisit_(v, laundryId);
     }
 
     if (action === 'pickup_dirty' || action === 'both') {
@@ -419,7 +418,7 @@ function correctVisit(token, visitId, op) {
         return err_('Выдачи чистого по точке не было');
       }
       // Откат логики issueForVisit_: стирки — обратно на склад, чистое — снова у водителя
-      const undoWarn = require('./wash').unissueForVisit_(v, laundryId);
+      const undoWarn = unissueForVisit_(v, laundryId);
       if (undoWarn) warn = undoWarn;
     }
 
