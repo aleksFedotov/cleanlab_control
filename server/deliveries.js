@@ -11,27 +11,18 @@ const { addDaysStr_, err_, ok_, clientName_, resolvePrice_, effectiveTariffs_ } 
 const { requireRole_ } = require('./auth');
 const { addStorageEntry_, openStorage_, storageSummaryByClient_, storageBagsOf_ } = require('./storage');
 const { resolveRate_ } = require('./payroll');
+const { isOpenVisit_, getVisitsByDate_, ensureVisit_ } = require('./visits');
 
 // LockService в GAS; в однопроцессном Node с синхронным better-sqlite3 не нужен.
 function withLock_(fn) { return fn(); }
 
 const VISIT_FINAL = ['delivered', 'picked', 'both', 'empty'];
 
-function isOpenVisit_(v) { return v.status === 'planned'; }
-
 // Этаж подъёма (P2): пусто/1/2 = без доплаты; доплачивается всё выше 2-го.
 function normalizeLiftFloor_(floor) {
   if (floor === undefined || floor === null || floor === '') return '';
   const n = Math.floor(Number(floor));
   return n > 2 ? String(n) : '';
-}
-
-// Визиты на дату (без отменённых), по порядку ord.
-function getVisitsByDate_(date, laundryId) {
-  return db.findRowsByTenant_(SHEETS.DELIVERIES, function (v) {
-    return v.date === date && v.status !== 'cancelled';
-  }, 1000, laundryId).map(function (r) { return r.obj; })
-    .sort(function (a, b) { return (Number(a.ord) || 0) - (Number(b.ord) || 0); });
 }
 
 // Визиты недели [monday .. monday+6], сгруппированные по дате.
@@ -99,23 +90,6 @@ function addDeliveryVisit(token, clientId, date, ord) {
     logEvent(actorOf_(session), 'visit_create', v.id, { client_id: clientId, date: date }, laundryId);
     return ok_({ visit: v });
   });
-}
-
-// Автовизит: создать planned-визит клиента на дату, если его ещё нет (без дублей,
-// без ошибки). Вызывается из updateIssueDate — чистое с новой датой выдачи должно
-// появиться в плане/развозе на этот день.
-function ensureVisit_(clientId, date, laundryId, actor) {
-  const visits = getVisitsByDate_(date, laundryId);
-  if (visits.some(function (v) { return v.client_id === clientId; })) return null;
-  const v = {
-    id: db.nextId_(SHEETS.DELIVERIES, 'del'), date: date, client_id: clientId,
-    ord: visits.length + 1, status: 'planned',
-    delivered_at: '', pickup: '', driver_comment: '',
-    created_by: actor || 'auto', created_at: nowStr_()
-  };
-  db.appendRowTenant_(SHEETS.DELIVERIES, v, laundryId);
-  logEvent(actor || 'auto', 'visit_create', v.id, { client_id: clientId, date: date, auto: true }, laundryId);
-  return v;
 }
 
 function moveDeliveryVisit(token, visitId, newDate) {

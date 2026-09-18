@@ -10,8 +10,7 @@ const {
   findTenantRow_, ensureShift_, getShiftByDate_, canEditWashData_, completionStatus_
 } = core;
 const { addStorageEntry_, consumeStorage_, openStorage_, storageSummaryByClient_ } = require('./storage');
-const deliveries = require('./deliveries');
-const { getVisitsByDate_, ensureVisit_, isOpenVisit_ } = deliveries;
+const { getVisitsByDate_, ensureVisit_, isOpenVisit_ } = require('./visits');
 
 // Уведомление владельцу в Telegram о действиях работника/водителя
 // (добавление/перенос/удаление стирок, доп. работы). Действия самого владельца не шлём.
