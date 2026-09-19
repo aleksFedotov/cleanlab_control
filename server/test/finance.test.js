@@ -322,3 +322,44 @@ test('регрессия: стирка по удалённому клиенту 
   assert.strictEqual(res.totals.weight_kg, 100);
   assert.strictEqual(res.totals.amount, 5000);
 });
+
+// --- R6: сознательное различие фильтров стирок (doneOnly) ---
+
+// Стирка со статусом вне DONE_STATUSES (например «в работе»), постиранная в
+// периоде и связанная с dirty-записью склада, попадает во вход счёта клиента
+// (вес ноги-забора, core.js pickupWeightKg_ режет только cancelled), но не во
+// вход финсводки (doneOnly: true, DONE_STATUSES на wash_date-ноге). Тест
+// characterization: охраняет это различие от случайной «унификации» фильтров.
+test('R6-char: стирка «в работе» — вес ноги-забора в счёте клиента, но не в финсводке', () => {
+  const { ctx, owner, bi } = mkBillingCtx();
+  addClient(ctx, 'cli_w', 'Отель В работе');
+  ctx.api.saveTariff(owner, '', bi.weight, 50);
+  ctx.api.saveTariff(owner, '', bi.light, 450);
+  // Завершённая стирка: весовая строка 10 кг × 50 = 500 в обоих отчётах
+  addWash(ctx, { client_id: 'cli_w', wash_date: '2026-08-03', status: 'done', kg: 10 });
+  // Стирка «в работе» в периоде + dirty-запись склада в дату визита
+  const wWashing = addWash(ctx, { client_id: 'cli_w', wash_date: '2026-08-10', status: 'washing', kg: 100 });
+  addVisit(ctx, {
+    client_id: 'cli_w', date: '2026-08-10',
+    picked_at: '2026-08-10 10:00:00', delivered_at: '2026-08-10 12:00:00'
+  });
+  addDirtyStorage(ctx, 'cli_w', '2026-08-10', wWashing);
+
+  // Счёт клиента: нога-забор весит 100 кг (≥ 30) → ярусной позиции нет,
+  // нога не тарифицируется; нога-доставки (вес 0) — лёгкий рейс 450.
+  const inv = invoice(ctx, owner, 'cli_w');
+  const invLightQty = inv.lines.filter(l => l.billing_item_id === bi.light)
+    .reduce((s, l) => s + l.qty, 0);
+  assert.strictEqual(invLightQty, 1, 'в счёте клиента тарифицируется только нога-доставки');
+  assert.strictEqual(inv.total, 950, '500 весовая + 450 доставка');
+
+  // Финсводка: стирка «в работе» отсутствует во входе → нога-забора весит 0
+  // → лёгкий рейс; обе ноги тарифицируются.
+  const res = summary(ctx, owner);
+  const r = row(res, 'cli_w');
+  assert.strictEqual(r.washes, 1, 'объёмы только по завершённым стиркам');
+  assert.strictEqual(r.weight_kg, 10);
+  assert.strictEqual(r.trips, 2, 'обе ноги тарифицируются по весу 0');
+  assert.strictEqual(r.amount, 1400, '500 весовая + 2 × 450 рейс');
+  assert.notStrictEqual(r.amount, inv.total, 'сознательное расхождение doneOnly (R6)');
+});
