@@ -313,45 +313,69 @@ function listClientItemBilling(session, clientId) {
   return ok_({ bindings: rows });
 }
 
+// Единый сбор входа buildInvoice_ (core.js) для счёта клиента и финсводки (R6).
+// Два потребителя: getClientInvoice ниже (opts.clientId, без doneOnly) и
+// getFinanceSummary (api/washes.js, { doneOnly: true }). Различие фильтров
+// стирок — сознательное, зафиксировано characterization-тестом в finance.test.js:
+// без doneOnly — «постиранные в периоде ИЛИ выданные в периоде» (вес ноги-забора
+// счёта клиента режет buildInvoice_ сам, core.js INVOICE_WASH_STATUSES); с
+// doneOnly — на wash_date-ноге добавляется фильтр DONE_STATUSES (как getSummaryReport).
+function collectInvoiceInput_(laundryId, from, to, opts) {
+  opts = opts || {};
+  const inPeriod = function (ts) {
+    const d = String(ts || '').slice(0, 10);
+    return d >= from && d <= to;
+  };
+  const clientMatch = function (rowClientId) {
+    return !opts.clientId || rowClientId === opts.clientId;
+  };
+  const DONE = core.DONE_STATUSES;
+  // Стирки: постиранные в периоде ИЛИ выданные в периоде (для веса ноги-доставки)
+  const washes = db.findRowsByTenant_(SHEETS.WASHES, function (w) {
+    const washLeg = opts.doneOnly
+      ? (w.wash_date >= from && w.wash_date <= to && DONE.indexOf(w.status) !== -1)
+      : inPeriod(w.wash_date);
+    return clientMatch(w.client_id) && (washLeg || inPeriod(w.issued_at));
+  }, 100000, laundryId).map(function (r) { return r.obj; });
+  const washIds = {};
+  washes.forEach(function (w) { washIds[w.id] = true; });
+  const washItems = db.findRowsBy_(SHEETS.WASH_ITEMS, function (wi) {
+    return !!washIds[wi.wash_id];
+  }, 100000).map(function (r) { return r.obj; });
+  const visits = db.findRowsByTenant_(SHEETS.DELIVERIES, function (v) {
+    return clientMatch(v.client_id) && inPeriod(v.date);
+  }, 100000, laundryId).map(function (r) { return r.obj; });
+  const storageRows = db.findRowsByTenant_(SHEETS.STORAGE, function (s) {
+    return clientMatch(s.client_id) && s.kind === 'dirty' && inPeriod(s.created_at);
+  }, 100000, laundryId).map(function (r) { return r.obj; });
+  return {
+    washes: washes,
+    washItems: washItems,
+    visits: visits,
+    storageRows: storageRows,
+    itemTypes: db.getItemTypes_(),
+    clientItemBilling: db.findRowsByTenant_(SHEETS.CLIENT_ITEM_BILLING, function (r) {
+      return clientMatch(r.client_id);
+    }, 100000, laundryId).map(function (r) { return r.obj; }),
+    billingItems: billingItems_(),
+    tariffs: core.effectiveTariffs_(db.readAll_(SHEETS.CLIENT_TARIFFS), laundryId)
+  };
+}
+
 // Счёт клиента за период: сбор данных и чистый расчёт buildInvoice_ (core.js).
 function getClientInvoice(session, clientId, from, to) {
   const laundryId = session.laundryId;
   const found = findTenantRow_(SHEETS.CLIENTS, clientId, laundryId);
   if (!found) return err_('Клиент не найден');
   if (!from || !to) return err_('Укажите период');
-  const inPeriod = function (ts) {
-    const d = String(ts || '').slice(0, 10);
-    return d >= from && d <= to;
-  };
-  // Стирки: постиранные в периоде ИЛИ выданные в периоде (для веса ноги-доставки)
-  const washes = db.findRowsByTenant_(SHEETS.WASHES, function (w) {
-    return w.client_id === clientId && (inPeriod(w.wash_date) || inPeriod(w.issued_at));
-  }, 5000, laundryId).map(function (r) { return r.obj; });
-  const washIds = {};
-  washes.forEach(function (w) { washIds[w.id] = true; });
-  const washItems = db.findRowsBy_(SHEETS.WASH_ITEMS, function (wi) {
-    return !!washIds[wi.wash_id];
-  }, 20000).map(function (r) { return r.obj; });
-  const visits = db.findRowsByTenant_(SHEETS.DELIVERIES, function (v) {
-    return v.client_id === clientId && inPeriod(v.date);
-  }, 5000, laundryId).map(function (r) { return r.obj; });
-  const storageRows = db.findRowsByTenant_(SHEETS.STORAGE, function (s) {
-    return s.client_id === clientId && s.kind === 'dirty' && inPeriod(s.created_at);
-  }, 5000, laundryId).map(function (r) { return r.obj; });
-  const invoice = core.buildInvoice_({
-    client: found.obj, from: from, to: to,
-    washes: washes, washItems: washItems, itemTypes: db.getItemTypes_(),
-    clientItemBilling: db.findRowsByTenant_(SHEETS.CLIENT_ITEM_BILLING, function (r) {
-      return r.client_id === clientId;
-    }, 1000, laundryId).map(function (r) { return r.obj; }),
-    billingItems: billingItems_(),
-    tariffs: core.effectiveTariffs_(db.readAll_(SHEETS.CLIENT_TARIFFS), laundryId),
-    visits: visits, storageRows: storageRows
-  });
+  const input = collectInvoiceInput_(laundryId, from, to, { clientId: clientId });
+  const invoice = core.buildInvoice_(Object.assign({
+    client: found.obj, from: from, to: to
+  }, input));
   return ok_({ invoice: invoice });
 }
 module.exports = {
-  BILLING_KINDS, billingItems_,
+  BILLING_KINDS, billingItems_, collectInvoiceInput_,
   listBillingItems, saveBillingItem, deleteBillingItem,
   listTariffs, saveTariff, saveClientItemBilling, listClientItemBilling, getClientInvoice
 };
