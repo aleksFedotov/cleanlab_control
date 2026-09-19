@@ -12,7 +12,7 @@ const {
 const { storageSummaryByClient_, storageBagsOf_ } = require('../storage');
 const deliveries = require('../deliveries');
 const { getVisitsByDate_, getVisitsByWeek_, decorateVisit_, isOpenVisit_ } = deliveries;
-const { billingItems_ } = require('./billing');
+const { billingItems_, collectInvoiceInput_ } = require('./billing');
 const wash = require('../wash');
 const tgSend = require('../tg-send');
 
@@ -571,32 +571,21 @@ function getFinanceSummary(session, from, to) {
     return d >= from && d <= to;
   };
   const DONE = core.DONE_STATUSES;
-  // Стирки: постиранные в периоде (DONE_STATUSES, для объёмов и строк счёта)
-  // ИЛИ выданные в периоде (для веса ноги-доставки в buildInvoice_)
-  const washes = db.findRowsByTenant_(SHEETS.WASHES, function (w) {
-    return (w.wash_date >= from && w.wash_date <= to && DONE.indexOf(w.status) !== -1) ||
-      inPeriod(w.issued_at);
-  }, 100000, laundryId).map(function (r) { return r.obj; });
-  const washIds = {};
-  washes.forEach(function (w) { washIds[w.id] = true; });
-  const washItems = db.findRowsBy_(SHEETS.WASH_ITEMS, function (wi) {
-    return !!washIds[wi.wash_id];
-  }, 100000).map(function (r) { return r.obj; });
-  const visits = db.findRowsByTenant_(SHEETS.DELIVERIES, function (v) {
-    return inPeriod(v.date);
-  }, 100000, laundryId).map(function (r) { return r.obj; });
-  const storageRows = db.findRowsByTenant_(SHEETS.STORAGE, function (s) {
-    return s.kind === 'dirty' && inPeriod(s.created_at);
-  }, 100000, laundryId).map(function (r) { return r.obj; });
-  const itemTypes = db.getItemTypes_();
-  const clientItemBilling = db.findRowsByTenant_(SHEETS.CLIENT_ITEM_BILLING, function () {
-    return true;
-  }, 100000, laundryId).map(function (r) { return r.obj; });
-  const billingItems = billingItems_();
+  // Единый сбор входа счёта (R6, api/billing.js). doneOnly: true — объёмы и
+  // счёт строятся по завершённым стиркам; различие со счётом клиента (без
+  // doneOnly) сознательное, зафиксировано characterization-тестом в finance.test.js.
+  const input = collectInvoiceInput_(laundryId, from, to, { doneOnly: true });
+  const washes = input.washes;
+  const washItems = input.washItems;
+  const visits = input.visits;
+  const storageRows = input.storageRows;
+  const itemTypes = input.itemTypes;
+  const clientItemBilling = input.clientItemBilling;
+  const billingItems = input.billingItems;
   // kind позиции прайса по id: у строк счёта buildInvoice_ поля kind нет
   const kindByBillingId = {};
   billingItems.forEach(function (b) { kindByBillingId[b.id] = b.kind; });
-  const tariffs = core.effectiveTariffs_(db.readAll_(SHEETS.CLIENT_TARIFFS), laundryId);
+  const tariffs = input.tariffs;
   const clients = {};
   db.getClients_(laundryId).forEach(function (c) { clients[c.id] = c; });
   // Объёмы: только стирки по wash_date со статусами DONE_STATUSES (как getSummaryReport)
