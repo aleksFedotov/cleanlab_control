@@ -17,6 +17,7 @@ import { Skeleton, SkeletonCards } from '@/components/ui/Skeleton';
 import { todayStr, timeOf, shiftDateStr, formatDateRu } from '@/lib/dates';
 import { num, kg, bags as bagsFmt, items as itemsFmt } from '@/lib/format';
 import { roleLabel } from '@/lib/dicts';
+import { washColumn } from '@/lib/wash-status';
 import type { DayWash, WorkHoursEntry } from '@/types/api';
 import { WorkHoursModal } from '@/components/WorkHoursModal';
 import { CompleteWashModal } from './CompleteWashModal';
@@ -197,16 +198,9 @@ export default function WorkerPage() {
   const matchQ = (w: DayWash) => w.client_name.toLowerCase().includes(q);
   const visible = q ? washes.filter(matchQ) : washes;
   const overdue = q ? overdueAll.filter(matchQ) : overdueAll;
-  const inProgress = visible.filter((w) => w.status === 'in_progress');
-  const queue = visible.filter((w) => w.status === 'planned');
-  const doneList = visible.filter(
-    (w) =>
-      w.status === 'done' ||
-      w.status === 'stored' ||
-      w.status === 'partial' ||
-      w.status === 'ready_clean' ||
-      w.status === 'no_linen'
-  );
+  const inProgress = visible.filter((w) => washColumn(w) === 'doing');
+  const queue = visible.filter((w) => washColumn(w) === 'todo');
+  const doneList = visible.filter((w) => washColumn(w) === 'done');
   const doneCount = doneList.length;
   const shiftClosed = !!day.data?.shift && day.data.shift.status === 'closed';
 
