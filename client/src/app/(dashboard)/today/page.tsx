@@ -9,6 +9,7 @@ import { useDayList, useDeliveryVisits, useStorage } from '@/hooks/use-api';
 import { useUiStore } from '@/stores/ui';
 import { todayStr } from '@/lib/dates';
 import { num } from '@/lib/format';
+import { washColumn } from '@/lib/wash-status';
 import { StatRow } from '@/components/ui/StatRow';
 import { StatCard } from '@/components/ui/StatCard';
 import { Card } from '@/components/ui/Card';
@@ -41,12 +42,9 @@ export default function TodayDashboard() {
 
   // Стирки дня
   const washes = day.data?.washes || [];
-  const inProgress = washes.filter((w) => w.status === 'in_progress');
-  const queue = washes.filter((w) => w.status === 'planned' || w.status === 'no_linen');
-  const doneList = washes.filter(
-    (w) =>
-      w.status === 'done' || w.status === 'stored' || w.status === 'partial' || w.status === 'ready_clean'
-  );
+  const inProgress = washes.filter((w) => washColumn(w) === 'doing');
+  const queue = washes.filter((w) => washColumn(w) === 'todo');
+  const doneList = washes.filter((w) => washColumn(w) === 'done');
   const doneKg = Math.round(doneList.reduce((s, w) => s + num(w.dirty_weight_kg), 0) * 10) / 10;
   const shift = day.data?.shift || null;
 
