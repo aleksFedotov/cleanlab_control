@@ -11,27 +11,18 @@ import { useUiStore } from '@/stores/ui';
 import { Button } from '@/components/ui/Button';
 import { Empty } from '@/components/ui/Empty';
 import { Skeleton, SkeletonCards } from '@/components/ui/Skeleton';
+import { washColumn, type WashColumn } from '@/lib/wash-status';
 import type { DayWash } from '@/types/api';
 import { WashCard, GhostCard } from './WashCard';
 import { AddWashModal } from './AddWashModal';
 import { ShiftCloseDialog } from './ShiftCloseDialog';
 import styles from './wash.module.css';
 
-// Колонки доски — как в legacy renderWashList
-const COLS: Array<{ key: string; title: string; match: (w: DayWash) => boolean }> = [
-  { key: 'todo', title: 'К стирке', match: (w) => w.status === 'planned' },
-  { key: 'doing', title: 'В работе', match: (w) => w.status === 'in_progress' },
-  {
-    key: 'done',
-    title: 'Готово',
-    match: (w) =>
-      w.status === 'done' ||
-      w.status === 'stored' ||
-      w.status === 'partial' ||
-      w.status === 'ready_clean' ||
-      w.status === 'no_linen' ||
-      w.status === 'issued',
-  },
+// Колонки доски — раскладка статусов в lib/wash-status.ts
+const COLS: Array<{ key: WashColumn; title: string; match: (w: DayWash) => boolean }> = [
+  { key: 'todo', title: 'К стирке', match: (w) => washColumn(w) === 'todo' },
+  { key: 'doing', title: 'В работе', match: (w) => washColumn(w) === 'doing' },
+  { key: 'done', title: 'Готово', match: (w) => washColumn(w) === 'done' },
 ];
 
 const ARROWS = ['→ к стирке', '→ в работе', '→ готово'];
