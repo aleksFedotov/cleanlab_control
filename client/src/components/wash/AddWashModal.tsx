@@ -12,7 +12,7 @@ import { Button } from '@/components/ui/Button';
 import { useApiMutation } from '@/hooks/use-api';
 import { useUiStore } from '@/stores/ui';
 import type { Client } from '@/types/api';
-import styles from './wash.module.css';
+import styles from './add-wash.module.css';
 
 const schema = z.object({
   clientId: z.string().min(1, 'Выберите клиента'),

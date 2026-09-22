@@ -24,9 +24,9 @@ import { CompleteWashModal } from './CompleteWashModal';
 import { StartWashModal } from '@/components/wash/StartWashModal';
 import { StorageCheckModal } from '@/components/wash/StorageCheckModal';
 import { EditDoneWashModal } from './EditDoneWashModal';
-import { AddWashModal } from '../(dashboard)/wash/AddWashModal';
+import { AddWashModal } from '@/components/wash/AddWashModal';
 import { DeferWashModal } from '@/components/wash/DeferWashModal';
-import { ShiftCloseDialog } from '../(dashboard)/wash/ShiftCloseDialog';
+import { ShiftCloseDialog } from '@/components/wash/ShiftCloseDialog';
 import styles from './worker.module.css';
 
 type Tab = 'tasks' | 'hours' | 'profile';

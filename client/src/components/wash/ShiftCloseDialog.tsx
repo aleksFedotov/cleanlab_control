@@ -9,7 +9,7 @@ import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { useApiMutation, useShiftCloseState } from '@/hooks/use-api';
 import { useUiStore } from '@/stores/ui';
-import styles from './wash.module.css';
+import styles from './add-wash.module.css';
 
 const REASONS: Record<string, string> = {
   washing_incomplete: 'стирка не завершена',

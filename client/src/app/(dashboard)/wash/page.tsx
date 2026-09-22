@@ -14,8 +14,8 @@ import { Skeleton, SkeletonCards } from '@/components/ui/Skeleton';
 import { washColumn, type WashColumn } from '@/lib/wash-status';
 import type { DayWash } from '@/types/api';
 import { WashCard, GhostCard } from './WashCard';
-import { AddWashModal } from './AddWashModal';
-import { ShiftCloseDialog } from './ShiftCloseDialog';
+import { AddWashModal } from '@/components/wash/AddWashModal';
+import { ShiftCloseDialog } from '@/components/wash/ShiftCloseDialog';
 import styles from './wash.module.css';
 
 // Колонки доски — раскладка статусов в lib/wash-status.ts
