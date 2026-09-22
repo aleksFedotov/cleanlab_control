@@ -1,0 +1,40 @@
+/* Общая модалкам действий со стиркой в components/wash/ (бывшие
+   form/field/fieldLabel/… из page-модулей wash-id, worker, report). */
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.fieldLabel {
+  font-size: 12.5px;
+  color: var(--text-3);
+}
+
+.fieldErr {
+  font-size: 12.5px;
+  color: var(--danger);
+}
+
+.quickRow {
+  display: flex;
+  gap: 8px;
+}
+
+/* Плашка «Отобрать до взвешивания» (P2): у стирки есть штучные позиции */
+.plaque {
+  color: var(--warn);
+  background: var(--warn-bg);
+  border-radius: var(--radius-s);
+  padding: 7px 10px;
+  font-size: 13px;
+  font-weight: 600;
+  margin: 4px 0;
+}

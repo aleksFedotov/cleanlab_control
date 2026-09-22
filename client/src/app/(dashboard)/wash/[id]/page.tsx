@@ -31,7 +31,7 @@ import { num } from '@/lib/format';
 import type { DayListRes, DayWash, ItemType, Wash } from '@/types/api';
 import { Stepper } from './Stepper';
 import { NumInputModal } from './NumInputModal';
-import { StartWashModal } from './StartWashModal';
+import { StartWashModal } from '@/components/wash/StartWashModal';
 import { StorageCheckModal } from './StorageCheckModal';
 import { AddItemTypeModal } from './AddItemTypeModal';
 import { EditWashModal } from './EditWashModal';
