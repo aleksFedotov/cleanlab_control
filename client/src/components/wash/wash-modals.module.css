@@ -38,3 +38,60 @@
   font-weight: 600;
   margin: 4px 0;
 }
+
+/* --- EditWashModal --- */
+
+.meta {
+  font-size: 13px;
+  color: var(--text-2);
+}
+
+/* Состав: степперы по видам белья */
+.items {
+  display: flex;
+  flex-direction: column;
+}
+
+.itemRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+
+.itemRow:last-child {
+  border-bottom: none;
+}
+
+.qty {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-2);
+  white-space: nowrap;
+}
+
+.stepper {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.stepper button {
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-s);
+  background: var(--surface);
+  color: var(--text-2);
+  font-size: 16px;
+  line-height: 1;
+}
+
+.stepper button:hover {
+  border-color: var(--bluing-border);
+  color: var(--bluing);
+  background: var(--bluing-soft);
+}

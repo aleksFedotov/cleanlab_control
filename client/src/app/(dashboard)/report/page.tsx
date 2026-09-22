@@ -19,7 +19,7 @@ import { Skeleton, SkeletonCards } from '@/components/ui/Skeleton';
 import { formatDateRu } from '@/lib/dates';
 import { kg, num } from '@/lib/format';
 import type { DayReportRes, Wash } from '@/types/api';
-import { EditWashModal } from './EditWashModal';
+import { EditWashModal } from '@/components/wash/EditWashModal';
 import { DeferWashModal } from '@/components/wash/DeferWashModal';
 import styles from './report.module.css';
 
@@ -259,7 +259,7 @@ export default function ReportPage() {
         )}
       />
 
-      {editWash && <EditWashModal wash={editWash} onClose={() => setEditWash(null)} />}
+      {editWash && <EditWashModal w={editWash} onClose={() => setEditWash(null)} />}
       {deferWash && <DeferWashModal w={deferWash} onClose={() => setDeferWash(null)} />}
       <ConfirmDialog
         open={!!deleteTarget}

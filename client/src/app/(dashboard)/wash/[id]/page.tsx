@@ -34,7 +34,7 @@ import { NumInputModal } from './NumInputModal';
 import { StartWashModal } from '@/components/wash/StartWashModal';
 import { StorageCheckModal } from '@/components/wash/StorageCheckModal';
 import { AddItemTypeModal } from './AddItemTypeModal';
-import { EditWashModal } from './EditWashModal';
+import { EditWashModal } from '@/components/wash/EditWashModal';
 import { DeferWashModal } from '@/components/wash/DeferWashModal';
 import { IssueDateModal } from './IssueDateModal';
 import { StatusTimeline } from './StatusTimeline';
@@ -602,8 +602,8 @@ export default function WashCardPage() {
       {modal === 'edit' && (
         <EditWashModal
           w={w}
-          counts={counts}
-          totalQty={total}
+          initialCounts={counts}
+          initialTotal={total}
           onSaved={() => setCountsMap((m) => ({ ...m, [id]: {} }))}
           onClose={() => setModal(null)}
         />
