@@ -620,7 +620,7 @@ export default function WashCardPage() {
         onConfirm={() => deleteMut.mutate(w.id)}
         text={`Удалить стирку «${w.client_name}» от ${formatDateRu(
           w.wash_date
-        )} безвозвратно? Позиции и складские записи этой стирки тоже удалятся.`}
+        )} безвозвратно? Позиции и складские записи этой стирки тоже удалятся. Если на день выдачи запланирован визит развоза этого клиента, он тоже будет отменён.`}
         okLabel="Удалить"
         danger
         busy={deleteMut.isPending}

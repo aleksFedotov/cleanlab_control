@@ -80,6 +80,24 @@ test('deleteWash: удаляет стирку совсем; выданную и 
   assert.ok(/Выданную/.test(del.error));
 });
 
+test('deleteWash: запланированный визит развоза отменяется вместе со стиркой — стирка не «воскресает»', () => {
+  const ctx = makeCtx();
+  const clientId = seedClient(ctx);
+  const owner = loginOwner();
+  const visit = ctx.api.addDeliveryVisit(owner, clientId, TOMORROW).visit;
+  const washId = ctx.api.addToDelivery(owner, clientId, TODAY, TOMORROW).wash.id;
+
+  assert.ok(ctx.api.deleteWash(owner, washId).ok);
+  // Визит отменён: иначе чтение дня пересоздало бы стирку
+  // (инвариант ensureWashesFromDelivery_ — визит на D+1 без стирки на D)
+  assert.strictEqual(ctx.db.findById_('Deliveries', visit.id).obj.status, 'cancelled');
+  assert.strictEqual(ctx.api.getDayList(owner, TODAY).washes.length, 0);
+  // Стирка без визита удаляется как раньше (визитов нет — не падаем)
+  const washId2 = ctx.api.addToDelivery(owner, clientId, TODAY, TOMORROW).wash.id;
+  assert.ok(ctx.api.deleteWash(owner, washId2).ok);
+  assert.strictEqual(ctx.api.getDayList(owner, TODAY).washes.length, 0);
+});
+
 test('полный цикл: постановка → в работу → завершение, идемпотентность', () => {
   const ctx = makeCtx();
   const clientId = seedClient(ctx);

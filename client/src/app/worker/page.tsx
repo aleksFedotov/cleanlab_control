@@ -480,7 +480,7 @@ export default function WorkerPage() {
           open
           danger
           busy={deleteMut.isPending}
-          text={`Удалить стирку «${deleteWash.client_name}»? Действие необратимо, владелец получит уведомление.`}
+          text={`Удалить стирку «${deleteWash.client_name}»? Действие необратимо, владелец получит уведомление. Если есть запланированный визит развоза этому клиенту, он тоже будет отменён.`}
           okLabel="Удалить"
           onClose={() => setDeleteId(null)}
           onConfirm={() => deleteMut.mutate(deleteWash.id)}

@@ -298,6 +298,22 @@ function deleteWash(session, washId) {
     if (w.status === 'issued') {
       return err_('Выданную клиенту стирку удалить нельзя');
     }
+    // Запланированные визиты развоза клиента (на день выдачи и на день после
+    // стирки — инвариант ensureWashesFromDelivery_): стирка удалена → нечего
+    // везти, визит отменяем. Иначе чтение дня пересоздало бы стирку
+    // (визит на D+1 без стирки на D) — «удалили, а она осталась».
+    const visitDates = {};
+    if (w.issue_date) visitDates[w.issue_date] = true;
+    visitDates[addDaysStr_(w.wash_date, 1)] = true;
+    Object.keys(visitDates).forEach(function (d) {
+      getVisitsByDate_(d, laundryId).forEach(function (v) {
+        if (v.client_id !== w.client_id || v.status !== 'planned') return;
+        const vf = db.findById_(SHEETS.DELIVERIES, v.id);
+        vf.obj.status = 'cancelled';
+        db.updateRow_(SHEETS.DELIVERIES, vf.rowNumber, vf.obj);
+        logEvent(actorOf_(session), 'visit_cancel', v.id, { reason: 'wash_delete ' + washId }, laundryId);
+      });
+    });
     // Связанные записи: позиции стирки и складские строки.
     // Удаляем снизу вверх, чтобы номера строк не съезжали.
     [SHEETS.WASH_ITEMS, SHEETS.STORAGE].forEach(function (sheet) {
