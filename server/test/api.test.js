@@ -164,6 +164,26 @@ test('deferWash: перенос со следом; cancel после перен�
   assert.strictEqual(ctx.api.getDayList(owner, TODAY).washes.length, 0);
 });
 
+test('deferWash из planned: выдача и визит развоза едут следом — стирка в исходном дне не пересоздаётся', () => {
+  const ctx = makeCtx();
+  const clientId = seedClient(ctx);
+  const owner = loginOwner();
+  const visit = ctx.api.addDeliveryVisit(owner, clientId, TOMORROW).visit;
+  const washId = ctx.api.addToDelivery(owner, clientId, TODAY, TOMORROW).wash.id;
+  const def = ctx.api.deferWash(owner, washId, '2026-08-14', 'нет места');
+  assert.ok(def.ok);
+  assert.strictEqual(def.wash.wash_date, '2026-08-14');
+  assert.strictEqual(def.wash.issue_date, '2026-08-15');
+  assert.strictEqual(def.wash.deferred_from, TODAY);
+  // Визит развоза переехал со старой даты выдачи
+  const v = ctx.db.findById_('Deliveries', visit.id).obj;
+  assert.strictEqual(v.date, '2026-08-15');
+  // Повторное чтение дня-источника не пересоздаёт стирку: визита на завтра нет
+  assert.strictEqual(ctx.api.getDayList(owner, TODAY).washes.length, 0);
+  // И на новую дату стирка ровно одна (авто-ensure не дублирует)
+  assert.strictEqual(ctx.api.getDayList(owner, '2026-08-14').washes.length, 1);
+});
+
 test('deferWash из partial: стирка → planned на новую дату, issue_date = newDate+1, визит развоза едет следом', () => {
   const ctx = makeCtx();
   const clientId = seedClient(ctx);

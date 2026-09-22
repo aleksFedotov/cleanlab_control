@@ -165,18 +165,24 @@ function deferWash(session, washId, newDate, reason) {
       // следующий день. Постиранная часть (вес/позиции/clean-запись на складе)
       // сохраняется; остаток при повторном завершении добавит вторую clean-запись
       // склада, а итоги стирки (items_total/bags/dirty_weight_kg) суммируются.
-      const oldIssueDate = w.issue_date;
-      const newIssueDate = addDaysStr_(newDate, 1);
       patch.status = 'planned';
-      patch.issue_date = newIssueDate;
       // Остаток грязного физически в цеху: восстанавливаем dirty-запись склада,
       // иначе карточка показывает «Нет белья на складе» (первая запись израсходована
       // при первом «В работу»). Как verdict has_dirty в confirmStorageCheck.
       if (openStorage_(w.client_id, 'dirty', laundryId).length === 0) {
         addStorageEntry_(w.client_id, 'dirty', {}, laundryId);
       }
-      // Визит развоза едет следом: «завтра» → «послезавтра». Только planned и
-      // только если на целевую дату у клиента ещё нет визита.
+    }
+    // Выдача едет следом за стиркой: issue_date → newDate+1, визит развоза со
+    // старой даты выдачи переезжает туда же (только planned и только если на
+    // целевую дату у клиента ещё нет визита). Без этого визит остаётся на
+    // старой дате, и ensureWashesFromDelivery_ пересоздаёт стирку в исходном
+    // дне (визит на D+1 без стирки на D) — дубль при каждом переносе.
+    // issue_date пустая (стирка на склад, P9) — не трогаем: визита нет.
+    if (w.issue_date) {
+      const oldIssueDate = w.issue_date;
+      const newIssueDate = addDaysStr_(newDate, 1);
+      patch.issue_date = newIssueDate;
       const visit = getVisitsByDate_(oldIssueDate, laundryId).filter(function (x) {
         return x.client_id === w.client_id && x.status === 'planned';
       })[0];
