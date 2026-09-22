@@ -25,7 +25,7 @@ import { StartWashModal } from '@/components/wash/StartWashModal';
 import { StorageCheckModal } from '@/components/wash/StorageCheckModal';
 import { EditDoneWashModal } from './EditDoneWashModal';
 import { AddWashModal } from '../(dashboard)/wash/AddWashModal';
-import { DeferWashModal } from '../(dashboard)/wash/[id]/DeferWashModal';
+import { DeferWashModal } from '@/components/wash/DeferWashModal';
 import { ShiftCloseDialog } from '../(dashboard)/wash/ShiftCloseDialog';
 import styles from './worker.module.css';
 
@@ -473,7 +473,7 @@ export default function WorkerPage() {
         <AddWashModal clients={day.data.clients || []} onClose={() => setAddOpen(false)} />
       )}
       {deferWash && (
-        <DeferWashModal w={deferWash} onDone={() => {}} onClose={() => setDeferId(null)} />
+        <DeferWashModal w={deferWash} onClose={() => setDeferId(null)} />
       )}
       {deleteWash && (
         <ConfirmDialog

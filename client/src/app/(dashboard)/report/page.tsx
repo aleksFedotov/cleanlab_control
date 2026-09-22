@@ -20,7 +20,7 @@ import { formatDateRu } from '@/lib/dates';
 import { kg, num } from '@/lib/format';
 import type { DayReportRes, Wash } from '@/types/api';
 import { EditWashModal } from './EditWashModal';
-import { DeferWashModal } from './DeferWashModal';
+import { DeferWashModal } from '@/components/wash/DeferWashModal';
 import styles from './report.module.css';
 
 type ReportWash = DayReportRes['washes'][number];
@@ -260,7 +260,7 @@ export default function ReportPage() {
       />
 
       {editWash && <EditWashModal wash={editWash} onClose={() => setEditWash(null)} />}
-      {deferWash && <DeferWashModal wash={deferWash} onClose={() => setDeferWash(null)} />}
+      {deferWash && <DeferWashModal w={deferWash} onClose={() => setDeferWash(null)} />}
       <ConfirmDialog
         open={!!deleteTarget}
         onClose={() => setDeleteTarget(null)}

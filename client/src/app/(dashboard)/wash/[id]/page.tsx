@@ -35,7 +35,7 @@ import { StartWashModal } from '@/components/wash/StartWashModal';
 import { StorageCheckModal } from '@/components/wash/StorageCheckModal';
 import { AddItemTypeModal } from './AddItemTypeModal';
 import { EditWashModal } from './EditWashModal';
-import { DeferWashModal } from './DeferWashModal';
+import { DeferWashModal } from '@/components/wash/DeferWashModal';
 import { IssueDateModal } from './IssueDateModal';
 import { StatusTimeline } from './StatusTimeline';
 import styles from './wash-id.module.css';

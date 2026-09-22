@@ -1,6 +1,8 @@
 'use client';
 
 // Перенос стирки на другой день (legacy openDefer, server/public/index.html:982-1009).
+// Единая модалка для карточки стирки, экрана работника и отчёта (R8):
+// мутация — только через useApiMutation (ручные обходы из отчёта удалены).
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
@@ -9,8 +11,7 @@ import { Button } from '@/components/ui/Button';
 import { useApiMutation } from '@/hooks/use-api';
 import { useUiStore } from '@/stores/ui';
 import { shiftDateStr } from '@/lib/dates';
-import type { DayWash } from '@/types/api';
-import styles from './wash-id.module.css';
+import styles from './wash-modals.module.css';
 
 const schema = z.object({
   date: z.string().min(1, 'Выберите дату'),
@@ -19,9 +20,10 @@ const schema = z.object({
 
 type FormValues = z.infer<typeof schema>;
 
+// Узкий структурный тип: модалке не важно, из какого ответа пришла стирка
 export interface DeferWashModalProps {
-  w: DayWash;
-  onDone: () => void;
+  w: { id: string; wash_date: string };
+  onDone?: () => void; // карточка — назад на доску; отчёт/работник — не передают
   onClose: () => void;
 }
 
@@ -43,7 +45,7 @@ export function DeferWashModal({ w, onDone, onClose }: DeferWashModalProps) {
     onSuccess: () => {
       toast('Стирка перенесена ✓');
       onClose();
-      onDone(); // стирка уехала на другой день — назад на доску
+      onDone?.(); // стирка уехала на другой день — карточка возвращается на доску
     },
   });
 
