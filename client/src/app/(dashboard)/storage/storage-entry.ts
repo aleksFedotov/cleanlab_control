@@ -13,6 +13,8 @@ export interface StorageEntry {
   washId: string; // только для partial (id стирки)
   washStatus: string; // только для partial: статус стирки-источника (partial/planned/in_progress)
   hold: boolean; // partial: владелец решил «оставить на складе»
+  manual: boolean; // ручная запись чистого (P8, wash_id пустой): стирки за записью нет
+  storageId: string; // manual: id складской записи (для editManualClean)
   client_id: string;
   client_name: string;
   kg: number;
@@ -41,7 +43,7 @@ export function buildEntries(res: StorageRes, today: string): StorageEntry[] {
 
   res.stored.forEach((w) => {
     entries.push({
-      kind: 'clean', id: w.id, washId: '', washStatus: '', hold: false, client_id: w.client_id, client_name: w.client_name,
+      kind: 'clean', id: w.id, washId: '', washStatus: '', hold: false, manual: false, storageId: '', client_id: w.client_id, client_name: w.client_name,
       kg: num(w.dirty_weight_kg), total: num(w.items_total), bags: num(w.bags),
       items: w.items || [], issue_date: w.issue_date, since: '',
       attn: false, overdueDays: 0, rank: 0, statusKey: '', statusText: '',
@@ -49,15 +51,25 @@ export function buildEntries(res: StorageRes, today: string): StorageEntry[] {
   });
   (res.cleanReady || []).forEach((s) => {
     entries.push({
-      kind: 'clean', id: s.wash_id, washId: '', washStatus: '', hold: false, client_id: s.client_id, client_name: s.client_name,
+      kind: 'clean', id: s.wash_id, washId: '', washStatus: '', hold: false, manual: false, storageId: '', client_id: s.client_id, client_name: s.client_name,
       kg: num(s.weight_kg), total: num(s.items_total), bags: num(s.bags),
-      items: [], issue_date: s.issue_date || '', since: '',
+      items: s.items || [], issue_date: s.issue_date || '', since: '',
+      attn: false, overdueDays: 0, rank: 0, statusKey: '', statusText: '',
+    });
+  });
+  // Ручные записи чистого (P8, wash_id пустой): попадают только в res.clean,
+  // за ними нет стирки — действия по стирке (выдача/дата) им недоступны.
+  (res.clean || []).filter((s) => !s.wash_id).forEach((s) => {
+    entries.push({
+      kind: 'clean', id: s.id, washId: '', washStatus: '', hold: false, manual: true, storageId: s.id, client_id: s.client_id, client_name: s.client_name,
+      kg: num(s.weight_kg), total: num(s.items_total), bags: num(s.bags),
+      items: s.items || [], issue_date: '', since: (s.created_at || '').slice(0, 10),
       attn: false, overdueDays: 0, rank: 0, statusKey: '', statusText: '',
     });
   });
   (res.partialClean || []).forEach((s) => {
     entries.push({
-      kind: 'partial', id: s.id, washId: s.wash_id, washStatus: s.wash_status, hold: s.wash_hold === 1, client_id: s.client_id, client_name: s.client_name,
+      kind: 'partial', id: s.id, washId: s.wash_id, washStatus: s.wash_status, hold: s.wash_hold === 1, manual: false, storageId: '', client_id: s.client_id, client_name: s.client_name,
       kg: num(s.weight_kg), total: num(s.items_total), bags: num(s.bags),
       items: [], issue_date: '', since: (s.created_at || '').slice(0, 10),
       attn: false, overdueDays: 0, rank: 0, statusKey: '', statusText: '',
@@ -65,7 +77,7 @@ export function buildEntries(res: StorageRes, today: string): StorageEntry[] {
   });
   (res.dirty || []).forEach((s) => {
     entries.push({
-      kind: 'dirty', id: s.id, washId: '', washStatus: '', hold: false, client_id: s.client_id, client_name: s.client_name,
+      kind: 'dirty', id: s.id, washId: '', washStatus: '', hold: false, manual: false, storageId: '', client_id: s.client_id, client_name: s.client_name,
       kg: 0, total: 0, bags: 0,
       items: [], issue_date: '', since: (s.created_at || '').slice(0, 10),
       attn: false, overdueDays: 0, rank: 0, statusKey: '', statusText: '',
@@ -74,7 +86,13 @@ export function buildEntries(res: StorageRes, today: string): StorageEntry[] {
 
   // Статус и раскраска карточки
   entries.forEach((e) => {
-    if (e.kind === 'dirty') {
+    if (e.manual) {
+      // Ручная запись: стирки нет, даты выдачи нет — нейтральная карточка
+      e.attn = false;
+      e.statusKey = 'ready';
+      e.statusText = 'Внесено вручную';
+      e.rank = 3;
+    } else if (e.kind === 'dirty') {
       e.attn = false;
       e.statusKey = 'planned';
       e.statusText = 'Ожидает стирки';

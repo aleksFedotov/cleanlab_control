@@ -36,10 +36,12 @@ export interface EditWashModalProps {
   initialCounts?: Record<string, number>; // карточка: несохранённые правки степперов
   initialTotal?: number;                  // карточка: total для плашки «Новый пересчёт»
   onSaved?: () => void;                   // карточка: обнулить countsMap
+  // Склад: ручная запись чистого правится через editManualClean (w.id = id записи)
+  method?: 'editWashData' | 'editManualClean';
   onClose: () => void;
 }
 
-export function EditWashModal({ w, initialCounts, initialTotal, onSaved, onClose }: EditWashModalProps) {
+export function EditWashModal({ w, initialCounts, initialTotal, onSaved, method = 'editWashData', onClose }: EditWashModalProps) {
   const toast = useUiStore((s) => s.toast);
   const refs = useRefs();
   const types = (refs.data?.itemTypes || []).filter((t) => t.active === 'да');
@@ -64,7 +66,7 @@ export function EditWashModal({ w, initialCounts, initialTotal, onSaved, onClose
     defaultValues: { weight: String(num(w.dirty_weight_kg)), bags: String(num(w.bags)) },
   });
 
-  const mutation = useApiMutation('editWashData', {
+  const mutation = useApiMutation(method, {
     invalidate: 'operational',
     onSuccess: () => {
       toast('Данные обновлены ✓');

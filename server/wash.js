@@ -450,6 +450,65 @@ function addManualClean(session, clientId, weightKg, itemsTotal, bags, comment, 
   return result;
 }
 
+// Правка ручной записи чистого (P8): пересчёт белья, лежащего на полке.
+// Записи со стиркой правятся через editWashData — там переписывается и состав
+// стирки; здесь только ручная (wash_id пустой) и ещё не израсходованная запись.
+function editManualClean(session, storageId, weightKg, items, bags) {
+  const laundryId = session.laundryId;
+  const actor = actorOf_(session);
+  return db.transaction_(function () {
+    const found = findTenantRow_(SHEETS.STORAGE, storageId, laundryId);
+    if (!found) return err_('Запись не найдена');
+    const s = found.obj;
+    if (s.kind !== 'clean' || s.wash_id) {
+      return err_('Правка доступна только для ручной записи чистого');
+    }
+    if (s.consumed_at) return err_('Запись уже израсходована');
+    const bagsN = Number(bags);
+    if (!(Number.isInteger(bagsN) && bagsN > 0)) return err_('Укажите количество мешков');
+    const kg = round1_(weightKg);
+    // Валидация разбивки — как в addManualClean: тип активный, qty целое > 0,
+    // дубликаты типов суммируем; items_total = сумме разбивки.
+    const activeTypes = {};
+    db.getItemTypes_().forEach(function (t) {
+      if (t.active === 'да') activeTypes[t.id] = true;
+    });
+    const byType = {};
+    const order = [];
+    for (let i = 0; i < (items || []).length; i++) {
+      const it = items[i];
+      const qty = Number(it && it.qty);
+      if (!activeTypes[it && it.item_type_id]) return err_('Неизвестный вид белья: ' + (it && it.item_type_id));
+      if (!(Number.isInteger(qty) && qty > 0)) return err_('Количество должно быть целым > 0');
+      if (!byType[it.item_type_id]) order.push(it.item_type_id);
+      byType[it.item_type_id] = (byType[it.item_type_id] || 0) + qty;
+    }
+    const valid = order.map(function (tid) { return { item_type_id: tid, qty: byType[tid] }; });
+    let total = 0;
+    valid.forEach(function (it) { total += it.qty; });
+    if (!(kg > 0) && !(total > 0)) return err_('Укажите вес или количество');
+    const old = { kg: s.weight_kg, items_total: s.items_total, bags: s.bags };
+    // WashItems записи удаляются (снизу вверх) и пишутся заново
+    db.findRowsBy_(SHEETS.WASH_ITEMS, function (wi) { return wi.storage_id === storageId; }, 1000)
+      .sort(function (a, b) { return b.rowNumber - a.rowNumber; })
+      .forEach(function (r) { db.deleteRow_(SHEETS.WASH_ITEMS, r.rowNumber); });
+    s.weight_kg = kg > 0 ? kg : '';
+    s.items_total = total > 0 ? total : '';
+    s.bags = bagsN;
+    db.updateRow_(SHEETS.STORAGE, found.rowNumber, s);
+    valid.forEach(function (it) {
+      db.appendRow_(SHEETS.WASH_ITEMS, {
+        id: db.nextId_(SHEETS.WASH_ITEMS, 'wi'), wash_id: '', storage_id: storageId,
+        item_type_id: it.item_type_id, qty: it.qty
+      });
+    });
+    logEvent(actor, 'manual_clean_edit', storageId, {
+      old: old, now: { kg: kg || 0, items_total: total || 0, bags: bagsN }
+    }, laundryId);
+    return ok_({ entry: s });
+  });
+}
+
 function markIssued(session, washId) {
   const laundryId = session.laundryId;
   return db.transaction_(function () {
@@ -594,6 +653,6 @@ function notReadyForDelivery_(date, laundryId) {
 module.exports = {
   notifyOwnerOnWorkerAction_, clientNameById_,
   startWash, completeWash, editWashData, deferWash, holdPartialWash, addUnplannedWash,
-  cancelWash, deleteWash, confirmStorageCheck, addManualClean, markIssued, updateIssueDate, notReadyForDelivery_,
+  cancelWash, deleteWash, confirmStorageCheck, addManualClean, editManualClean, markIssued, updateIssueDate, notReadyForDelivery_,
   issueForVisit_, unissueForVisit_
 };

@@ -9,6 +9,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import { EditWashModal } from '@/components/wash/EditWashModal';
 import { useApiMutation } from '@/hooks/use-api';
 import { useUiStore } from '@/stores/ui';
 import { todayStr, shiftDateStr } from '@/lib/dates';
@@ -39,6 +40,7 @@ export function StorageCardModal({ entry: e, types, onClose }: StorageCardModalP
   const [view, setView] = useState<View>('main');
   const [confirmIssue, setConfirmIssue] = useState(false);
   const [confirmClear, setConfirmClear] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
   const today = todayStr();
 
   const addWash = useApiMutation('addUnplannedWash', {
@@ -237,16 +239,23 @@ export function StorageCardModal({ entry: e, types, onClose }: StorageCardModalP
               >
                 Добавить в развоз
               </Button>
-              <Button variant="ghost" className={styles.actionBtn} onClick={() => setConfirmIssue(true)}>
-                Выдано
+              <Button variant="ghost" className={styles.actionBtn} onClick={() => setEditOpen(true)}>
+                Изменить данные
               </Button>
-              <Button variant="ghost" className={styles.actionBtn} onClick={() => setView('issueDate')}>
-                Изменить дату
-              </Button>
-              {e.issue_date && (
-                <Button variant="ghost" className={styles.actionBtn} onClick={() => setConfirmClear(true)}>
-                  Снять дату выдачи
-                </Button>
+              {!e.manual && (
+                <>
+                  <Button variant="ghost" className={styles.actionBtn} onClick={() => setConfirmIssue(true)}>
+                    Выдано
+                  </Button>
+                  <Button variant="ghost" className={styles.actionBtn} onClick={() => setView('issueDate')}>
+                    Изменить дату
+                  </Button>
+                  {e.issue_date && (
+                    <Button variant="ghost" className={styles.actionBtn} onClick={() => setConfirmClear(true)}>
+                      Снять дату выдачи
+                    </Button>
+                  )}
+                </>
               )}
             </div>
           </>
@@ -269,6 +278,23 @@ export function StorageCardModal({ entry: e, types, onClose }: StorageCardModalP
         okLabel="Снять дату"
         busy={clearIssue.isPending}
       />
+
+      {editOpen && (
+        <EditWashModal
+          w={{
+            id: e.manual ? e.storageId : e.id,
+            client_name: e.client_name,
+            dirty_weight_kg: e.kg,
+            bags: e.bags,
+            items: e.items,
+          }}
+          method={e.manual ? 'editManualClean' : 'editWashData'}
+          onClose={() => {
+            setEditOpen(false);
+            onClose();
+          }}
+        />
+      )}
     </>
   );
 }

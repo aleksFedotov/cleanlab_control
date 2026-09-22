@@ -820,3 +820,111 @@ test('P10: статусный барьер — planned-стирке дату м�
   assert.ok(!res.ok);
   assert.strictEqual(res.error, 'Менять дату выдачи можно только у завершённой стирки');
 });
+
+// --- Правка ручной записи чистого (editManualClean) ---
+
+test('editManualClean: правка кг/мешков/разбивки — Storage и WashItems обновлены, повторная правка ок', () => {
+  const ctx = makeCtx();
+  const clientId = seedClient(ctx);
+  const created = wash.addManualClean(ownerSession, clientId, 5, 0, 2, 'остаток', [
+    { item_type_id: 'itm_1', qty: 4 }, { item_type_id: 'itm_2', qty: 3 }
+  ]);
+  assert.ok(created.ok, created.error);
+
+  const edited = wash.editManualClean(ownerSession, created.entry.id, 6.24, [
+    { item_type_id: 'itm_2', qty: 1 }, { item_type_id: 'itm_1', qty: 2 }
+  ], 3);
+  assert.ok(edited.ok, edited.error);
+  assert.strictEqual(edited.entry.weight_kg, 6.2, 'вес округлён до 0,1');
+  assert.strictEqual(edited.entry.items_total, 3);
+  assert.strictEqual(edited.entry.bags, 3);
+
+  const wis = ctx.db.readAll_(SHEETS.WASH_ITEMS).filter(function (wi) {
+    return wi.storage_id === created.entry.id;
+  });
+  assert.strictEqual(wis.length, 2, 'старые позиции удалены, новые записаны');
+  assert.deepStrictEqual(
+    wis.map(function (wi) { return [wi.item_type_id, Number(wi.qty)]; }),
+    [['itm_2', 1], ['itm_1', 2]]
+  );
+  // Повторная правка — ок
+  assert.ok(wash.editManualClean(ownerSession, created.entry.id, 6, [], 3).ok);
+
+  const ev = ctx.db.readTailByTenant_(SHEETS.LOG, 1000, '1').filter(function (e) {
+    return e.action === 'manual_clean_edit';
+  });
+  const det = JSON.parse(ev[0].details);
+  assert.strictEqual(Number(det.old.kg), 5);
+  assert.strictEqual(det.now.kg, 6.2);
+});
+
+test('editManualClean: отказы — запись со стиркой, израсходованная, несуществующая, валидации', () => {
+  const ctx = makeCtx();
+  const clientId = seedClient(ctx);
+
+  assert.strictEqual(wash.editManualClean(ownerSession, 'str_none', 1, [], 1).ok, false,
+    'несуществующий id');
+
+  const created = wash.addManualClean(ownerSession, clientId, 5, 0, 2, 'остаток', [
+    { item_type_id: 'itm_1', qty: 4 }
+  ]);
+  assert.ok(created.ok);
+  const id = created.entry.id;
+
+  assert.strictEqual(wash.editManualClean(ownerSession, id, 5, [], 0).ok, false, 'без мешков');
+  assert.strictEqual(wash.editManualClean(ownerSession, id, 5, [
+    { item_type_id: 'itm_none', qty: 1 }
+  ], 2).ok, false, 'неизвестный вид белья');
+  assert.strictEqual(wash.editManualClean(ownerSession, id, 5, [
+    { item_type_id: 'itm_1', qty: 1.5 }
+  ], 2).ok, false, 'qty не целое');
+  assert.strictEqual(wash.editManualClean(ownerSession, id, 0, [], 2).ok, false,
+    'ни веса, ни количества');
+  // Отказы откатились: запись не изменилась
+  const sAfter = ctx.db.findById_(SHEETS.STORAGE, id).obj;
+  assert.strictEqual(Number(sAfter.weight_kg), 5);
+  assert.strictEqual(Number(sAfter.items_total), 4);
+
+  // Запись со стиркой — не для этой команды (правится через editWashData)
+  const doneId = plannedWash(ctx, clientId);
+  assert.ok(wash.startWash(workerSession, doneId, 9.5).ok);
+  assert.ok(wash.completeWash(workerSession, doneId, [{ item_type_id: 'itm_1', qty: 4 }], 9.5, null, 2).ok);
+  const linked = ctx.db.readAll_(SHEETS.STORAGE).filter(function (s) { return s.wash_id === doneId; })[0];
+  assert.strictEqual(wash.editManualClean(ownerSession, linked.id, 5, [], 1).ok, false,
+    'запись со стиркой отклонена');
+
+  // Израсходованная — не правится
+  const cf = ctx.db.findById_(SHEETS.STORAGE, id);
+  cf.obj.consumed_at = '2026-08-13 10:00:00';
+  ctx.db.updateRow_(SHEETS.STORAGE, cf.rowNumber, cf.obj);
+  assert.strictEqual(wash.editManualClean(ownerSession, id, 5, [], 1).ok, false,
+    'израсходованная запись отклонена');
+});
+
+test('getStorage: clean-записи приходят с items — ручная по storage_id, со стиркой по wash_id', () => {
+  const ctx = makeCtx();
+  const clientId = seedClient(ctx);
+  const doneId = plannedWash(ctx, clientId);
+  assert.ok(wash.startWash(workerSession, doneId, 9.5).ok);
+  assert.ok(wash.completeWash(workerSession, doneId, [
+    { item_type_id: 'itm_1', qty: 4 }, { item_type_id: 'itm_2', qty: 3 }
+  ], 9.5, null, 2).ok);
+  const manual = wash.addManualClean(ownerSession, clientId, 3, 0, 1, 'ручное', [
+    { item_type_id: 'itm_2', qty: 2 }, { item_type_id: 'itm_3', qty: 1 }
+  ]);
+  assert.ok(manual.ok);
+
+  const res = ctx.api.getStorage(loginOwner());
+  const manualRow = res.clean.find(function (s) { return s.id === manual.entry.id; });
+  assert.ok(manualRow, 'ручная запись в списке clean');
+  assert.deepStrictEqual(
+    manualRow.items.map(function (wi) { return [wi.item_type_id, Number(wi.qty)]; }),
+    [['itm_2', 2], ['itm_3', 1]]
+  );
+  const readyRow = res.cleanReady.find(function (s) { return s.wash_id === doneId; });
+  assert.ok(readyRow, 'clean-запись завершённой стирки');
+  assert.deepStrictEqual(
+    readyRow.items.map(function (wi) { return [wi.item_type_id, Number(wi.qty)]; }),
+    [['itm_1', 4], ['itm_2', 3]]
+  );
+});

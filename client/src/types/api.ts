@@ -157,6 +157,7 @@ export interface StorageRow {
   wash_hold?: number; // 1 — владелец решил «оставить на складе» (partial + hold)
   issue_date: string;
   bags: number;
+  items?: WashItem[]; // позиции чистого (getStorage): по wash_id или storage_id (ручная запись)
 }
 
 export interface DayReport {

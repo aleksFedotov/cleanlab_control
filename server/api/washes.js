@@ -467,6 +467,20 @@ function getStorage(session) {
       s.bags = storageBagsOf_(s, washBags); // явные мешки записи, иначе со стирки (P8)
       return s;
     });
+  // Позиции чистого — для карточек склада и префилла правки: по wash_id для
+  // записей со стиркой, по storage_id для ручных (P8). Один проход по WashItems.
+  const itemsByWash = {};
+  const itemsByStorage = {};
+  db.findRowsBy_(SHEETS.WASH_ITEMS, function () { return true; }, 100000)
+    .forEach(function (r) {
+      const wi = r.obj;
+      if (wi.wash_id) (itemsByWash[wi.wash_id] = itemsByWash[wi.wash_id] || []).push(wi);
+      else if (wi.storage_id) (itemsByStorage[wi.storage_id] = itemsByStorage[wi.storage_id] || []).push(wi);
+    });
+  open.forEach(function (s) {
+    if (s.kind !== 'clean') return;
+    s.items = s.wash_id ? (itemsByWash[s.wash_id] || []) : (itemsByStorage[s.id] || []);
+  });
   // Остатки частичных стирок: clean-записи, чья стирка в статусе partial, а также
   // planned/in_progress с уже постиранной частью (перенесённый остаток — clean-запись
   // есть, а стирка снова в плане; без этого такая запись пропадала бы со склада).
