@@ -17,7 +17,7 @@ import { Skeleton, SkeletonCards } from '@/components/ui/Skeleton';
 import { todayStr, timeOf, shiftDateStr, formatDateRu } from '@/lib/dates';
 import { num, kg, bags as bagsFmt, items as itemsFmt } from '@/lib/format';
 import { roleLabel } from '@/lib/dicts';
-import { washColumn } from '@/lib/wash-status';
+import { washColumn, canEditWashData } from '@/lib/wash-status';
 import type { DayWash, WorkHoursEntry } from '@/types/api';
 import { WorkHoursModal } from '@/components/WorkHoursModal';
 import { CompleteWashModal } from './CompleteWashModal';
@@ -350,9 +350,11 @@ export default function WorkerPage() {
                           <StatusBadge status={w.status} />
                         </div>
                         {meta.length > 0 && <div className={styles.washMeta}>{meta.join(' · ')}</div>}
-                        <Button variant="ghost" className={styles.bigBtn} onClick={() => setEditId(w.id)}>
-                          Исправить данные
-                        </Button>
+                        {canEditWashData(w) && (
+                          <Button variant="ghost" className={styles.bigBtn} onClick={() => setEditId(w.id)}>
+                            Исправить данные
+                          </Button>
+                        )}
                       </Card>
                     );
                   })

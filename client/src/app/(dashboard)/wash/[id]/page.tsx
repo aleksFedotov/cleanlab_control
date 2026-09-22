@@ -28,6 +28,7 @@ import { Empty } from '@/components/ui/Empty';
 import { Skeleton, SkeletonCards } from '@/components/ui/Skeleton';
 import { formatDateRu, timeOf } from '@/lib/dates';
 import { num } from '@/lib/format';
+import { canEditWashData } from '@/lib/wash-status';
 import type { DayListRes, DayWash, ItemType, Wash } from '@/types/api';
 import { Stepper } from './Stepper';
 import { NumInputModal } from './NumInputModal';
@@ -196,7 +197,7 @@ export default function WashCardPage() {
 
   // --- Производные значения (как в legacy renderWashCard) ---
   const acc = w.client_accounting || 'both';
-  const canEdit = w.status === 'done' || w.status === 'stored' || w.status === 'partial';
+  const canEdit = canEditWashData(w);
   // Для завершённой стирки состав префиллится из сохранённого w.items (черновик
   // степперов, если есть, важнее); пустой черновик после сброса = нет черновика.
   const draftCounts = countsMap[id];

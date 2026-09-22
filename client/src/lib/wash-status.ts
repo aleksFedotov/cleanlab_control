@@ -19,3 +19,11 @@ export const WASH_COLUMN: Record<WashStatus, WashColumn> = {
 export function washColumn(w: { status: WashStatus }): WashColumn {
   return WASH_COLUMN[w.status];
 }
+
+// «Исправить данные» доступно только для реально постиранного (server/core.js
+// canEditWashData_). Для ready_clean/no_linen/issued данных стирки нет — у
+// ready_clean чистое лежит ручной складской записью, и правка стирки
+// отклонялась бы сервером с нулями в форме.
+export function canEditWashData(w: { status: WashStatus }): boolean {
+  return w.status === 'done' || w.status === 'stored' || w.status === 'partial';
+}
