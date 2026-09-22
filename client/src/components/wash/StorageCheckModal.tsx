@@ -1,14 +1,15 @@
 'use client';
 
 // Проверка склада: три карточки-вердикта, выбор + «Подтвердить» (редизайн,
-// .superdesign/tmp/storage-check-approved.html). Снятие стирки — назад на доску.
+// .superdesign/tmp/storage-check-approved.html). Единая модалка для карточки
+// стирки и экрана работника (R8): после снятия стирки карточка уезжает на
+// доску (onRemoved), работник остаётся — появится «Начать стирку».
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { WashingMachine, CheckCircle2, XCircle, Check } from 'lucide-react';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { StorageAccountSummary } from '@/components/StorageAccountSummary';
-import { ManualCleanModal } from '@/app/worker/ManualCleanModal';
+import { ManualCleanModal } from './ManualCleanModal';
 import { useApiMutation } from '@/hooks/use-api';
 import { useUiStore } from '@/stores/ui';
 import type { DayWash, ItemType } from '@/types/api';
@@ -27,11 +28,11 @@ export interface StorageCheckModalProps {
   itemTypes: ItemType[];
   checkedDirty: boolean;
   onHasDirty: () => void;
+  onRemoved?: () => void; // карточка — назад на доску; работник — не передаёт, остаётся
   onClose: () => void;
 }
 
-export function StorageCheckModal({ w, itemTypes, checkedDirty, onHasDirty, onClose }: StorageCheckModalProps) {
-  const router = useRouter();
+export function StorageCheckModal({ w, itemTypes, checkedDirty, onHasDirty, onRemoved, onClose }: StorageCheckModalProps) {
   const toast = useUiStore((s) => s.toast);
   // P8: ручное внесение чистого — отдельный шаг, после успеха возврат сюда
   const [manualClean, setManualClean] = useState(false);
@@ -61,10 +62,9 @@ export function StorageCheckModal({ w, itemTypes, checkedDirty, onHasDirty, onCl
         if (selected === 'has_dirty') {
           onHasDirty();
           toast('Грязное подтверждено ✓');
-          // остаёмся в карточке — появится «В работу»
         } else {
           toast('Подтверждено ✓');
-          router.push('/wash'); // стирка снята — назад на доску
+          onRemoved?.(); // стирка снята — карточка уезжает на доску
         }
       },
     });

@@ -32,7 +32,7 @@ import type { DayListRes, DayWash, ItemType, Wash } from '@/types/api';
 import { Stepper } from './Stepper';
 import { NumInputModal } from './NumInputModal';
 import { StartWashModal } from '@/components/wash/StartWashModal';
-import { StorageCheckModal } from './StorageCheckModal';
+import { StorageCheckModal } from '@/components/wash/StorageCheckModal';
 import { AddItemTypeModal } from './AddItemTypeModal';
 import { EditWashModal } from './EditWashModal';
 import { DeferWashModal } from './DeferWashModal';
@@ -581,6 +581,7 @@ export default function WashCardPage() {
           itemTypes={types}
           checkedDirty={checkedDirty}
           onHasDirty={() => setCheckedMap((m) => ({ ...m, [id]: true }))}
+          onRemoved={() => router.push('/wash')}
           onClose={() => setModal(null)}
         />
       )}

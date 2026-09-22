@@ -1,5 +1,5 @@
 /* Модалка «Проверка склада»: карточки вердиктов + кнопки действий.
-   Общая для worker/StorageCheckModal и (dashboard)/wash/[id]/StorageCheckModal. */
+   Используется единой StorageCheckModal из components/wash/ (R8). */
 
 .form {
   display: flex;

@@ -20,7 +20,7 @@ import { items as itemsFmt } from '@/lib/format';
 import type { StorageEntry } from './storage-entry';
 import { buildEntries, metaOf } from './storage-entry';
 import { StorageCardModal } from './storage-card-modal';
-import { ManualCleanModal } from '@/app/worker/ManualCleanModal';
+import { ManualCleanModal } from '@/components/wash/ManualCleanModal';
 import styles from './storage.module.css';
 
 const FILTERS = [

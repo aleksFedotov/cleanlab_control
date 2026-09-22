@@ -22,7 +22,7 @@ import type { DayWash, WorkHoursEntry } from '@/types/api';
 import { WorkHoursModal } from '@/components/WorkHoursModal';
 import { CompleteWashModal } from './CompleteWashModal';
 import { StartWashModal } from '@/components/wash/StartWashModal';
-import { StorageCheckModal } from './StorageCheckModal';
+import { StorageCheckModal } from '@/components/wash/StorageCheckModal';
 import { EditDoneWashModal } from './EditDoneWashModal';
 import { AddWashModal } from '../(dashboard)/wash/AddWashModal';
 import { DeferWashModal } from '../(dashboard)/wash/[id]/DeferWashModal';
