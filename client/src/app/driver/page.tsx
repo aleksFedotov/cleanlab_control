@@ -74,8 +74,12 @@ export default function DriverPage() {
     invalidate: 'operational',
     onSuccess: (res) => toast(`Взято: ${res.taken} точек, ${res.bags} меш. ✓`),
   });
-  // Выборочный take_clean цепочкой: без промежуточных тостов, один итоговый — как в legacy
-  const takeSelMut = useApiMutation('driverAction', { invalidate: 'operational' });
+  // Выборочный забор чистого: один вызов driverTakeClean на весь список (R9)
+  const takeSelMut = useApiMutation<{ taken: number; bags: number; skipped: number }>('driverTakeClean', {
+    invalidate: 'operational',
+    onSuccess: (res) =>
+      toast(`Взято: ${res.taken} точек, ${res.bags} меш. ✓` + (res.skipped > 0 ? ` Пропущено без чистого: ${res.skipped}.` : '')),
+  });
   const handoverMut = useApiMutation<{ handed: number }>('driverHandover', {
     invalidate: 'operational',
     onSuccess: (res) => toast(`Передано на склад: ${res.handed} ✓`),
@@ -91,7 +95,6 @@ export default function DriverPage() {
   const [extraOpen, setExtraOpen] = useState(false);
   const [extraDelId, setExtraDelId] = useState<string | null>(null);
   const [checked, setChecked] = useState<Record<string, boolean>>({});
-  const [selBusy, setSelBusy] = useState(false);
 
   // Чистое на складе, которое надо развезти (planned + has_clean + ещё не взято)
   const toTake = useMemo(
@@ -362,25 +365,17 @@ export default function DriverPage() {
       <ConfirmDialog
         open={takeSelOpen}
         onClose={() => setTakeSelOpen(false)}
-        onConfirm={async () => {
+        onConfirm={() => {
           const sel = toTake.filter((v) => checked[v.id] !== false);
           if (!sel.length) {
             toast('Выберите точки', 'err');
             setTakeSelOpen(false);
             return;
           }
-          const selBags = sel.reduce((s, v) => s + num(v.clean_stock_bags), 0);
-          setSelBusy(true);
-          try {
-            // Цепочка take_clean по каждой отмеченной точке — как в legacy
-            for (const v of sel) await takeSelMut.mutateAsync([v.id, 'take_clean']);
-            toast(`Взято: ${sel.length} точек, ${selBags} меш. ✓`);
-          } catch {
-            // ошибка уже показана тостом в useApiMutation
-          } finally {
-            setSelBusy(false);
-            setTakeSelOpen(false);
-          }
+          // Один вызов на весь список — сервер берёт списком в одной транзакции (R9).
+          // Массив из одного массива: useApiMutation раскладывает vars на аргументы API.
+          takeSelMut.mutate([sel.map((v) => v.id)]);
+          setTakeSelOpen(false);
         }}
         text={(() => {
           const sel = toTake.filter((v) => checked[v.id] !== false);
@@ -388,7 +383,7 @@ export default function DriverPage() {
           return `Забрать чистое: ${sel.length} точек${selBags ? `, ${selBags} меш.` : ''}?`;
         })()}
         okLabel="Да, взял"
-        busy={selBusy}
+        busy={takeSelMut.isPending}
       />
 
       <ConfirmDialog
