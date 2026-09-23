@@ -256,6 +256,22 @@ function takeCleanForVisit_(v, laundryId) {
   return bags;
 }
 
+// Забор чистого по списку визитов — единая команда для выборочного и массового
+// забора (R9). Принимает записи { obj, rowNumber } (findRowsByTenant_/findTenantVisit_).
+// Транзакцию не открывает — её открывает вызывающий. Точка без чистого на складе
+// пропускается (best-effort), не ошибка.
+function takeCleanForVisits_(visits, laundryId) {
+  let taken = 0, bags = 0, skipped = 0;
+  visits.forEach(function (r) {
+    const b = takeCleanForVisit_(r.obj, laundryId);
+    if (b === null) { skipped++; return; } // чистого нет — точку пропускаем
+    db.updateRow_(SHEETS.DELIVERIES, r.rowNumber, r.obj);
+    taken++;
+    bags += b;
+  });
+  return { taken: taken, bags: bags, skipped: skipped };
+}
+
 // Чистое водителя по конкретному визиту возвращается на склад:
 // снимаем маркер «у водителя» со складских записей визита (по visit_id — при двух
 // открытых визитах клиента возвращается только бельё своего визита, R4), визит очищается.
@@ -280,19 +296,37 @@ function driverTakeAllClean(token, date) {
   if (!session) return err_('Нет доступа');
   const laundryId = session.laundryId;
   date = date || todayStr_();
-  return withLock_(function () {
-    let taken = 0, bags = 0;
-    db.findRowsByTenant_(SHEETS.DELIVERIES, function (v) {
+  return db.transaction_(function () {
+    const rows = db.findRowsByTenant_(SHEETS.DELIVERIES, function (v) {
       return v.date === date && v.status === 'planned' && !v.clean_taken_at;
-    }, 1000, laundryId).forEach(function (r) {
-      const b = takeCleanForVisit_(r.obj, laundryId);
-      if (b === null) return; // чистого нет — точку пропускаем
-      db.updateRow_(SHEETS.DELIVERIES, r.rowNumber, r.obj);
-      taken++;
-      bags += b;
+    }, 1000, laundryId);
+    const res = takeCleanForVisits_(rows, laundryId);
+    logEvent(actorOf_(session), 'take_all_clean', date, { points: res.taken, bags: res.bags }, laundryId);
+    return ok_({ taken: res.taken, bags: res.bags, skipped: res.skipped });
+  });
+}
+
+// Выборочно: взять чистое по списку визитов (R9) — одна транзакция на весь список.
+// Чужой/несуществующий/неподходящий id — пропуск, не ошибка (список с клиента мог
+// устареть). Семантика best-effort — как у driverTakeAllClean.
+function driverTakeClean(token, visitIds) {
+  const session = requireRole_(token, ['driver', 'owner']);
+  if (!session) return err_('Нет доступа');
+  const laundryId = session.laundryId;
+  if (!Array.isArray(visitIds) || !visitIds.length) return err_('Список визитов пуст');
+  return db.transaction_(function () {
+    const rows = [];
+    visitIds.forEach(function (id) {
+      const found = findTenantVisit_(id, laundryId);
+      if (!found) return; // чужой/несуществующий — пропуск
+      const v = found.obj;
+      if (v.status !== 'planned' || v.clean_taken_at) return; // не подходит — пропуск
+      rows.push(found);
     });
-    logEvent(actorOf_(session), 'take_all_clean', date, { points: taken, bags: bags }, laundryId);
-    return ok_({ taken: taken, bags: bags });
+    const res = takeCleanForVisits_(rows, laundryId);
+    logEvent(actorOf_(session), 'take_clean_batch', '-',
+      { visits: visitIds, taken: res.taken, bags: res.bags, skipped: res.skipped }, laundryId);
+    return ok_(res);
   });
 }
 
@@ -567,7 +601,7 @@ function migrateWashesToVisits() {
 module.exports = {
   VISIT_FINAL, isOpenVisit_, getVisitsByDate_, getVisitsByWeek_, decorateVisit_, ensureVisit_,
   getDeliveryVisits, addDeliveryVisit, moveDeliveryVisit, removeDeliveryVisit, setPickupOnly,
-  driverCargo_, getDriverRoute, takeCleanForVisit_, driverTakeAllClean,
-  driverAction, driverHandover, setVisitLiftFloor, correctVisit, driverReturnClean, normalizeLiftFloor_,
+  driverCargo_, getDriverRoute, takeCleanForVisit_, takeCleanForVisits_, driverTakeAllClean,
+  driverTakeClean, driverAction, driverHandover, setVisitLiftFloor, correctVisit, driverReturnClean, normalizeLiftFloor_,
   migrateWashesToVisits, migrateIssueDatesToVisits
 };

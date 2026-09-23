@@ -72,7 +72,7 @@ const API_ROLES = {
   // deliveries.js (legacy: token-first, requireRole_ остался в телах)
   getDeliveryVisits: OWNER, addDeliveryVisit: OWNER, moveDeliveryVisit: OWNER,
   removeDeliveryVisit: OWNER, setPickupOnly: OWNER, getDriverRoute: DRIVER_OWNER,
-  driverTakeAllClean: DRIVER_OWNER, driverAction: DRIVER_OWNER, driverHandover: DRIVER_OWNER,
+  driverTakeAllClean: DRIVER_OWNER, driverTakeClean: DRIVER_OWNER, driverAction: DRIVER_OWNER, driverHandover: DRIVER_OWNER,
   setVisitLiftFloor: DRIVER_OWNER, correctVisit: DRIVER_OWNER, driverReturnClean: DRIVER_OWNER,
   // workhours.js (legacy)
   setWorkHours: OWNER_WORKER, getWorkHours: OWNER_WORKER, getDeliveryPointStats: OWNER,
@@ -126,6 +126,7 @@ const api = {
   setPickupOnly: deliveries.setPickupOnly,
   getDriverRoute: deliveries.getDriverRoute,
   driverTakeAllClean: deliveries.driverTakeAllClean,
+  driverTakeClean: deliveries.driverTakeClean,
   driverAction: deliveries.driverAction,
   driverHandover: deliveries.driverHandover,
   setVisitLiftFloor: deliveries.setVisitLiftFloor,
