@@ -4,10 +4,8 @@
 // Навигация по неделям — DateNav в хедере layout'а (weekMode); здесь только читаем date из стора.
 // Сервер сам нормализует любой день недели до понедельника (res.monday).
 import { useEffect, useState } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
 import { CalendarOff, Copy, Plus, Trash2 } from 'lucide-react';
 import { useApiMutation, useWeekPlan } from '@/hooks/use-api';
-import { OPERATIONAL_PREFIXES } from '@/lib/query-keys';
 import { useSectionDate } from '@/hooks/use-section-date';
 import { useUiStore } from '@/stores/ui';
 import { WEEKDAYS, formatDateRu, isToday, todayStr, weekdayOf } from '@/lib/dates';
@@ -33,13 +31,12 @@ export default function PlanPage() {
   // Очистка дня: дата в диалоге подтверждения + флаг идущего удаления
   const [clearDate, setClearDate] = useState<string | null>(null);
   const [clearing, setClearing] = useState(false);
-  const qc = useQueryClient();
-  // Удаление без инвалидации — общий рефетч делаем в конце clearDay
+  // Удаление — инвалидация через карту MUTATION_INVALIDATES (removeWeekCard = operational)
   const delMut = useApiMutation('removeWeekCard');
   // DnD: перетаскиваемая карточка (id + её текущая дата) и колонка под курсором
   const [drag, setDrag] = useState<{ id: string; date: string } | null>(null);
   const [overDate, setOverDate] = useState<string | null>(null);
-  const moveMut = useApiMutation('moveWeekCard', { invalidate: 'operational' });
+  const moveMut = useApiMutation('moveWeekCard');
 
   // Ошибка API — тост (спека §7); блок «Повторить» — ниже, если данных нет вообще
   useEffect(() => {
@@ -80,7 +77,8 @@ export default function PlanPage() {
   const clients = res.clients || [];
   const clearCards = res.days.find((d) => d.date === clearDate)?.cards || [];
 
-  // Полная очистка дня: снимаем все карточки последовательно, потом рефетч
+  // Полная очистка дня: снимаем все карточки последовательно; каждая мутация
+  // сама инвалидирует operational через карту — отдельного рефетча не нужно
   async function clearDay() {
     if (!clearDate) return;
     setClearing(true);
@@ -88,7 +86,6 @@ export default function PlanPage() {
       for (const c of clearCards) {
         await delMut.mutateAsync(c.id);
       }
-      OPERATIONAL_PREFIXES.forEach((p) => qc.invalidateQueries({ queryKey: [p] }));
       toast(`Очищено: ${clearCards.length}`);
       setClearDate(null);
     } catch {

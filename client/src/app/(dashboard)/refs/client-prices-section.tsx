@@ -53,7 +53,7 @@ function ClientPriceRow({
   const isThreshold = isThresholdTrip(item);
   const [value, setValue] = useState(overridePrice ?? '');
   const [threshold, setThreshold] = useState(overrideThreshold);
-  const save = useApiMutation('saveTariff', { invalidate: ['tariffs'] });
+  const save = useApiMutation('saveTariff');
   const toast = useUiStore((s) => s.toast);
   const badge = MARK_BADGE[priceMark(defaultPrice, overridePrice)];
 

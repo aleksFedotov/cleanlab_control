@@ -121,7 +121,6 @@ export default function WashCardPage() {
   }
 
   const completeMut = useApiMutation<{ ok: true; wash: Wash }>('completeWash', {
-    invalidate: 'operational',
     onSuccess: (res) => {
       clearDrafts();
       const st = res.wash.status;
@@ -136,21 +135,18 @@ export default function WashCardPage() {
     },
   });
   const deleteMut = useApiMutation('deleteWash', {
-    invalidate: 'operational',
     onSuccess: () => {
       toast('Стирка удалена ✓');
       router.push('/wash');
     },
   });
   const cancelMut = useApiMutation('cancelWash', {
-    invalidate: 'operational',
     onSuccess: () => {
       toast('Стирка отменена');
       router.push('/wash');
     },
   });
   const issuedMut = useApiMutation('markIssued', {
-    invalidate: 'operational',
     onSuccess: () => {
       toast('Выдано ✓');
       router.push('/wash');

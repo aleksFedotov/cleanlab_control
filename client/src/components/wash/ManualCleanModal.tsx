@@ -115,7 +115,6 @@ export function ManualCleanModal(props: ManualCleanModalProps) {
   const itemsSum = Object.keys(counts).reduce((s, k) => s + (counts[k] || 0), 0);
 
   const mutation = useApiMutation('addManualClean', {
-    invalidate: 'operational',
     onSuccess: () => {
       toast(successToast);
       onClose();

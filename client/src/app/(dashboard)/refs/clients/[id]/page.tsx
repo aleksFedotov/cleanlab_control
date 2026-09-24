@@ -20,7 +20,6 @@ import {
   useApiMutation, useBillingItems, useClientItemBilling, useRefs, useTariffs,
 } from '@/hooks/use-api';
 import { useUiStore } from '@/stores/ui';
-import { OPERATIONAL_PREFIXES } from '@/lib/query-keys';
 import { plural } from '@/lib/format';
 import type { Client, ItemType } from '@/types/api';
 import { parseItemTypes } from '../../refs-utils';
@@ -35,8 +34,6 @@ const ACCOUNTING = [
   { key: 'weight', label: 'Только вес' },
   { key: 'count', label: 'Только количество' },
 ] as const;
-
-const REFS_INVALIDATE = ['refs', ...OPERATIONAL_PREFIXES];
 
 function timeNow(): string {
   const d = new Date();
@@ -73,7 +70,6 @@ function ProfileTab({
   const [typesMode, setTypesMode] = useState<'all' | 'selected' | null>(null);
 
   const save = useApiMutation('saveClient', {
-    invalidate: REFS_INVALIDATE,
     onSuccess: () => onSaved?.(),
   });
 
@@ -379,21 +375,18 @@ function ClientPageInner() {
   const [archiveConfirm, setArchiveConfirm] = useState(false);
 
   const duplicate = useApiMutation<{ client: Client }>('saveClient', {
-    invalidate: REFS_INVALIDATE,
     onSuccess: (res) => {
       toast('Клиент продублирован');
       router.push(`/refs/clients/${res.client.id}`);
     },
   });
   const archive = useApiMutation('deleteClient', {
-    invalidate: REFS_INVALIDATE,
     onSuccess: () => {
       toast('Клиент в архиве');
       router.push('/refs');
     },
   });
   const restore = useApiMutation('saveClient', {
-    invalidate: REFS_INVALIDATE,
     onSuccess: () => toast('Клиент возвращён из архива'),
   });
 

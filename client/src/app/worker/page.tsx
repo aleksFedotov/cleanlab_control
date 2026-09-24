@@ -184,7 +184,6 @@ export default function WorkerPage() {
   const [closeOpen, setCloseOpen] = useState(false);
 
   const deleteMut = useApiMutation('deleteWash', {
-    invalidate: 'operational',
     onSuccess: () => setDeleteId(null),
   });
 

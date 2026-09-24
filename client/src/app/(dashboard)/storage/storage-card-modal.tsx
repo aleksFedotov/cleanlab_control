@@ -44,32 +44,24 @@ export function StorageCardModal({ entry: e, types, onClose }: StorageCardModalP
   const today = todayStr();
 
   const addWash = useApiMutation('addUnplannedWash', {
-    invalidate: 'operational',
     onSuccess: () => { onClose(); toast('В плане на сегодня ✓'); },
   });
   const deferReturn = useApiMutation('deferWash', {
-    invalidate: 'operational',
     onSuccess: () => { onClose(); toast('Вернули в стирку ✓'); },
   });
   const deferMove = useApiMutation('deferWash', {
-    invalidate: 'operational',
     onSuccess: () => { onClose(); toast('Перенесено ✓'); },
   });
-  // Legacy после «Добавить в развоз» склад НЕ перезагружает — только тост.
   const addDelivery = useApiMutation('addDeliveryVisit', {
-    invalidate: ['deliveryVisits'],
     onSuccess: () => { onClose(); toast('В развозе на завтра ✓'); },
   });
   const markIssued = useApiMutation('markIssued', {
-    invalidate: 'operational',
     onSuccess: () => { setConfirmIssue(false); onClose(); toast('Выдано ✓'); },
   });
   const updateIssue = useApiMutation('updateIssueDate', {
-    invalidate: 'operational',
     onSuccess: () => { onClose(); toast('Дата обновлена ✓'); },
   });
   const clearIssue = useApiMutation('updateIssueDate', {
-    invalidate: 'operational',
     onSuccess: () => { setConfirmClear(false); onClose(); toast('Дата выдачи снята ✓'); },
   });
 

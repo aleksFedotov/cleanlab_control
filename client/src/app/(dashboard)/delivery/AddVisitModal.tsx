@@ -36,7 +36,7 @@ export function AddVisitModal({ open, onClose, date, clients, visits }: AddVisit
     }
   }
 
-  const addMut = useApiMutation('addDeliveryVisit', { invalidate: 'operational' });
+  const addMut = useApiMutation('addDeliveryVisit');
 
   // Кто уже в развозе: из данных + добавленные в этой сессии окна
   const inDelivery = useMemo(() => {

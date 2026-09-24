@@ -35,7 +35,6 @@ export interface PriceItemFormProps {
 export function PriceItemForm({ item, onClose }: PriceItemFormProps) {
   const billing = useBillingItems();
   const save = useApiMutation('saveBillingItem', {
-    invalidate: ['billingItems', 'tariffs'],
     onSuccess: () => {
       useUiStore.getState().toast('Сохранено');
       onClose();

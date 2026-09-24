@@ -27,7 +27,6 @@ export function DeleteUserDialog({ user, onClose }: DeleteUserDialogProps) {
   };
 
   const deleteMut = useApiMutation('deleteUser', {
-    invalidate: ['users'],
     onSuccess: () => {
       toast('Удалён');
       close();

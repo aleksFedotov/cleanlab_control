@@ -26,7 +26,6 @@ export function WorkHoursModal({ userId, userName, date, entry, onClose }: WorkH
   const [hours, setHours] = useState(entry ? String(entry.hours) : '');
 
   const mutation = useApiMutation('setWorkHours', {
-    invalidate: ['workHours'],
     onSuccess: () => {
       toast('Сохранено ✓');
       onClose();

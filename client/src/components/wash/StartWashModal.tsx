@@ -36,7 +36,6 @@ export function StartWashModal({ w, onDone, onClose }: StartWashModalProps) {
   });
 
   const mutation = useApiMutation('startWash', {
-    invalidate: 'operational',
     onSuccess: () => {
       toast('В работе ✓');
       onClose();

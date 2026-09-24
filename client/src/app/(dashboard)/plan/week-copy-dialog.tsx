@@ -23,8 +23,8 @@ export interface WeekCopyDialogProps {
 
 export function WeekCopyDialog({ date, cards, onClose }: WeekCopyDialogProps) {
   const toast = useUiStore((s) => s.toast);
-  const addMut = useApiMutation('addWeekCard', { invalidate: 'operational' });
-  // Удаление без инвалидации — общий рефетч сделает последний addWeekCard
+  const addMut = useApiMutation('addWeekCard');
+  // Удаление — инвалидация через карту; последующие addWeekCard инвалидируют повторно (идемпотентно)
   const delMut = useApiMutation('removeWeekCard');
   const [mode, setMode] = useState<'prev' | 'other'>('prev');
   const [srcDate, setSrcDate] = useState('');

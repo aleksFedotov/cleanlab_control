@@ -39,7 +39,7 @@ export function StorageCheckModal({ w, itemTypes, checkedDirty, onHasDirty, onRe
   // Выбранный вердикт (по умолчанию — текущий); submit только по «Подтвердить»
   const [picked, setPicked] = useState<Verdict | null>(null);
 
-  const mutation = useApiMutation('confirmStorageCheck', { invalidate: 'operational' });
+  const mutation = useApiMutation('confirmStorageCheck');
 
   const current: Verdict =
     w.status === 'no_linen'

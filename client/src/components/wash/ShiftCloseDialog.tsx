@@ -31,7 +31,6 @@ export function ShiftCloseDialog({ open, onClose, onOpenWash }: ShiftCloseDialog
   const [forceConfirm, setForceConfirm] = useState(false);
 
   const closeMutation = useApiMutation('closeShift', {
-    invalidate: 'operational',
     onSuccess: () => {
       setForceConfirm(false);
       toast('Смена закрыта ✓');

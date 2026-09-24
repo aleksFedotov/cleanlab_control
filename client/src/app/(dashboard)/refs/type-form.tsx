@@ -9,7 +9,6 @@ import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { useApiMutation, useBillingItems } from '@/hooks/use-api';
 import { useUiStore } from '@/stores/ui';
-import { OPERATIONAL_PREFIXES } from '@/lib/query-keys';
 import type { ItemType } from '@/types/api';
 import styles from './refs.module.css';
 
@@ -27,7 +26,6 @@ export interface TypeFormProps {
 
 export function TypeForm({ type, onClose }: TypeFormProps) {
   const save = useApiMutation('saveItemType', {
-    invalidate: ['refs', ...OPERATIONAL_PREFIXES],
     onSuccess: () => {
       useUiStore.getState().toast('Сохранено');
       onClose();

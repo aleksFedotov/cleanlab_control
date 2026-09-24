@@ -67,7 +67,6 @@ export function EditWashModal({ w, initialCounts, initialTotal, onSaved, method 
   });
 
   const mutation = useApiMutation(method, {
-    invalidate: 'operational',
     onSuccess: () => {
       toast('Данные обновлены ✓');
       onSaved?.();

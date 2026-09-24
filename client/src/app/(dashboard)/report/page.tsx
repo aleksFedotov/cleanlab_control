@@ -107,7 +107,6 @@ export default function ReportPage() {
   const [deleteTarget, setDeleteTarget] = useState<ReportWash | null>(null);
 
   const deleteMutation = useApiMutation('deleteWash', {
-    invalidate: 'operational',
     onSuccess: () => {
       setDeleteTarget(null);
       toast('Стирка удалена ✓');

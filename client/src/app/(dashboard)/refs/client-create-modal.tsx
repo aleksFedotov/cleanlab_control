@@ -11,7 +11,6 @@ import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { useApiMutation } from '@/hooks/use-api';
 import { useUiStore } from '@/stores/ui';
-import { OPERATIONAL_PREFIXES } from '@/lib/query-keys';
 import type { Client } from '@/types/api';
 import styles from './refs.module.css';
 
@@ -27,7 +26,6 @@ type FormValues = z.infer<typeof schema>;
 export function ClientCreateModal({ onClose }: { onClose: () => void }) {
   const router = useRouter();
   const save = useApiMutation<{ client: Client }>('saveClient', {
-    invalidate: ['refs', ...OPERATIONAL_PREFIXES],
     onSuccess: (res) => {
       useUiStore.getState().toast('Клиент создан');
       onClose();

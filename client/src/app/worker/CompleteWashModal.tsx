@@ -56,7 +56,6 @@ export function CompleteWashModal({ w, itemTypes, onClose }: CompleteWashModalPr
   const total = Object.keys(counts).reduce((s, k) => s + (counts[k] || 0), 0);
 
   const mutation = useApiMutation<{ ok: true; wash: Wash }>('completeWash', {
-    invalidate: 'operational',
     onSuccess: (res) => {
       const st = res.wash.status;
       toast(

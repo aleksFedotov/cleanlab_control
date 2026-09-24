@@ -39,7 +39,6 @@ export default function LaundriesPage() {
   const activeLaundryId = getSession()?.laundryId || '';
 
   const createMut = useApiMutation<CreateLaundryRes>('createLaundry', {
-    invalidate: ['laundries'],
     onSuccess: (r) => {
       toast(`Прачка «${r.laundry.name}» добавлена ✓`);
       setCreateOpen(false);
@@ -47,7 +46,6 @@ export default function LaundriesPage() {
   });
 
   const renameMut = useApiMutation('updateLaundry', {
-    invalidate: ['laundries'],
     onSuccess: () => {
       toast('Сохранено ✓');
       setRenaming(null);
@@ -55,7 +53,6 @@ export default function LaundriesPage() {
   });
 
   const deactivateMut = useApiMutation('deactivateLaundry', {
-    invalidate: ['laundries'],
     onSuccess: () => {
       toast('Отключена');
       setDeactivating(null);

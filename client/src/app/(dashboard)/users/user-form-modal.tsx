@@ -115,8 +115,8 @@ export function UserFormModal({ open, editing, clients, onClose }: UserFormModal
     toast('Сохранено');
     onClose();
   };
-  const createMut = useApiMutation('createUser', { invalidate: ['users'], onSuccess: onSaved });
-  const updateMut = useApiMutation('updateUser', { invalidate: ['users'], onSuccess: onSaved });
+  const createMut = useApiMutation('createUser', { onSuccess: onSaved });
+  const updateMut = useApiMutation('updateUser', { onSuccess: onSaved });
   // Ставки сохраняем только для существующего сотрудника (при создании id ещё нет)
   const rateMut = useSavePayRate();
   const busy = createMut.isPending || updateMut.isPending || rateMut.isPending;

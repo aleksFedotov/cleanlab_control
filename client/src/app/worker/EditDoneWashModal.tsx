@@ -61,7 +61,6 @@ export function EditDoneWashModal({ w, itemTypes, onClose }: EditDoneWashModalPr
   const total = Object.keys(counts).reduce((s, k) => s + (counts[k] || 0), 0);
 
   const mutation = useApiMutation('editWashData', {
-    invalidate: 'operational',
     onSuccess: () => {
       toast('Данные обновлены ✓');
       onClose();

@@ -20,8 +20,8 @@ export interface WeekCardDialogProps {
 
 export function WeekCardDialog({ card, onClose }: WeekCardDialogProps) {
   const toast = useUiStore((s) => s.toast);
-  const moveMut = useApiMutation('moveWeekCard', { invalidate: 'operational' });
-  const delMut = useApiMutation('removeWeekCard', { invalidate: 'operational' });
+  const moveMut = useApiMutation('moveWeekCard');
+  const delMut = useApiMutation('removeWeekCard');
   const [newDate, setNewDate] = useState('');
   const [movingTo, setMovingTo] = useState<string | null>(null);
   const [confirmDel, setConfirmDel] = useState(false);

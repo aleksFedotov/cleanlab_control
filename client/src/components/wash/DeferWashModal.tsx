@@ -41,7 +41,6 @@ export function DeferWashModal({ w, onDone, onClose }: DeferWashModalProps) {
   });
 
   const mutation = useApiMutation('deferWash', {
-    invalidate: 'operational',
     onSuccess: () => {
       toast('Стирка перенесена ✓');
       onClose();

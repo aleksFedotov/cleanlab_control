@@ -5,7 +5,6 @@
 // Видны только виды с явной привязкой; остальные — под спойлером «Настроить по видам (N)».
 import { useEffect, useMemo, useState } from 'react';
 import { useApiMutation, useClientItemBilling } from '@/hooks/use-api';
-import { OPERATIONAL_PREFIXES } from '@/lib/query-keys';
 import type { BillingItem, Client, ItemType } from '@/types/api';
 import { parseItemTypes } from './refs-utils';
 import type { SaveStatusCallbacks } from './client-prices-section';
@@ -25,9 +24,7 @@ export function ClientBindingsSection({
   onCount?: (explicit: number) => void;
 } & SaveStatusCallbacks) {
   const bindingsQ = useClientItemBilling(client.id);
-  const save = useApiMutation('saveClientItemBilling', {
-    invalidate: ['clientItemBilling', ...OPERATIONAL_PREFIXES],
-  });
+  const save = useApiMutation('saveClientItemBilling');
   const [showAll, setShowAll] = useState(false);
   const bindings = useMemo(() => {
     const m: Record<string, string> = {};

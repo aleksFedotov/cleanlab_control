@@ -19,7 +19,6 @@ import { Modal } from '@/components/ui/Modal';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { useRefs, useBillingItems, useTariffs, useApiMutation } from '@/hooks/use-api';
 import { useUiStore } from '@/stores/ui';
-import { OPERATIONAL_PREFIXES } from '@/lib/query-keys';
 import { plural } from '@/lib/format';
 import type { BillingItem, Client, ItemType } from '@/types/api';
 import { ClientCreateModal } from './client-create-modal';
@@ -62,7 +61,6 @@ const BILLING_KIND_LABELS: Record<string, string> = {
 function DefaultPriceCell({ item, price }: { item: BillingItem; price: string }) {
   const [value, setValue] = useState(price);
   const save = useApiMutation('saveTariff', {
-    invalidate: ['tariffs'],
     onSuccess: () => useUiStore.getState().toast('Цена сохранена'),
   });
   return (
@@ -88,7 +86,6 @@ function DefaultPriceCell({ item, price }: { item: BillingItem; price: string })
 function ExtCodeCell({ item }: { item: BillingItem }) {
   const [value, setValue] = useState(item.ext_code || '');
   const save = useApiMutation('saveBillingItem', {
-    invalidate: ['billingItems'],
     onSuccess: () => useUiStore.getState().toast('Код НФ сохранён'),
   });
   return (
@@ -115,7 +112,6 @@ function ThresholdCell({ item }: { item: BillingItem }) {
   const [value, setValue] = useState(item.max_kg || '');
   const toast = useUiStore((s) => s.toast);
   const save = useApiMutation('saveBillingItem', {
-    invalidate: ['billingItems'],
     onSuccess: () => useUiStore.getState().toast('Порог сохранён'),
   });
   return (
@@ -154,7 +150,6 @@ function MinKgCell({ item }: { item: BillingItem }) {
   const [value, setValue] = useState(item.min_kg || '');
   const toast = useUiStore((s) => s.toast);
   const save = useApiMutation('saveBillingItem', {
-    invalidate: ['billingItems'],
     onSuccess: () => useUiStore.getState().toast('Минимум сохранён'),
   });
   return (
@@ -196,10 +191,6 @@ function MinKgCell({ item }: { item: BillingItem }) {
   );
 }
 
-// Клиенты/виды белья видны на операционных экранах (стирка, развоз, склад) —
-// инвалидируем refs + все операционные чтения.
-const REFS_INVALIDATE = ['refs', ...OPERATIONAL_PREFIXES];
-
 export default function RefsPage() {
   const refs = useRefs();
   const billing = useBillingItems();
@@ -225,7 +216,6 @@ export default function RefsPage() {
   }, [refs.isError, refs.error]);
 
   const archiveClient = useApiMutation('deleteClient', {
-    invalidate: REFS_INVALIDATE,
     onSuccess: () => {
       setConfirm(null);
       toast('Клиент в архиве');
@@ -234,13 +224,11 @@ export default function RefsPage() {
 
   // Возврат клиента из архива — saveClient с active=да (сервер мержит поля)
   const restoreClient = useApiMutation('saveClient', {
-    invalidate: REFS_INVALIDATE,
     onSuccess: () => toast('Клиент возвращён из архива'),
   });
 
   // Удаление клиента совсем; сервер откажет, если есть стирки/визиты (ошибка → тост)
   const purgeClientM = useApiMutation('purgeClient', {
-    invalidate: REFS_INVALIDATE,
     onSuccess: () => {
       setConfirm(null);
       toast('Клиент удалён');
@@ -249,7 +237,6 @@ export default function RefsPage() {
 
   // Архивация/возврат вида белья — saveItemType с переключением active (legacy data-ttoggle)
   const toggleType = useApiMutation('saveItemType', {
-    invalidate: REFS_INVALIDATE,
     onSuccess: () => {
       setConfirm(null);
       toast('Сохранено');
@@ -258,7 +245,6 @@ export default function RefsPage() {
 
   // Удаление вида белья совсем; сервер откажет, если вид используется у клиентов
   const deleteTypeM = useApiMutation('deleteItemType', {
-    invalidate: REFS_INVALIDATE,
     onSuccess: () => {
       setConfirm(null);
       toast('Вид белья удалён');
@@ -268,7 +254,6 @@ export default function RefsPage() {
   // Архивация/возврат позиции прайса — saveBillingItem с переключением active.
   // Удаление почти всегда запрещено сервером (используется в тарифах/привязках), поэтому архивируем.
   const togglePrice = useApiMutation('saveBillingItem', {
-    invalidate: ['billingItems', 'tariffs'],
     onSuccess: () => {
       setConfirm(null);
       toast('Сохранено');
@@ -277,7 +262,6 @@ export default function RefsPage() {
 
   // Удаление позиции прайса совсем (только стирка; сервер проверяет использование)
   const deletePriceM = useApiMutation('deleteBillingItem', {
-    invalidate: ['billingItems', 'tariffs'],
     onSuccess: () => {
       setConfirm(null);
       toast('Позиция удалена');

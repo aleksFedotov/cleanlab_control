@@ -36,7 +36,6 @@ export function IssueDateModal({ w, onClose }: IssueDateModalProps) {
   });
 
   const mutation = useApiMutation('updateIssueDate', {
-    invalidate: 'operational',
     onSuccess: () => {
       toast('Дата обновлена ✓');
       onClose();

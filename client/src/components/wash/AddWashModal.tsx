@@ -56,7 +56,6 @@ export function AddWashModal({ clients, onClose }: AddWashModalProps) {
   }, [clients, query]);
 
   const mutation = useApiMutation('addUnplannedWash', {
-    invalidate: 'operational',
     onSuccess: () => {
       toast('Стирка добавлена ✓');
       onClose();

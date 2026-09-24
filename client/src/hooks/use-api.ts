@@ -5,7 +5,9 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import { getSession } from '@/lib/session';
-import { qk, OPERATIONAL_PREFIXES } from '@/lib/query-keys';
+import { qk } from '@/lib/query-keys';
+import { MUTATION_INVALIDATES } from '@/lib/mutation-invalidation';
+import type { MutationMethod } from '@/lib/mutation-invalidation';
 import { useUiStore } from '@/stores/ui';
 import type {
   DayListRes, DeliveryVisitsRes, WeekPlanRes, StorageRes, DayReportRes, FinanceSummaryRes,
@@ -231,32 +233,21 @@ export function useClientsBrief() {
 
 // --- Мутации ---
 
-// Инвалидирует операционные чтения (стирка/развоз/неделя/склад/отчёт взаимосвязаны).
-function useInvalidateOperational() {
-  const qc = useQueryClient();
-  return () => {
-    OPERATIONAL_PREFIXES.forEach((p) => qc.invalidateQueries({ queryKey: [p] }));
-  };
-}
-
 // Базовая обёртка: мутация с токеном, ошибка → toast с текстом сервера.
+// Инвалидация после успеха — по карте MUTATION_INVALIDATES[method] (lib/mutation-invalidation).
 // Вызов: mutation.mutate(arg) для одного аргумента или mutation.mutate([a, b, c]) для нескольких —
 // TanStack передаёт в mutationFn только одно значение, поэтому массив = список аргументов API.
 export function useApiMutation<TRes = any>(
-  method: string,
-  opts?: { invalidate?: 'operational' | string[]; onSuccess?: (res: TRes) => void }
+  method: MutationMethod,
+  opts?: { onSuccess?: (res: TRes) => void }
 ) {
   const qc = useQueryClient();
-  const invalidateOp = useInvalidateOperational();
   const toast = useUiStore((s) => s.toast);
   return useMutation({
     mutationFn: (vars: unknown) =>
       api<TRes>(method, token(), ...(Array.isArray(vars) ? vars : [vars])),
     onSuccess: (res) => {
-      if (opts?.invalidate === 'operational') invalidateOp();
-      else if (Array.isArray(opts?.invalidate)) {
-        opts.invalidate.forEach((p) => qc.invalidateQueries({ queryKey: [p] }));
-      }
+      MUTATION_INVALIDATES[method].forEach((p) => qc.invalidateQueries({ queryKey: [p] }));
       opts?.onSuccess?.(res);
     },
     onError: (e: Error) => toast(e.message || 'Ошибка сервера', 'err'),
@@ -267,34 +258,22 @@ export function useApiMutation<TRes = any>(
 
 // Upsert переопределения ставок сотрудника: mutate([userId, fields])
 export function useSavePayRate(onSuccess?: () => void) {
-  return useApiMutation('savePayRate', {
-    invalidate: ['payroll', 'payRates', 'myPayroll'],
-    onSuccess,
-  });
+  return useApiMutation('savePayRate', { onSuccess });
 }
 
 // Дефолтные ставки прачки (P3.1): mutate(fields); пустое поле = встроенный дефолт
 export function useSavePaySettings(onSuccess?: () => void) {
-  return useApiMutation('savePaySettings', {
-    invalidate: ['payroll', 'payRates', 'myPayroll', 'paySettings'],
-    onSuccess,
-  });
+  return useApiMutation('savePaySettings', { onSuccess });
 }
 
 // Ручная корректировка (премия/штраф): mutate([userId, date, amount, comment])
 export function useSavePayAdjustment(onSuccess?: (res: PayAdjustmentRes) => void) {
-  return useApiMutation<PayAdjustmentRes>('savePayAdjustment', {
-    invalidate: ['payroll', 'myPayroll', 'payAdjustments'],
-    onSuccess,
-  });
+  return useApiMutation<PayAdjustmentRes>('savePayAdjustment', { onSuccess });
 }
 
 // Удаление корректировки: mutate(adjId)
 export function useDeletePayAdjustment(onSuccess?: () => void) {
-  return useApiMutation('deletePayAdjustment', {
-    invalidate: ['payroll', 'myPayroll', 'payAdjustments'],
-    onSuccess,
-  });
+  return useApiMutation('deletePayAdjustment', { onSuccess });
 }
 
 // --- Доп. работы (P12): мутации ---
@@ -302,24 +281,15 @@ export function useDeletePayAdjustment(onSuccess?: () => void) {
 // Водитель вносит за себя: mutate([clientId, date, amount, comment]).
 // Owner вносит за водителя: mutate([clientId, date, amount, comment, userId]).
 export function useAddExtraWork(onSuccess?: () => void) {
-  return useApiMutation('addExtraWork', {
-    invalidate: ['payroll', 'myPayroll', 'extraWorks'],
-    onSuccess,
-  });
+  return useApiMutation('addExtraWork', { onSuccess });
 }
 
 // Правка записи (owner): mutate([id, fields])
 export function useEditExtraWork(onSuccess?: () => void) {
-  return useApiMutation('editExtraWork', {
-    invalidate: ['payroll', 'myPayroll', 'extraWorks'],
-    onSuccess,
-  });
+  return useApiMutation('editExtraWork', { onSuccess });
 }
 
 // Удаление: driver — свои, owner — любые; mutate(id)
 export function useDeleteExtraWork(onSuccess?: () => void) {
-  return useApiMutation('deleteExtraWork', {
-    invalidate: ['payroll', 'myPayroll', 'extraWorks'],
-    onSuccess,
-  });
+  return useApiMutation('deleteExtraWork', { onSuccess });
 }

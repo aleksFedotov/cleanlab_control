@@ -43,8 +43,8 @@ export default function TodayPage() {
     if (query.isError) toast(query.error.message || 'Не удалось загрузить развоз', 'err');
   }, [query.isError, query.error, toast]);
 
-  const removeMut = useApiMutation('removeDeliveryVisit', { invalidate: 'operational' });
-  const pickupOnlyMut = useApiMutation('setPickupOnly', { invalidate: 'operational' });
+  const removeMut = useApiMutation('removeDeliveryVisit');
+  const pickupOnlyMut = useApiMutation('setPickupOnly');
 
   const res = query.data;
 

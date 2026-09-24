@@ -53,11 +53,9 @@ export default function UsersPage() {
   }, [usersQuery.error, toast]);
 
   const reactivateMut = useApiMutation('reactivateUser', {
-    invalidate: ['users'],
     onSuccess: () => toast('Включён'),
   });
   const deactivateMut = useApiMutation('deactivateUser', {
-    invalidate: ['users'],
     onSuccess: () => {
       toast('Отключён');
       setDeactTarget(null);

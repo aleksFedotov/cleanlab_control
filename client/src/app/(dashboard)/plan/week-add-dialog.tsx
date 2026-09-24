@@ -20,7 +20,7 @@ export interface WeekAddDialogProps {
 
 export function WeekAddDialog({ date, clients, cards, onClose }: WeekAddDialogProps) {
   const toast = useUiStore((s) => s.toast);
-  const addMut = useApiMutation('addWeekCard', { invalidate: 'operational' });
+  const addMut = useApiMutation('addWeekCard');
   const [picked, setPicked] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
 

@@ -71,17 +71,14 @@ export default function DriverPage() {
 
   // --- Мутации ---
   const takeAllMut = useApiMutation<{ taken: number; bags: number }>('driverTakeAllClean', {
-    invalidate: 'operational',
     onSuccess: (res) => toast(`Взято: ${res.taken} точек, ${res.bags} меш. ✓`),
   });
   // Выборочный забор чистого: один вызов driverTakeClean на весь список (R9)
   const takeSelMut = useApiMutation<{ taken: number; bags: number; skipped: number }>('driverTakeClean', {
-    invalidate: 'operational',
     onSuccess: (res) =>
       toast(`Взято: ${res.taken} точек, ${res.bags} меш. ✓` + (res.skipped > 0 ? ` Пропущено без чистого: ${res.skipped}.` : '')),
   });
   const handoverMut = useApiMutation<{ handed: number }>('driverHandover', {
-    invalidate: 'operational',
     onSuccess: (res) => toast(`Передано на склад: ${res.handed} ✓`),
   });
   const delExtraMut = useDeleteExtraWork(() => toast('Доп. работа удалена'));

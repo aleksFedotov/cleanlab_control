@@ -95,25 +95,21 @@ export function VisitEditModal({ visit, onClose, viewerRole }: VisitEditModalPro
   }
 
   const actionMut = useApiMutation('driverAction', {
-    invalidate: 'operational',
     onSuccess: () => {
       toast('Отмечено ✓');
       onClose();
     },
   });
   const correctMut = useApiMutation('correctVisit', {
-    invalidate: 'operational',
     // Модал не закрываем: визит снова planned → появятся кнопки действий
     onSuccess: () => toast('Исправлено ✓'),
   });
   const floorMut = useApiMutation('setVisitLiftFloor', {
-    invalidate: 'operational',
     onSuccess: () => toast('Этаж сохранён ✓'),
   });
   // P6.2: штатный возврат чистого на склад (не «исправление») — модал не закрываем,
   // визит перерисуется и «Взял чистое» снова станет доступно
   const returnCleanMut = useApiMutation<{ returnedBags: number }>('driverReturnClean', {
-    invalidate: 'operational',
     onSuccess: (res) => toast(`Возвращено ${res.returnedBags} меш. ✓`),
   });
 
