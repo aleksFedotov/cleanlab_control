@@ -244,14 +244,14 @@ test('R1-char: права — worker на owner-методах получает 
 
 const API_SNAPSHOT = [
   'addDeliveryVisit', 'addExtraWork', 'addManualClean', 'addToDelivery', 'addUnplannedWash', 'addWeekCard', 'cancelWash',
-  'closeShift', 'completeWash', 'confirmStorageCheck', 'correctVisit', 'createLaundry', 'createUser',
+  'clientCreateRequest', 'clientGetRequest', 'clientGetRequests', 'closeShift', 'completeWash', 'confirmStorageCheck', 'correctVisit', 'createLaundry', 'createUser',
   'deactivateLaundry', 'deactivateUser', 'deferWash', 'deleteBillingItem', 'deleteClient',
   'deleteExtraWork', 'deleteItemType', 'deletePayAdjustment', 'deleteUser', 'deleteWash', 'driverAction',
-  'driverHandover', 'driverReturnClean', 'driverTakeAllClean', 'driverTakeClean', 'editExtraWork', 'editManualClean', 'editWashData', 'getClientInvoice', 'getDayList',
+  'driverHandover', 'driverReturnClean', 'driverTakeAllClean', 'driverTakeClean', 'editExtraWork', 'editManualClean', 'editWashData', 'getClientInvoice', 'getClientRequests', 'getDayList',
   'getDayReport', 'getDeliveryPlan', 'getDeliveryPointStats', 'getDeliveryVisits',
   'getDriverRoute', 'getFinanceSummary', 'getMyPayroll', 'getPayroll', 'getRefs',
   'getShiftCloseState', 'getStorage', 'getSummaryReport', 'getTvData', 'getWeekPlan',
-  'getWorkHours', 'holdPartialWash', 'listBillingItems', 'listClientItemBilling',
+  'getWorkHours', 'holdPartialWash', 'linkRequestToVisit', 'listBillingItems', 'listClientItemBilling',
   'listClientsBrief', 'listExtraWorks', 'listLaundries', 'listPayAdjustments', 'listPayRates', 'listPaySettings', 'listTariffs',
   'listUsers', 'login', 'logout', 'makeTelegramBindCode', 'markIssued', 'moveDeliveryVisit',
   'moveWeekCard', 'purgeClient', 'reactivateUser', 'rememberClientItemType',
@@ -261,7 +261,7 @@ const API_SNAPSHOT = [
   'startWash', 'switchLaundry', 'updateIssueDate', 'updateLaundry', 'updateUser'
 ];
 
-test('R1-char: снапшот — состав публичного api не изменился (89 методов)', () => {
+test('R1-char: снапшот — состав публичного api не изменился (94 метода)', () => {
   const api = require('../api').api;
   assert.deepStrictEqual(Object.keys(api).sort(), API_SNAPSHOT);
 });

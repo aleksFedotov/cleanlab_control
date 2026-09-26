@@ -13,6 +13,7 @@ const { addStorageEntry_, openStorage_, storageSummaryByClient_, storageBagsOf_ 
 const { resolveRate_ } = require('./payroll');
 const { notReadyForDelivery_, issueForVisit_, unissueForVisit_ } = require('./wash');
 const { isOpenVisit_, getVisitsByDate_, ensureVisit_ } = require('./visits');
+const { markRequestsPickedForVisit_ } = require('./api/requests');
 
 // LockService в GAS; в однопроцессном Node с синхронным better-sqlite3 не нужен.
 function withLock_(fn) { return fn(); }
@@ -368,6 +369,8 @@ function driverAction(token, visitId, action, liftFloor) {
       if (v.picked_at) return err_('Грязное уже забрано');
       v.picked_at = nowStr_();
       v.pickup = 'да';
+      // Привязанная заявка портала (P1) уходит в 'picked' в той же транзакции
+      markRequestsPickedForVisit_(visitId, laundryId);
       // Если чистое уже отдано (или его не было и не взято) — точка закрыта
       if (v.delivered_at) v.status = 'both';
       else if (!v.clean_taken_at) v.status = 'picked';
