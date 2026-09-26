@@ -16,6 +16,7 @@ const {
 } = require('./api/billing');
 const {
   listUsers, createUser, updateUser, resetUserPassword,
+  setClientAccess, resetClientPassword,
   deactivateUser, reactivateUser, deleteUser,
   makeTelegramBindCode, consumeTelegramBindCode_
 } = require('./api/users');
@@ -66,6 +67,7 @@ const API_ROLES = {
   listClientItemBilling: OWNER, getClientInvoice: OWNER,
   // api/users.js
   listUsers: OWNER, createUser: OWNER, updateUser: OWNER, resetUserPassword: OWNER,
+  setClientAccess: OWNER, resetClientPassword: OWNER,
   deactivateUser: OWNER, reactivateUser: OWNER, deleteUser: OWNER, makeTelegramBindCode: OWNER,
   // api/laundries.js (getTvData — без проверки)
   listLaundries: OWNER, createLaundry: OWNER, updateLaundry: OWNER, deactivateLaundry: OWNER,
@@ -99,7 +101,7 @@ const sessionFirst = {
   saveClient, deleteClient, purgeClient, saveItemType, deleteItemType, rememberClientItemType, getRefs,
   listBillingItems, saveBillingItem, deleteBillingItem,
   listTariffs, saveTariff, saveClientItemBilling, listClientItemBilling, getClientInvoice,
-  listUsers, createUser, updateUser, resetUserPassword, deactivateUser, reactivateUser, deleteUser, makeTelegramBindCode,
+  listUsers, createUser, updateUser, resetUserPassword, setClientAccess, resetClientPassword, deactivateUser, reactivateUser, deleteUser, makeTelegramBindCode,
   listLaundries, createLaundry, updateLaundry, deactivateLaundry
 };
 

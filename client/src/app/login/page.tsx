@@ -27,7 +27,12 @@ export default function LoginPage() {
     try {
       const res = await api<LoginRes>('login', login.trim(), password);
       saveSession(res);
-      router.replace(res.role === 'driver' ? '/driver' : res.role === 'worker' ? '/worker' : '/today');
+      router.replace(
+        res.role === 'driver' ? '/driver'
+          : res.role === 'worker' ? '/worker'
+          : res.role === 'client' ? '/portal'
+          : '/today'
+      );
     } catch (e: any) {
       setError(e.message || 'Ошибка входа');
       setBusy(false);

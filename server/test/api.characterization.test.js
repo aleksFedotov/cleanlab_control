@@ -255,13 +255,13 @@ const API_SNAPSHOT = [
   'listClientsBrief', 'listExtraWorks', 'listLaundries', 'listPayAdjustments', 'listPayRates', 'listPaySettings', 'listTariffs',
   'listUsers', 'login', 'logout', 'makeTelegramBindCode', 'markIssued', 'moveDeliveryVisit',
   'moveWeekCard', 'purgeClient', 'reactivateUser', 'rememberClientItemType',
-  'removeDeliveryVisit', 'removeWeekCard', 'resetUserPassword', 'saveBillingItem',
+  'removeDeliveryVisit', 'removeWeekCard', 'resetClientPassword', 'resetUserPassword', 'saveBillingItem',
   'saveClient', 'saveClientItemBilling', 'saveItemType', 'savePayAdjustment', 'savePayRate',
-  'savePaySettings', 'saveTariff', 'setPickupOnly', 'setVisitLiftFloor', 'setWorkHours',
+  'savePaySettings', 'saveTariff', 'setClientAccess', 'setPickupOnly', 'setVisitLiftFloor', 'setWorkHours',
   'startWash', 'switchLaundry', 'updateIssueDate', 'updateLaundry', 'updateUser'
 ];
 
-test('R1-char: снапшот — состав публичного api не изменился (87 методов)', () => {
+test('R1-char: снапшот — состав публичного api не изменился (89 методов)', () => {
   const api = require('../api').api;
   assert.deepStrictEqual(Object.keys(api).sort(), API_SNAPSHOT);
 });
