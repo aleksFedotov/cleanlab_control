@@ -5,7 +5,7 @@
 // заявка уходит в 'picked' и правке не подлежит.
 const db = require('../db');
 const { SHEETS } = require('../schema');
-const { nowStr_, logEvent, actorOf_ } = require('../audit');
+const { nowStr_, todayStr_, logEvent, actorOf_ } = require('../audit');
 const { err_, ok_, findTenantRow_ } = require('../core');
 
 const REQ_SENT = 'sent';
@@ -109,6 +109,34 @@ function clientGetRequest(session, requestId) {
   return ok_({ request: withItems_(found.obj) });
 }
 
+// Стартовые данные портала (этап 3): профиль клиента, активные виды белья и
+// ближайшие запланированные визиты (предвыбор даты забора в форме заявки).
+function clientGetPortalData(session) {
+  const laundryId = session.laundryId;
+  const clientId = String(session.clientId || '');
+  if (!clientId) return err_('Аккаунт не привязан к клиенту');
+  const client = db.getClients_(laundryId).filter(function (c) {
+    return String(c.id) === clientId;
+  })[0] || null;
+  if (!client) return err_('Клиент не найден');
+  const today = todayStr_();
+  const visits = db.findRowsByTenant_(SHEETS.DELIVERIES, function (v) {
+    return String(v.client_id) === clientId && v.status === 'planned' && v.date >= today;
+  }, 50, laundryId).map(function (r) { return r.obj; });
+  visits.sort(function (a, b) {
+    if (a.date !== b.date) return a.date < b.date ? -1 : 1;
+    return Number(a.ord) - Number(b.ord);
+  });
+  return ok_({
+    client: {
+      id: client.id, name: client.name,
+      item_types: client.item_types || '', accounting: client.accounting || ''
+    },
+    itemTypes: db.getItemTypes_().filter(function (t) { return t.active === 'да'; }),
+    visits: visits.slice(0, 10)
+  });
+}
+
 // --- Владелец ---
 
 // Все заявки прачки (бейдж и экран, этап 5). date — опциональный фильтр.
@@ -165,7 +193,7 @@ function markRequestsPickedForVisit_(visitId, laundryId) {
 }
 
 module.exports = {
-  clientCreateRequest, clientGetRequests, clientGetRequest,
+  clientCreateRequest, clientGetRequests, clientGetRequest, clientGetPortalData,
   getClientRequests, linkRequestToVisit,
   markRequestsPickedForVisit_
 };

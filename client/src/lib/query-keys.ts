@@ -26,6 +26,8 @@ export const qk = {
   extraWorks: (userId?: string, from?: string, to?: string) =>
     ['extraWorks', userId || '', from || '', to || ''] as const,
   clientsBrief: () => ['clientsBrief'] as const,
+  requests: () => ['requests'] as const,
+  portalData: () => ['portalData'] as const,
 };
 
 // Что инвалидировать после операционных мутаций (стирка/развоз/склад взаимосвязаны).

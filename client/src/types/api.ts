@@ -428,6 +428,50 @@ export interface InvoiceRes {
   invoice: Invoice;
 }
 
+// --- Заявки клиентского портала (P1): форматы — server/api/requests.js ---
+
+export type RequestStatus = 'sent' | 'picked';
+
+export interface RequestItem {
+  id: string;
+  request_id: string;
+  item_type_id: string;
+  qty: number | string; // TEXT в БД — приводить через Number()
+}
+
+export interface PortalRequest {
+  id: string;
+  client_id: string;
+  laundry_id: string;
+  visit_id: string;
+  desired_date: string; // yyyy-MM-dd
+  bags: number | string;
+  comment: string;
+  status: RequestStatus;
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+  items: RequestItem[];
+  client_name?: string; // только в getClientRequests (владелец)
+}
+
+export interface PortalRequestsRes {
+  ok: true;
+  requests: PortalRequest[];
+}
+
+export interface PortalDataRes {
+  ok: true;
+  client: { id: string; name: string; item_types: string; accounting: string };
+  itemTypes: ItemType[];
+  visits: Visit[]; // ближайшие planned-визиты клиента (предвыбор даты забора)
+}
+
+export interface CreateRequestRes {
+  ok: true;
+  request: PortalRequest;
+}
+
 // --- Зарплаты (P3): форматы — server/payroll.js ---
 
 // Разбивка начислений по дню (в amount уже включены корректировки и доп. работы дня)

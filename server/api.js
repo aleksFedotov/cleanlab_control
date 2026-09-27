@@ -25,7 +25,7 @@ const {
   saveItemType, deleteItemType, rememberClientItemType, getRefs
 } = require('./api/clients');
 const {
-  clientCreateRequest, clientGetRequests, clientGetRequest,
+  clientCreateRequest, clientGetRequests, clientGetRequest, clientGetPortalData,
   getClientRequests, linkRequestToVisit
 } = require('./api/requests');
 const {
@@ -75,6 +75,7 @@ const API_ROLES = {
   deactivateUser: OWNER, reactivateUser: OWNER, deleteUser: OWNER, makeTelegramBindCode: OWNER,
   // api/requests.js (портал P1)
   clientCreateRequest: ['client'], clientGetRequests: ['client'], clientGetRequest: ['client'],
+  clientGetPortalData: ['client'],
   getClientRequests: OWNER, linkRequestToVisit: OWNER,
   // api/laundries.js (getTvData — без проверки)
   listLaundries: OWNER, createLaundry: OWNER, updateLaundry: OWNER, deactivateLaundry: OWNER,
@@ -109,7 +110,7 @@ const sessionFirst = {
   listBillingItems, saveBillingItem, deleteBillingItem,
   listTariffs, saveTariff, saveClientItemBilling, listClientItemBilling, getClientInvoice,
   listUsers, createUser, updateUser, resetUserPassword, setClientAccess, resetClientPassword, deactivateUser, reactivateUser, deleteUser, makeTelegramBindCode,
-  clientCreateRequest, clientGetRequests, clientGetRequest, getClientRequests, linkRequestToVisit,
+  clientCreateRequest, clientGetRequests, clientGetRequest, clientGetPortalData, getClientRequests, linkRequestToVisit,
   listLaundries, createLaundry, updateLaundry, deactivateLaundry
 };
 

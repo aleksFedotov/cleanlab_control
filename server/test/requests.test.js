@@ -221,3 +221,37 @@ test('clientCreateRequest валидирует дату; события пишу
   const updated = ctx.db.readAll_('Log').filter(function (e) { return e.action === 'request_update'; });
   assert.strictEqual(updated.length, 1);
 });
+
+test('clientGetPortalData: профиль, активные виды, ближайшие planned-визиты клиента', () => {
+  const ctx = makeCtx();
+  const owner = loginOwner();
+  const a = seedClient(ctx, owner, 'Отель А');
+  const b = seedClient(ctx, owner, 'Отель Б');
+  const tokenA = clientAccount(ctx, owner, a, 'otel-a');
+
+  // Профиль клиента с ограниченным списком видов
+  assert.ok(ctx.api.saveClient(owner, { id: a, item_types: ['itm_1', 'itm_2'] }).ok);
+  // Визиты: сегодня и послезавтра у А; вчерашний (прошлое) и у Б — не попадают
+  ctx.api.addDeliveryVisit(owner, a, TODAY);
+  ctx.api.addDeliveryVisit(owner, a, '2026-08-14');
+  ctx.api.addDeliveryVisit(owner, b, TOMORROW);
+  const past = ctx.api.addDeliveryVisit(owner, a, '2026-08-10').visit;
+  // Закрытый визит (финальный статус) не предлагаем
+  ctx.api.driverAction(loginDriver(), past.id, 'empty');
+
+  const r = ctx.api.clientGetPortalData(tokenA);
+  assert.ok(r.ok, r.error);
+  assert.strictEqual(r.client.id, a);
+  assert.strictEqual(r.client.item_types, JSON.stringify(['itm_1', 'itm_2']));
+  assert.ok(r.itemTypes.length > 0, 'виды белья есть');
+  assert.ok(r.itemTypes.every(function (t) { return t.active === 'да'; }), 'только активные');
+  // Только planned-визиты клиента А, с сегодняшнего дня, по возрастанию даты
+  assert.deepStrictEqual(r.visits.map(function (v) { return v.date; }), [TODAY, '2026-08-14']);
+
+  // Доступ только у client; другой клиент не видит визиты А
+  const tokenB = clientAccount(ctx, owner, b, 'otel-b');
+  const rb = ctx.api.clientGetPortalData(tokenB);
+  assert.ok(rb.ok, rb.error);
+  assert.deepStrictEqual(rb.visits.map(function (v) { return v.date; }), [TOMORROW]);
+  assert.strictEqual(ctx.api.clientGetPortalData(owner).error, 'Нет доступа');
+});
