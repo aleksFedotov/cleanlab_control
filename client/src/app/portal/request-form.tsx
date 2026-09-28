@@ -11,6 +11,7 @@ import { useApiMutation, useClientRequests, usePortalData } from '@/hooks/use-ap
 import { useUiStore } from '@/stores/ui';
 import { todayStr } from '@/lib/dates';
 import { parseItemTypes } from '@/app/(dashboard)/refs/refs-utils';
+import { TrackView } from './track-view';
 import type { CreateRequestRes, ItemType, PortalDataRes, PortalRequest } from '@/types/api';
 import styles from './portal.module.css';
 
@@ -161,6 +162,13 @@ function RequestFormInner({
         <span className={styles.hint}>
           Заявка на эту дату уже есть — отправка перезапишет её состав
         </span>
+      )}
+
+      {existing && (
+        <TrackView
+          request={existing}
+          typeNames={Object.fromEntries(itemTypes.map((t) => [t.id, t.name]))}
+        />
       )}
     </div>
   );

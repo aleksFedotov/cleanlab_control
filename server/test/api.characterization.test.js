@@ -244,7 +244,7 @@ test('R1-char: права — worker на owner-методах получает 
 
 const API_SNAPSHOT = [
   'addDeliveryVisit', 'addExtraWork', 'addManualClean', 'addToDelivery', 'addUnplannedWash', 'addWeekCard', 'cancelWash',
-  'clientCreateRequest', 'clientGetPortalData', 'clientGetRequest', 'clientGetRequests', 'closeShift', 'completeWash', 'confirmStorageCheck', 'correctVisit', 'createLaundry', 'createUser',
+  'clientCreateRequest', 'clientGetPortalData', 'clientGetRequest', 'clientGetRequests', 'clientGetTrack', 'closeShift', 'completeWash', 'confirmStorageCheck', 'correctVisit', 'createLaundry', 'createUser',
   'deactivateLaundry', 'deactivateUser', 'deferWash', 'deleteBillingItem', 'deleteClient',
   'deleteExtraWork', 'deleteItemType', 'deletePayAdjustment', 'deleteUser', 'deleteWash', 'driverAction',
   'driverHandover', 'driverReturnClean', 'driverTakeAllClean', 'driverTakeClean', 'editExtraWork', 'editManualClean', 'editWashData', 'getClientInvoice', 'getClientRequests', 'getDayList',
@@ -261,7 +261,7 @@ const API_SNAPSHOT = [
   'startWash', 'switchLaundry', 'updateIssueDate', 'updateLaundry', 'updateUser'
 ];
 
-test('R1-char: снапшот — состав публичного api не изменился (95 методов)', () => {
+test('R1-char: снапшот — состав публичного api не изменился (96 методов)', () => {
   const api = require('../api').api;
   assert.deepStrictEqual(Object.keys(api).sort(), API_SNAPSHOT);
 });

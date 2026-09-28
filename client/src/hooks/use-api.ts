@@ -16,7 +16,7 @@ import type {
   BillingItemsRes, TariffsRes, ClientItemBillingRes, InvoiceRes,
   PayrollRes, PayRatesRes, PaySettingsRes, MyPayrollRes, PayAdjustmentRes, PayAdjustmentsListRes,
   ExtraWorksListRes, ClientsBriefRes,
-  PortalDataRes, PortalRequestsRes,
+  PortalDataRes, PortalRequestsRes, ClientTrackRes,
 } from '@/types/api';
 
 function token(): string {
@@ -249,6 +249,15 @@ export function useClientRequests() {
     queryKey: qk.requests(),
     queryFn: () => api<PortalRequestsRes>('clientGetRequests', token()),
     enabled: !!token(),
+  });
+}
+
+// Трек сдачи по заявке (шаги, статус, фактический пересчёт)
+export function useClientTrack(requestId: string) {
+  return useQuery({
+    queryKey: qk.track(requestId),
+    queryFn: () => api<ClientTrackRes>('clientGetTrack', token(), requestId),
+    enabled: !!token() && !!requestId,
   });
 }
 

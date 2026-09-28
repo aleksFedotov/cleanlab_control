@@ -6,7 +6,7 @@
 const db = require('../db');
 const { SHEETS } = require('../schema');
 const { nowStr_, todayStr_, logEvent, actorOf_ } = require('../audit');
-const { err_, ok_, findTenantRow_ } = require('../core');
+const { err_, ok_, findTenantRow_, addDaysStr_ } = require('../core');
 
 const REQ_SENT = 'sent';
 const REQ_PICKED = 'picked';
@@ -192,8 +192,185 @@ function markRequestsPickedForVisit_(visitId, laundryId) {
   });
 }
 
+// --- Трекинг сдачи (этап 4) ---
+
+// Порядок клиентских шагов трека (ключи совпадают с clientStatus_).
+const TRACK_STEPS = [
+  { key: 'accepted', label: 'Заявка принята' },
+  { key: 'driver_coming', label: 'Водитель направляется' },
+  { key: 'to_laundry', label: 'На пути в прачечную' },
+  { key: 'in_queue', label: 'В прачечной, в очереди' },
+  { key: 'washing', label: 'Стирается' },
+  { key: 'ready', label: 'Готово, на складе' },
+  { key: 'to_client', label: 'Направляется к вам' },
+  { key: 'delivered', label: 'Доставлено' }
+];
+const STEP_INDEX = {};
+TRACK_STEPS.forEach(function (s, i) { STEP_INDEX[s.key] = i; });
+
+// Чистый маппинг «внутреннее состояние → клиентский статус» (тикет P1, этап 4).
+// Без I/O — тестируется таблично. Визита может не быть (двойной канал): тогда
+// поздние шаги просто не наступают и трек остаётся на «Заявка принята».
+// visit — визит забора (Requests.visit_id); deliveryVisit — визит, которым чистое
+// поехало к клиенту (обычно следующий день; может совпадать с визитом забора).
+function clientStatus_(input) {
+  const request = input.request || {};
+  const visit = input.visit || null;
+  const deliveryVisit = input.deliveryVisit || null;
+  const wash = input.wash || null;
+  const today = input.today || todayStr_();
+
+  // Особые случаи — терминальные, показываем честными формулировками
+  if (wash && wash.status === 'cancelled') {
+    return { key: 'cancelled', label: 'Сдача отменена', note: String(wash.comment || ''), step: -1 };
+  }
+  if (wash && wash.status === 'no_linen') {
+    return { key: 'no_linen', label: 'Бельё не передано', note: '', step: -1 };
+  }
+
+  let key;
+  if ((deliveryVisit && (deliveryVisit.status === 'delivered' || deliveryVisit.status === 'both'))
+      || (wash && wash.status === 'issued')) {
+    key = 'delivered';
+  } else if (deliveryVisit && deliveryVisit.clean_taken_at) {
+    key = 'to_client';
+  } else if (wash && wash.status === 'in_progress') {
+    key = 'washing';
+  } else if (wash && wash.status === 'partial') {
+    key = 'washing'; // «Стирается (частично)»: клиенту важно, что часть останется
+  } else if (wash && (wash.status === 'done' || wash.status === 'stored' || wash.status === 'ready_clean')) {
+    key = 'ready';
+  } else if (wash && wash.status === 'planned') {
+    key = 'in_queue';
+  } else if (input.dirtyAt) {
+    key = 'in_queue'; // грязное на складе прачки, стирка ещё не заведена
+  } else if (visit && visit.picked_at) {
+    key = 'to_laundry';
+  } else if (visit && visit.status === 'planned' && visit.date === today) {
+    key = 'driver_coming';
+  } else {
+    key = 'accepted';
+  }
+
+  const note = wash && wash.deferred_from
+    ? 'перенесено на ' + (wash.issue_date || '—')
+    : '';
+  return { key: key, label: labelFor_(key, wash), note: note, step: STEP_INDEX[key] };
+}
+
+function labelFor_(key, wash) {
+  if (key === 'washing' && wash && wash.status === 'partial') return 'Стирается (частично)';
+  const s = TRACK_STEPS.filter(function (x) { return x.key === key; })[0];
+  return s ? s.label : key;
+}
+
+// Дата-время события по шагу (пустая строка — событие ещё не случилось).
+// Визит выдачи (deliveryVisit) — источник дат шагов «Направляется»/«Доставлено».
+function stepAt_(key, request, visit, deliveryVisit, wash) {
+  switch (key) {
+    case 'accepted': return String(request.created_at || '');
+    case 'to_laundry': return visit ? String(visit.picked_at || '') : '';
+    case 'in_queue': return wash ? String(wash.created_at || '') : '';
+    case 'washing': return wash ? String(wash.started_at || '') : '';
+    case 'ready': return wash ? String(wash.done_at || '') : '';
+    case 'to_client': return deliveryVisit ? String(deliveryVisit.clean_taken_at || '') : '';
+    case 'delivered':
+      return (deliveryVisit && String(deliveryVisit.delivered_at || '')) || (wash ? String(wash.issued_at || '') : '');
+    default: return ''; // driver_coming — событие впереди, дата визита не таймстемп
+  }
+}
+
+// Трек заявки: клиентский статус, шаги с датами, фактический пересчёт (если стирка
+// завершена). Связка заявка → визит (visit_id) → стирка клиента на дату визита
+// (окно [дата−1, дата]: auto-стирка ensureWashesFromDelivery_ сидится на дату
+// забора, ручная/демо — в день визита). Чужая заявка — «не существует».
+function clientGetTrack(session, requestId) {
+  const laundryId = session.laundryId;
+  const found = findTenantRow_(SHEETS.REQUESTS, requestId, laundryId);
+  if (!found || String(found.obj.client_id) !== String(session.clientId)) {
+    return err_('Заявка не существует');
+  }
+  const request = withItems_(found.obj);
+  const today = todayStr_();
+
+  const visit = request.visit_id
+    ? (function () {
+        const v = db.findById_(SHEETS.DELIVERIES, request.visit_id);
+        return v && v.obj.laundry_id === String(laundryId) ? v.obj : null;
+      })()
+    : null;
+
+  // Стирка клиента: последняя (по дате) не отменённая в окне [visit.date−1, visit.date]
+  let wash = null;
+  if (visit) {
+    const from = addDaysStr_(visit.date, -1);
+    const candidates = db.findRowsByTenant_(SHEETS.WASHES, function (w) {
+      return String(w.client_id) === String(request.client_id)
+        && w.wash_date >= from && w.wash_date <= visit.date
+        && w.status !== 'cancelled';
+    }, 100, laundryId).map(function (r) { return r.obj; });
+    candidates.sort(function (a, b) {
+      if (a.wash_date !== b.wash_date) return a.wash_date < b.wash_date ? 1 : -1;
+      return String(a.created_at) < String(b.created_at) ? 1 : -1;
+    });
+    wash = candidates[0] || null;
+  }
+
+  // Открытая dirty-запись склада (грязное уже в прачке, стирка не заведена)
+  let dirtyAt = '';
+  if (visit && !wash) {
+    const dirty = db.findRowsByTenant_(SHEETS.STORAGE, function (s) {
+      return String(s.client_id) === String(request.client_id)
+        && s.kind === 'dirty' && !s.consumed_at && String(s.created_at) >= visit.date;
+    }, 1, laundryId)[0];
+    dirtyAt = dirty ? String(dirty.obj.created_at || '') : '';
+  }
+
+  // Визит выдачи чистого: ближайший к дате забора визит клиента, которым чистое
+  // поехало (clean_taken_at или финальный «доставлен»). Обычно это визит D+1 —
+  // он же порождает стирку (ensureWashesFromDelivery_); может совпадать с визитом
+  // забора, если обе операции прошли одним рейсом (both).
+  let deliveryVisit = null;
+  if (visit) {
+    db.findRowsByTenant_(SHEETS.DELIVERIES, function (v) {
+      return String(v.client_id) === String(request.client_id)
+        && v.date >= visit.date && v.status !== 'cancelled'
+        && (v.clean_taken_at || v.status === 'delivered' || v.status === 'both');
+    }, 50, laundryId).forEach(function (r) {
+      if (!deliveryVisit || r.obj.date < deliveryVisit.date) deliveryVisit = r.obj;
+    });
+  }
+
+  const status = clientStatus_({ request: request, visit: visit, deliveryVisit: deliveryVisit, wash: wash, dirtyAt: dirtyAt, today: today });
+  const steps = TRACK_STEPS.map(function (s, i) {
+    const at = stepAt_(s.key, request, visit, deliveryVisit, wash);
+    // Пройденные — заполнены: всё до текущего шага; у особых статусов
+    // (no_linen/cancelled, step=-1) — только шаги с фактическими датами
+    const done = status.step >= 0 ? i <= status.step : (i === 0 || at !== '');
+    return { key: s.key, label: labelFor_(s.key, wash), at: at, done: done, current: status.step === i };
+  });
+
+  // Фактический пересчёт — только после завершения стирки (done-like/partial/issued)
+  let fact = null;
+  if (wash && ['done', 'stored', 'ready_clean', 'issued', 'partial'].indexOf(wash.status) !== -1) {
+    const names = {};
+    db.getItemTypes_().forEach(function (t) { names[t.id] = t.name; });
+    fact = {
+      items: db.findRowsBy_(SHEETS.WASH_ITEMS, function (wi) { return wi.wash_id === wash.id; }, 1000)
+        .map(function (r) {
+          return { item_type_id: r.obj.item_type_id, name: names[r.obj.item_type_id] || r.obj.item_type_id, qty: Number(r.obj.qty) || 0 };
+        }),
+      weight_kg: Number(wash.dirty_weight_kg) || null,
+      bags: Number(wash.bags) || null
+    };
+  }
+
+  return ok_({ request: request, visit: visit, deliveryVisit: deliveryVisit, status: status, steps: steps, fact: fact });
+}
+
 module.exports = {
   clientCreateRequest, clientGetRequests, clientGetRequest, clientGetPortalData,
   getClientRequests, linkRequestToVisit,
-  markRequestsPickedForVisit_
+  markRequestsPickedForVisit_,
+  clientGetTrack, clientStatus_
 };

@@ -472,6 +472,41 @@ export interface CreateRequestRes {
   request: PortalRequest;
 }
 
+// --- Трекинг сдачи (P1, этап 4): форматы — clientGetTrack ---
+
+export type TrackKey =
+  | 'accepted' | 'driver_coming' | 'to_laundry' | 'in_queue'
+  | 'washing' | 'ready' | 'to_client' | 'delivered';
+
+export interface TrackStep {
+  key: TrackKey;
+  label: string;
+  at: string; // 'yyyy-MM-dd HH:mm:ss' или '' — событие ещё не случилось
+  done: boolean;
+  current: boolean;
+}
+
+export interface TrackStatus {
+  key: TrackKey | 'no_linen' | 'cancelled';
+  label: string;
+  note: string; // «перенесено на ‹дата›» / комментарий при отмене
+  step: number; // −1 — особый статус вне восьми шагов
+}
+
+export interface TrackFact {
+  items: { item_type_id: string; name: string; qty: number }[];
+  weight_kg: number | null;
+  bags: number | null;
+}
+
+export interface ClientTrackRes {
+  ok: true;
+  request: PortalRequest;
+  status: TrackStatus;
+  steps: TrackStep[];
+  fact: TrackFact | null; // только после завершения стирки
+}
+
 // --- Зарплаты (P3): форматы — server/payroll.js ---
 
 // Разбивка начислений по дню (в amount уже включены корректировки и доп. работы дня)
