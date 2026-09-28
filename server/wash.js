@@ -9,7 +9,7 @@ const {
   addDaysStr_, checkTransition_, applyDefer_, err_, ok_, round1_, clientName_,
   findTenantRow_, ensureShift_, getShiftByDate_, canEditWashData_, completionStatus_
 } = core;
-const { addStorageEntry_, consumeStorage_, openStorage_, storageSummaryByClient_ } = require('./storage');
+const { addStorageEntry_, consumeStorage_, openStorage_, storageSummaryByClient_, storageBagsOf_ } = require('./storage');
 const { getVisitsByDate_, ensureVisit_, isOpenVisit_ } = require('./visits');
 const tgSend = require('./tg-send');
 
@@ -370,10 +370,30 @@ function confirmStorageCheck(session, washId, verdict) {
     }
     // already_clean: факт чистого на складе проверяется (P8) — иначе зелёная
     // карточка при пустом складе. Чистое «у водителя» openStorage_ отсекает.
-    if (verdict === 'already_clean' &&
-        openStorage_(w.client_id, 'clean', laundryId).length === 0) {
+    const cleanRows = verdict === 'already_clean'
+      ? openStorage_(w.client_id, 'clean', laundryId)
+      : [];
+    if (verdict === 'already_clean' && cleanRows.length === 0) {
       return err_('Чистого белья этого клиента на складе нет. ' +
         'Если бельё физически на полке — внесите его вручную.');
+    }
+    // Количество могли внести накануне на другой стирке (авто-стирка из развоза —
+    // дубликат с пустыми полями): переносим цифры со складских clean-записей,
+    // иначе вечером закрытие смены потребует «Укажите количество» по этой записи.
+    if (verdict === 'already_clean' &&
+        (String(w.items_total || '') === '' || String(w.bags || '') === '')) {
+      const washBags = {};
+      db.findRowsByTenant_(SHEETS.WASHES, function () { return true; }, 2000, laundryId)
+        .forEach(function (r) { washBags[r.obj.id] = Number(r.obj.bags) || 0; });
+      let kg = 0, items = 0, bags = 0;
+      cleanRows.forEach(function (r) {
+        kg += Number(r.obj.weight_kg) || 0;
+        items += Number(r.obj.items_total) || 0;
+        bags += storageBagsOf_(r.obj, washBags);
+      });
+      w.dirty_weight_kg = round1_(kg);
+      if (String(w.items_total || '') === '') w.items_total = items;
+      if (String(w.bags || '') === '') w.bags = bags;
     }
     w.status = verdict === 'no_dirty' ? 'no_linen' : 'ready_clean';
     w.done_at = nowStr_();

@@ -444,6 +444,35 @@ test('P8: already_clean при открытом clean → ready_clean (регр�
   assert.ok(res.wash.done_at);
 });
 
+test('P8: already_clean переносит количество со склада в стирку (смена закрывается)', () => {
+  const ctx = makeCtx();
+  const clientId = seedClient(ctx);
+  // Авто-стирка из развоза — дубликат вчерашней: поля количества пустые,
+  // хотя стирку завершали накануне с количеством и весом
+  const washId = plannedWash(ctx, clientId);
+  // Вчерашняя завершённая стирка: мешки лежат на ней, чистое — складской записью
+  ctx.db.appendRowTenant_(SHEETS.WASHES, {
+    id: 'wash_prev', client_id: clientId, wash_date: '2026-08-11',
+    issue_date: TODAY, status: 'done', dirty_weight_kg: '5.2',
+    items_total: '10', bags: '2', comment: '',
+    created_by: 'auto', created_at: TODAY + ' 10:00:00',
+    started_at: '', done_at: TODAY + ' 18:00:00', issued_at: '',
+    deferred_from: '', deferred_reason: ''
+  }, '1');
+  ctx.db.appendRowTenant_(SHEETS.STORAGE, {
+    id: 'st_prev', client_id: clientId, kind: 'clean', weight_kg: '5.2',
+    items_total: '10', bags: '', wash_id: 'wash_prev', visit_id: '',
+    created_at: TODAY, consumed_at: ''
+  }, '1');
+
+  const res2 = wash.confirmStorageCheck(workerSession, washId, 'already_clean');
+  assert.ok(res2.ok, res2.error);
+  assert.strictEqual(res2.wash.status, 'ready_clean');
+  assert.strictEqual(res2.wash.items_total, 10);
+  assert.strictEqual(res2.wash.bags, 2, 'мешки взяты со вчерашней стирки (storageBagsOf_)');
+  assert.strictEqual(res2.wash.dirty_weight_kg, 5.2);
+});
+
 test('P8: addManualClean — валидации: мешки, вес, комментарий; count-клиент', () => {
   const ctx = makeCtx();
   const clientId = seedClient(ctx);
