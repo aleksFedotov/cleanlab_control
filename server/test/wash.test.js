@@ -538,6 +538,40 @@ test('P8: in_progress + no_dirty → no_linen, грязное возвращен
   assert.strictEqual(dirty.wash_id, '');
 });
 
+test('P8: has_dirty → already_clean — dirty-заглушка отменённого вердикта удаляется', () => {
+  const ctx = makeCtx();
+  const clientId = seedClient(ctx);
+  const washId = plannedWash(ctx, clientId);
+  ctx.db.appendRowTenant_(SHEETS.STORAGE, {
+    id: 'st_c9', client_id: clientId, kind: 'clean', weight_kg: '5',
+    items_total: '10', bags: '2', wash_id: '', visit_id: '',
+    created_at: TODAY, consumed_at: ''
+  }, '1');
+  const hd = wash.confirmStorageCheck(workerSession, washId, 'has_dirty');
+  assert.ok(hd.ok, hd.error);
+  const openDirty = () => ctx.db.findRowsByTenant_(SHEETS.STORAGE, function (s) {
+    return s.client_id === clientId && s.kind === 'dirty' && !s.consumed_at;
+  }, 100, '1');
+  assert.strictEqual(openDirty().length, 1, 'has_dirty добавил заглушку');
+  // Приёмка водителем (visit_id) и dirty с весом — не заглушки, трогать нельзя
+  ctx.db.appendRowTenant_(SHEETS.STORAGE, {
+    id: 'st_dv', client_id: clientId, kind: 'dirty', weight_kg: '',
+    items_total: '', bags: '', wash_id: '', visit_id: 'del_1',
+    created_at: TODAY, consumed_at: ''
+  }, '1');
+  ctx.db.appendRowTenant_(SHEETS.STORAGE, {
+    id: 'st_dw', client_id: clientId, kind: 'dirty', weight_kg: '7',
+    items_total: '', bags: '', wash_id: '', visit_id: '',
+    created_at: TODAY, consumed_at: ''
+  }, '1');
+
+  const res = wash.confirmStorageCheck(workerSession, washId, 'already_clean');
+  assert.ok(res.ok, res.error);
+  assert.strictEqual(res.wash.status, 'ready_clean');
+  const left = openDirty().map(r => r.obj.id).sort();
+  assert.deepStrictEqual(left, ['st_dv', 'st_dw'], 'заглушка удалена, реальные записи целы');
+});
+
 test('P8: addManualClean — валидации: мешки, вес, комментарий; count-клиент', () => {
   const ctx = makeCtx();
   const clientId = seedClient(ctx);

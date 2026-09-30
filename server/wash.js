@@ -347,6 +347,8 @@ function deleteWash(session, washId) {
 //    создаём её (без веса — как приёмка водителем). Стирка остаётся/возвращается
 //    в planned, карточка становится янтарной везде. Запись израсходуется при startWash.
 //    Для in_progress не предлагается (стирка уже забрала грязное).
+//    Заглушка от has_dirty удаляется, если следом подтверждают already_clean/no_dirty
+//    (только на пути planned/no_linen — у in_progress открытая dirty это возврат стирки).
 // Время проверки пишем в done_at (для этих статусов — «когда разобрались с клиентом»).
 function confirmStorageCheck(session, washId, verdict) {
   const laundryId = session.laundryId;
@@ -415,11 +417,30 @@ function confirmStorageCheck(session, washId, verdict) {
       if (String(w.items_total || '') === '') w.items_total = items;
       if (String(w.bags || '') === '') w.bags = bags;
     }
+    // Отменённый вердикт has_dirty мог оставить пустую dirty-заглушку (создаётся
+    // выше, когда записи о грязном нет). Открытая пустая dirty без visit_id и
+    // wash_id рождается только из этого вердикта (приёмка водителем ставит
+    // visit_id, заглушку startWash израсходовано сразу) — убираем фантом,
+    // иначе склад показывает лишнюю позицию «Ожидает стирки». На пути
+    // in_progress не применяем: там открытая dirty — это вернувшееся из
+    // стирки грязное, а не заглушка проверки.
+    let placeholdersRemoved = 0;
+    if (!fromInProgress) {
+      db.findRowsByTenant_(SHEETS.STORAGE, function (s) {
+        return s.client_id === w.client_id && s.kind === 'dirty' &&
+          !s.consumed_at && !s.wash_id && !s.visit_id &&
+          String(s.weight_kg || '') === '' && String(s.items_total || '') === '' &&
+          String(s.bags || '') === '';
+      }, 100, laundryId)
+        .sort(function (a, b) { return b.rowNumber - a.rowNumber; })
+        .forEach(function (r) { db.deleteRow_(SHEETS.STORAGE, r.rowNumber); placeholdersRemoved++; });
+    }
     w.status = verdict === 'no_dirty' ? 'no_linen' : 'ready_clean';
     w.done_at = nowStr_();
     db.updateRow_(SHEETS.WASHES, found.rowNumber, w);
     logEvent(actorOf_(session), 'storage_check', washId,
-      { verdict: verdict, from: fromInProgress ? 'in_progress' : undefined }, laundryId);
+      { verdict: verdict, from: fromInProgress ? 'in_progress' : undefined,
+        dirty_placeholders_removed: placeholdersRemoved || undefined }, laundryId);
     return ok_({ wash: w });
   });
 }
