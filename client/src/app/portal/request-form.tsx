@@ -60,7 +60,10 @@ function RequestFormInner({
     return own.length ? all.filter((t) => own.indexOf(t.id) !== -1) : all;
   }, [data]);
 
-  const readOnly = !!existing && existing.status === 'picked';
+  // Прошедшие даты — только просмотр (и даты без заявки тоже); забранные
+  // заявки ('picked') не редактируются на любой дате
+  const past = date < todayStr();
+  const readOnly = past || (!!existing && existing.status === 'picked');
   const visitHint = (data.visits || []).find((v) => v.date === date);
 
   // Смена даты — подставляем состав заявки на эту дату (правка) или чистим
@@ -84,6 +87,12 @@ function RequestFormInner({
       toast('Укажите дату забора', 'err');
       return;
     }
+    // Прошлые даты — только просмотр существующих заявок: новую «задним числом»
+    // не создаём и sent-заявку на прошедшую дату не переписываем
+    if (date < todayStr()) {
+      toast('На прошедшую дату заявку отправить нельзя', 'err');
+      return;
+    }
     const items = itemTypes
       .map((t) => ({ item_type_id: t.id, qty: counts[t.id] || 0 }))
       .filter((it) => it.qty > 0);
@@ -97,16 +106,20 @@ function RequestFormInner({
           Нет связи — данные НЕ сохранены
         </div>
       )}
-      {readOnly && <div className={styles.roBox}>Забрано водителем — правка недоступна</div>}
+      {readOnly && (
+        <div className={styles.roBox}>
+          {existing && existing.status === 'picked'
+            ? 'Забрано водителем — правка недоступна'
+            : 'Прошедшая дата — только просмотр'}
+        </div>
+      )}
 
       <label className={styles.field}>
         <span className={styles.label}>Дата забора</span>
         <input
           type="date"
           className={styles.dateInput}
-          min={todayStr()}
           value={date}
-          disabled={readOnly}
           onChange={(e) => changeDate(e.target.value)}
           data-testid="pickup-date"
         />
@@ -119,26 +132,34 @@ function RequestFormInner({
         {itemTypes.map((t) => (
           <div key={t.id} className={styles.itemRow} data-item-type={t.name}>
             <span className={styles.itemName}>{t.name}</span>
-            <Stepper
-              value={counts[t.id] || 0}
-              steps={STEPS}
-              onStep={(d) =>
-                setCounts((m) => ({ ...m, [t.id]: Math.max(0, (m[t.id] || 0) + d) }))
-              }
-              onValueChange={(v) => setCounts((m) => ({ ...m, [t.id]: v }))}
-            />
+            {readOnly ? (
+              <span className={styles.roValue}>{counts[t.id] || 0}</span>
+            ) : (
+              <Stepper
+                value={counts[t.id] || 0}
+                steps={STEPS}
+                onStep={(d) =>
+                  setCounts((m) => ({ ...m, [t.id]: Math.max(0, (m[t.id] || 0) + d) }))
+                }
+                onValueChange={(v) => setCounts((m) => ({ ...m, [t.id]: v }))}
+              />
+            )}
           </div>
         ))}
       </div>
 
       <div className={styles.field} data-testid="bags-field">
         <span className={styles.label}>Мешки</span>
-        <Stepper
-          value={bags}
-          steps={STEPS}
-          onStep={(d) => setBags((b) => Math.max(0, b + d))}
-          onValueChange={setBags}
-        />
+        {readOnly ? (
+          <span className={styles.roValue}>{bags}</span>
+        ) : (
+          <Stepper
+            value={bags}
+            steps={STEPS}
+            onStep={(d) => setBags((b) => Math.max(0, b + d))}
+            onValueChange={setBags}
+          />
+        )}
       </div>
 
       <label className={styles.field}>

@@ -48,6 +48,7 @@ function clientCreateRequest(session, desiredDate, bags, comment, items) {
   const clientId = String(session.clientId || '');
   if (!clientId) return err_('Аккаунт не привязан к клиенту');
   if (!dateOk_(desiredDate)) return err_('Укажите дату забора');
+  if (desiredDate < todayStr_()) return err_('На прошедшую дату заявку отправить нельзя');
   const bagsN = Math.max(0, Math.floor(Number(bags) || 0));
   return db.transaction_(function () {
     const existing = db.findRowsByTenant_(SHEETS.REQUESTS, function (r) {

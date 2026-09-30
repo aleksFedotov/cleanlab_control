@@ -158,8 +158,22 @@ test.describe.serial('портал клиента: заявка на забор 
     // Форма read-only: баннер, поля disabled, кнопки сохранения нет
     await pickedCard.click();
     await expect(page.getByText('Забрано водителем — правка недоступна')).toBeVisible();
-    await expect(page.getByTestId('pickup-date')).toBeDisabled();
+    // Дата НЕ блокируется: иначе на прошедшей дате пользователь застревал
+    // в read-only без возможности выбрать другую дату
+    await expect(page.getByTestId('pickup-date')).toBeEnabled();
     await expect(page.getByRole('button', { name: 'Сохранить изменения' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Отправить заявку' })).toHaveCount(0);
+  });
+
+  test('прошедшая дата — только просмотр: без степперов и кнопки отправки', async ({
+    page,
+  }) => {
+    await loginPortal(page);
+    // Вчерашняя дата: заявки нет, но и создать/менять нельзя
+    await page.getByTestId('pickup-date').fill(shift(TODAY, -1));
+    await expect(page.getByText('Прошедшая дата — только просмотр')).toBeVisible();
+    await expect(page.getByRole('button', { name: '+', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: '−', exact: true })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Отправить заявку' })).toHaveCount(0);
   });
 });

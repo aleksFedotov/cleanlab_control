@@ -19,6 +19,17 @@ function clientAccount(ctx, owner, clientId, login) {
   return ctx.auth.login(login, 'portal-pass').token;
 }
 
+test('clientCreateRequest: прошедшая дата отклоняется', () => {
+  const ctx = makeCtx();
+  const owner = loginOwner();
+  const clientId = seedClient(ctx, owner);
+  const token = clientAccount(ctx, owner, clientId, 'otel-past');
+
+  const r = ctx.api.clientCreateRequest(token, '2020-01-10', 1, '', []);
+  assert.ok(!r.ok);
+  assert.match(r.error, /прошедшую дату/);
+});
+
 test('clientCreateRequest: создание, позиции сохранены, qty=0 не пишется', () => {
   const ctx = makeCtx();
   const owner = loginOwner();
