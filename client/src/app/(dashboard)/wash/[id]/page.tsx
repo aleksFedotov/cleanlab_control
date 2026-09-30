@@ -371,6 +371,17 @@ export default function WashCardPage() {
         {/* Шаг 2: вес/мешки (в работе) или просмотр (завершённая) */}
         {w.status === 'in_progress' && (
           <>
+            {w.has_clean && (
+              <div className={styles.meta}>
+                На складе уже есть чистое бельё этого клиента. Если стирка взята в работу
+                по ошибке — нажмите «Проверить на складе».
+              </div>
+            )}
+            <div className={styles.rowBtns}>
+              <Button variant="ghost" onClick={() => setModal('storage')}>
+                Проверить на складе
+              </Button>
+            </div>
             {acc !== 'count' && (
               <>
                 <div className={styles.resLabel}>Вес чистого белья</div>

@@ -106,6 +106,13 @@ export function CompleteWashModal({ w, itemTypes, onClose }: CompleteWashModalPr
       }
     >
       <div className={styles.form}>
+        {w.has_clean && (
+          <div className={`${styles.washMeta} ${styles.cmWarn}`}>
+            На складе уже есть чистое этого клиента: {w.storage.clean_kg} кг · {w.storage.clean_items} шт
+            · {w.storage.clean_bags} меш. Если это та же партия — не завершайте стирку повторно,
+            вернитесь и нажмите «Проверить на складе» → «Есть чистое бельё».
+          </div>
+        )}
         {acc !== 'count' && (
           <div>
             <div className={styles.fieldLabel}>Вес чистого белья, кг</div>

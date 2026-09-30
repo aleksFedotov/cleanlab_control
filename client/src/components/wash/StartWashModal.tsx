@@ -65,6 +65,13 @@ export function StartWashModal({ w, onDone, onClose }: StartWashModalProps) {
       }
     >
       <div className={styles.form}>
+        {w.has_clean && (
+          <div className={styles.plaque}>
+            На складе уже есть чистое этого клиента: {w.storage.clean_kg} кг · {w.storage.clean_items} шт
+            · {w.storage.clean_bags} меш. Если бельё уже постирано — не начинайте стирку,
+            нажмите «Проверить на складе» → «Есть чистое бельё».
+          </div>
+        )}
         {!!w.piece_types?.length && (
           <div className={styles.plaque}>
             Отобрать до взвешивания: {w.piece_types.join(', ')}

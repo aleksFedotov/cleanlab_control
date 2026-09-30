@@ -335,7 +335,9 @@ function deleteWash(session, washId) {
 }
 
 // Подтверждение проверки склада работником (спека «check storage»).
-// Применимо к planned-стирке и к повторной проверке no_linen. Три исхода:
+// Применимо к planned-стирке, повторной проверке no_linen и к стирке «в работе»
+// (in_progress — отмена ошибочного «В работу»: забранное грязное возвращается
+// на склад, как в cancelWash). Три исхода:
 //  - no_dirty → статус no_linen: стирать нечего, карточка остаётся в «К стирке»
 //    приглушённой; смену не блокирует, в отчёт как отмена НЕ идёт;
 //    клиент остаётся в предупреждении «не готов к развозу» (no_clean), если чистого нет.
@@ -344,6 +346,7 @@ function deleteWash(session, washId) {
 //  - has_dirty → рабочий нашёл грязное бельё: если записи о грязном нет,
 //    создаём её (без веса — как приёмка водителем). Стирка остаётся/возвращается
 //    в planned, карточка становится янтарной везде. Запись израсходуется при startWash.
+//    Для in_progress не предлагается (стирка уже забрала грязное).
 // Время проверки пишем в done_at (для этих статусов — «когда разобрались с клиентом»).
 function confirmStorageCheck(session, washId, verdict) {
   const laundryId = session.laundryId;
@@ -353,8 +356,25 @@ function confirmStorageCheck(session, washId, verdict) {
     const found = findTenantRow_(SHEETS.WASHES, washId, laundryId);
     if (!found) return err_('Стирка не найдена');
     const w = found.obj;
-    if (w.status !== 'planned' && w.status !== 'no_linen') {
-      return err_('Подтверждение возможно только для стирки «К работе»');
+    const fromInProgress = w.status === 'in_progress';
+    if (w.status !== 'planned' && w.status !== 'no_linen' && !fromInProgress) {
+      return err_('Подтверждение возможно только для стирки «К работе» или «В работе»');
+    }
+    // has_dirty для «в работе» бессмысленно: стирка уже забрала грязное со склада.
+    if (fromInProgress && verdict === 'has_dirty') {
+      return err_('Стирка уже в работе: грязное подтверждать не нужно');
+    }
+    // Отмена ошибочного «В работу»: грязное, забранное этой стиркой, возвращается
+    // на склад (как в cancelWash) — физически бельё осталось на полке.
+    if (fromInProgress) {
+      db.findRowsByTenant_(SHEETS.STORAGE, function (s) {
+        return s.kind === 'dirty' && s.wash_id === washId;
+      }, 1000, laundryId).forEach(function (r) {
+        r.obj.consumed_at = '';
+        r.obj.wash_id = '';
+        db.updateRow_(SHEETS.STORAGE, r.rowNumber, r.obj);
+      });
+      w.started_at = '';
     }
     if (verdict === 'has_dirty') {
       if (openStorage_(w.client_id, 'dirty', laundryId).length === 0) {
@@ -398,7 +418,8 @@ function confirmStorageCheck(session, washId, verdict) {
     w.status = verdict === 'no_dirty' ? 'no_linen' : 'ready_clean';
     w.done_at = nowStr_();
     db.updateRow_(SHEETS.WASHES, found.rowNumber, w);
-    logEvent(actorOf_(session), 'storage_check', washId, { verdict: verdict }, laundryId);
+    logEvent(actorOf_(session), 'storage_check', washId,
+      { verdict: verdict, from: fromInProgress ? 'in_progress' : undefined }, laundryId);
     return ok_({ wash: w });
   });
 }

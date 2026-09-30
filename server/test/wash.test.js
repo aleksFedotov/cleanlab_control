@@ -473,6 +473,71 @@ test('P8: already_clean переносит количество со склад�
   assert.strictEqual(res2.wash.dirty_weight_kg, 5.2);
 });
 
+test('P8: in_progress + already_clean → ready_clean, грязное возвращено на склад', () => {
+  const ctx = makeCtx();
+  const clientId = seedClient(ctx);
+  const washId = plannedWash(ctx, clientId);
+  // Грязное на складе и чистое от вчерашней стирки (бельё уже постирано)
+  ctx.db.appendRowTenant_(SHEETS.STORAGE, {
+    id: 'st_d1', client_id: clientId, kind: 'dirty', weight_kg: '',
+    items_total: '', bags: '', wash_id: '', visit_id: '',
+    created_at: TODAY, consumed_at: ''
+  }, '1');
+  ctx.db.appendRowTenant_(SHEETS.STORAGE, {
+    id: 'st_c1', client_id: clientId, kind: 'clean', weight_kg: '5',
+    items_total: '10', bags: '2', wash_id: '', visit_id: '',
+    created_at: TODAY, consumed_at: ''
+  }, '1');
+  // Работник по ошибке нажал «В работу»: dirty-запись израсходована стиркой
+  assert.ok(wash.startWash(workerSession, washId).ok);
+  let dirty = ctx.db.findById_(SHEETS.STORAGE, 'st_d1').obj;
+  assert.ok(dirty.consumed_at, 'грязное забрано в стирку');
+  assert.strictEqual(dirty.wash_id, washId);
+
+  const res = wash.confirmStorageCheck(workerSession, washId, 'already_clean');
+  assert.ok(res.ok, res.error);
+  assert.strictEqual(res.wash.status, 'ready_clean');
+  assert.strictEqual(res.wash.started_at, '', 'старт отменён');
+  // Поля стирки-дубликата были пустые — заполнились со склада (логика a0f2063)
+  assert.strictEqual(Number(res.wash.dirty_weight_kg), 5);
+  assert.strictEqual(Number(res.wash.items_total), 10);
+  assert.strictEqual(Number(res.wash.bags), 2);
+  dirty = ctx.db.findById_(SHEETS.STORAGE, 'st_d1').obj;
+  assert.strictEqual(dirty.consumed_at, '', 'грязное возвращено на склад');
+  assert.strictEqual(dirty.wash_id, '');
+  // Дубль clean-записи не создан: как было одна, так и осталась
+  assert.strictEqual(ctx.db.findRowsByTenant_(SHEETS.STORAGE, function (s) {
+    return s.client_id === clientId && s.kind === 'clean';
+  }, 100, '1').length, 1);
+  // В Log видно отмену старта
+  const ev = ctx.db.readTailByTenant_(SHEETS.LOG, 1000, '1').filter(function (e) {
+    return e.action === 'storage_check';
+  })[0];
+  assert.ok(ev && ev.details.indexOf('in_progress') !== -1);
+});
+
+test('P8: in_progress + no_dirty → no_linen, грязное возвращено; has_dirty — ошибка', () => {
+  const ctx = makeCtx();
+  const clientId = seedClient(ctx);
+  const washId = plannedWash(ctx, clientId);
+  ctx.db.appendRowTenant_(SHEETS.STORAGE, {
+    id: 'st_d2', client_id: clientId, kind: 'dirty', weight_kg: '',
+    items_total: '', bags: '', wash_id: '', visit_id: '',
+    created_at: TODAY, consumed_at: ''
+  }, '1');
+  assert.ok(wash.startWash(workerSession, washId).ok);
+
+  const bad = wash.confirmStorageCheck(workerSession, washId, 'has_dirty');
+  assert.strictEqual(bad.ok, false, 'has_dirty для «в работе» бессмысленно');
+
+  const res = wash.confirmStorageCheck(workerSession, washId, 'no_dirty');
+  assert.ok(res.ok, res.error);
+  assert.strictEqual(res.wash.status, 'no_linen');
+  const dirty = ctx.db.findById_(SHEETS.STORAGE, 'st_d2').obj;
+  assert.strictEqual(dirty.consumed_at, '', 'грязное возвращено на склад');
+  assert.strictEqual(dirty.wash_id, '');
+});
+
 test('P8: addManualClean — валидации: мешки, вес, комментарий; count-клиент', () => {
   const ctx = makeCtx();
   const clientId = seedClient(ctx);

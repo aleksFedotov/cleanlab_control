@@ -42,12 +42,16 @@ function ActiveWashCard({
   w,
   showDate,
   onComplete,
+  onCheck,
   onDefer,
   onDelete,
 }: {
   w: DayWash;
   showDate?: boolean;
   onComplete: () => void;
+  // Проверка склада доступна и «в работе»: отмена ошибочного «В работу»
+  // (already_clean/no_dirty вернут грязное на склад, server wash.confirmStorageCheck)
+  onCheck: () => void;
   onDefer: () => void;
   onDelete: () => void;
 }) {
@@ -69,12 +73,20 @@ function ActiveWashCard({
         </div>
       )}
       {meta.length > 0 && <div className={styles.washMeta}>{meta.join(' · ')}</div>}
+      {w.has_clean && (
+        <div className={`${styles.washMeta} ${styles.cmWarn}`}>
+          <AlertTriangle size={13} /> На складе уже чистое: {w.storage.clean_kg} кг · {w.storage.clean_items} шт · {w.storage.clean_bags} меш.
+        </div>
+      )}
       {started && <div className={styles.washMeta}>Начата в {started}</div>}
       {w.comment && <div className={styles.washMeta}>{w.comment}</div>}
       <Button className={styles.bigBtn} onClick={onComplete}>
         Завершить стирку
       </Button>
       <div className={styles.washActions}>
+        <Button variant="ghost" size="sm" onClick={onCheck}>
+          Проверить на складе
+        </Button>
         <Button variant="ghost" size="sm" icon={<CalendarClock size={14} />} onClick={onDefer}>
           Перенести
         </Button>
@@ -279,6 +291,7 @@ export default function WorkerPage() {
                         w={w}
                         showDate
                         onComplete={() => setCompleteId(w.id)}
+                        onCheck={() => setCheckId(w.id)}
                         onDefer={() => setDeferId(w.id)}
                         onDelete={() => setDeleteId(w.id)}
                       />
@@ -307,6 +320,7 @@ export default function WorkerPage() {
                       key={w.id}
                       w={w}
                       onComplete={() => setCompleteId(w.id)}
+                      onCheck={() => setCheckId(w.id)}
                       onDefer={() => setDeferId(w.id)}
                       onDelete={() => setDeleteId(w.id)}
                     />

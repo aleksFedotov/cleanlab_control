@@ -54,6 +54,9 @@ export function StorageCheckModal({ w, itemTypes, checkedDirty, onHasDirty, onRe
 
   const blockedClean = !w.has_clean;
   const selected = picked ?? (current === 'already_clean' && blockedClean ? 'no_dirty' : current);
+  // Для стирки «в работе» грязное уже забрано со склада — вердикт has_dirty
+  // не предлагаем (сервер его отклоняет): только already_clean / no_dirty.
+  const cards = w.status === 'in_progress' ? CARDS.filter((c) => c.v !== 'has_dirty') : CARDS;
 
   function submit() {
     mutation.mutate([w.id, selected], {
@@ -86,7 +89,7 @@ export function StorageCheckModal({ w, itemTypes, checkedDirty, onHasDirty, onRe
       <div className={styles.form}>
         <StorageAccountSummary storage={w.storage} />
         <div className={styles.cards}>
-          {CARDS.map(({ v, title, sub, icon: Icon }) => {
+          {cards.map(({ v, title, sub, icon: Icon }) => {
             const blocked = v === 'already_clean' && blockedClean;
             const isSelected = selected === v && !blocked;
             return (

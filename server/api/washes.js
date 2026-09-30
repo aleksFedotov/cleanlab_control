@@ -20,6 +20,8 @@ const tgSend = require('../tg-send');
 
 // Автоформирование стирок дня из завтрашнего развоза: клиент в развозе на
 // date+1 → плановая стирка сегодня (выдача завтра). Идемпотентно.
+// Карточка создаётся всегда, даже если чистое уже на складе: для работника это
+// чек-поинт «проверить склад» (вердикт already_clean закроет её без стирки).
 function ensureWashesFromDelivery_(date, laundryId) {
   const nextDay = addDaysStr_(date, 1);
   const visits = getVisitsByDate_(nextDay, laundryId);

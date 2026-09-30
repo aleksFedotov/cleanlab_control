@@ -419,6 +419,31 @@ test('ensureWashesFromDelivery_: визит на завтра → планова
   assert.strictEqual(ctx.api.getDayList(owner, TODAY).washes.length, 0);
 });
 
+test('ensureWashesFromDelivery_: чистое на складе не мешает карточке — это чек-поинт проверки склада', async () => {
+  const ctx = makeCtx();
+  const clientId = seedClient(ctx);
+  const owner = loginOwner();
+  const worker = loginWorker();
+  // Бельё постирано накануне: чистое лежит на складе (ручное внесение, P8)
+  assert.ok(ctx.api.addManualClean(worker, clientId, 33, 64, 2, 'постирано накануне').ok);
+  // Визит на завтра → авто-карточка всё равно создаётся: работник должен подтвердить склад
+  assert.ok(ctx.api.addDeliveryVisit(owner, clientId, TOMORROW).ok);
+  const day = ctx.api.getDayList(worker, TODAY);
+  assert.strictEqual(day.washes.length, 1);
+  assert.strictEqual(day.washes[0].created_by, 'auto');
+  assert.ok(day.washes[0].has_clean, 'на карточке видно «Бельё уже чистое»');
+  // Правильный путь вместо повторного ввода: already_clean переносит цифры со склада
+  const res = ctx.api.confirmStorageCheck(worker, day.washes[0].id, 'already_clean');
+  assert.ok(res.ok);
+  assert.strictEqual(res.wash.status, 'ready_clean');
+  assert.strictEqual(String(res.wash.items_total), '64');
+  assert.strictEqual(String(res.wash.bags), '2');
+  assert.strictEqual(String(res.wash.dirty_weight_kg), '33');
+  // Смена закрывается без повторного ввода
+  const closed = await ctx.api.closeShift(worker);
+  assert.ok(closed.ok, closed.error);
+});
+
 test('addUnplannedWash: сегодня без даты выдачи (P9), дедуп открытой стирки клиента', () => {
   const ctx = makeCtx();
   const clientId = seedClient(ctx);
