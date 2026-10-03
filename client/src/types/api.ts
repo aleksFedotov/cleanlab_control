@@ -133,6 +133,7 @@ export interface DecoratedVisit extends Visit {
 // Заявка клиента в маршруте водителя / развозе владельца (read-only)
 export interface VisitRequest {
   id: string;
+  desired_date: string; // может быть раньше даты визита (просроченный забор)
   bags: number;
   comment: string;
   items: Array<{ name: string; qty: number }>;

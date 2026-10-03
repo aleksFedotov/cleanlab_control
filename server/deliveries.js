@@ -13,7 +13,7 @@ const { addStorageEntry_, openStorage_, storageSummaryByClient_, storageBagsOf_ 
 const { resolveRate_ } = require('./payroll');
 const { notReadyForDelivery_, issueForVisit_, unissueForVisit_ } = require('./wash');
 const { isOpenVisit_, getVisitsByDate_, ensureVisit_ } = require('./visits');
-const { markRequestsPickedForVisit_, requestsForVisits_ } = require('./api/requests');
+const { markRequestsPickedForVisit_, requestsForVisits_, requestForVisit_ } = require('./api/requests');
 
 // LockService в GAS; в однопроцессном Node с синхронным better-sqlite3 не нужен.
 function withLock_(fn) { return fn(); }
@@ -54,11 +54,11 @@ function findTenantVisit_(visitId, laundryId) {
   return found;
 }
 
-// Заявка клиента по точке: по привязке visit_id, иначе 'sent'-заявка того же
-// клиента на дату визита (визит мог быть создан вручную, без привязки).
+// Заявка клиента по точке: по привязке visit_id, иначе ближайшая 'sent'-заявка
+// клиента с датой не позже визита (визит мог быть создан вручную без привязки,
+// а забор в день заявки мог не случиться).
 function attachRequest_(v, requests) {
-  v.request = requests.byVisit[String(v.id)] ||
-    requests.byClientDate[String(v.client_id) + '|' + v.date] || null;
+  v.request = requestForVisit_(requests, v);
   return v;
 }
 

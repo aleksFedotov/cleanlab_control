@@ -39,7 +39,8 @@ function visitMeta(v: RouteVisit, done: boolean): string[] {
     else if (v.request) {
       const items = v.request.items.map((it) => `${it.name} ×${it.qty}`).join(', ');
       const amount = num(v.request.bags) ? bags(num(v.request.bags)) : (items ? 'кол-во по позициям' : 'кол-во не указано');
-      meta.push(`📋 заявка: ${amount}` + (items ? ` · ${items}` : ''));
+      const when = v.request.desired_date !== v.date ? ` на ${formatDateRu(v.request.desired_date, false)}` : '';
+      meta.push(`📋 заявка${when}: ${amount}` + (items ? ` · ${items}` : ''));
     }
     else meta.push('🧺 забрать грязное');
   }

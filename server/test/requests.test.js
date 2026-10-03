@@ -316,6 +316,43 @@ test('getDriverRoute: fallback — sent-заявка того же клиент�
   assert.strictEqual(v.request.bags, 2);
 });
 
+test('getDriverRoute: просроченная sent-заявка видна на более позднем визите; будущая — нет', () => {
+  const ctx = makeCtx();
+  const owner = loginOwner();
+  const driver = loginDriver();
+  const a = seedClient(ctx, owner, 'Отель А');
+  const b = seedClient(ctx, owner, 'Отель Б');
+  const tokenB = clientAccount(ctx, owner, b, 'otel-b');
+
+  // У А заявка на вчера (забор не случился), визит — сегодня.
+  // API прошедшую дату отклоняет, поэтому строка заявки — напрямую в БД.
+  const yesterday = '2026-08-11'; // TODAY-1 при FIXED_NOW 2026-08-12
+  ctx.db.appendRow_('Requests', {
+    id: ctx.db.nextId_('Requests', 'req'), client_id: a, laundry_id: '1',
+    visit_id: '', desired_date: yesterday, bags: '5', comment: 'не забрали',
+    status: 'sent', created_by: 'test', created_at: yesterday + ' 08:00:00', updated_at: yesterday + ' 08:00:00'
+  });
+  const overdueId = ctx.db.readAll_('Requests')[0].id;
+  ctx.db.appendRow_('RequestItems', {
+    id: ctx.db.nextId_('RequestItems', 'ri'), request_id: overdueId, item_type_id: 'itm_1', qty: 7
+  });
+  // У Б заявка на завтра — на сегодняшний визит не подставляется
+  ctx.api.clientCreateRequest(tokenB, TOMORROW, 1, '', []);
+
+  const visitA = ctx.api.addDeliveryVisit(owner, a, TODAY).visit;
+  const visitB = ctx.api.addDeliveryVisit(owner, b, TODAY).visit;
+
+  const route = ctx.api.getDriverRoute(driver, TODAY);
+  const vA = route.visits.filter(function (x) { return x.id === visitA.id; })[0];
+  const vB = route.visits.filter(function (x) { return x.id === visitB.id; })[0];
+  assert.ok(vA.request, 'просроченная заявка подставлена');
+  assert.strictEqual(vA.request.id, overdueId);
+  assert.strictEqual(vA.request.desired_date, yesterday);
+  assert.strictEqual(vA.request.bags, 5);
+  assert.deepStrictEqual(vA.request.items, [{ name: 'пододеяльник', qty: 7 }]);
+  assert.strictEqual(vB.request, null, 'будущая заявка не видна');
+});
+
 test('getDriverRoute: без заявки request=null; picked без привязки не подставляется', () => {
   const ctx = makeCtx();
   const owner = loginOwner();

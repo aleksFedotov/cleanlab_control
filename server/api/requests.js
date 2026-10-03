@@ -182,9 +182,9 @@ function linkRequestToVisit(session, requestId, visitId) {
 // --- Интеграция с водителем ---
 
 // Заявки прачки для маршрута/развоза: мешки и позиции с именами видов белья.
-// byVisit — по привязке Requests.visit_id; byClientDate — 'sent'-заявки по
-// (client_id, desired_date) — fallback для визитов, созданных вручную без
-// привязки (водитель всё равно должен видеть, сколько забрать).
+// byVisit — по привязке Requests.visit_id; sentByClient — 'sent'-заявки клиента
+// по возрастанию даты — fallback для визитов, созданных вручную без привязки
+// (водитель всё равно должен видеть, сколько забрать).
 function requestsForVisits_(laundryId) {
   const typeNames = {};
   db.getItemTypes_().forEach(function (t) { typeNames[String(t.id)] = t.name; });
@@ -199,22 +199,41 @@ function requestsForVisits_(laundryId) {
       });
     });
   const byVisit = {};
-  const byClientDate = {};
+  const sentByClient = {};
   db.findRowsByTenant_(SHEETS.REQUESTS, function () { return true; }, 5000, laundryId)
     .forEach(function (r) {
       const req = r.obj;
       const info = {
         id: req.id,
+        desired_date: req.desired_date,
         bags: Number(req.bags) || 0,
         comment: String(req.comment || ''),
         items: itemsByReq[req.id] || []
       };
       if (req.visit_id) byVisit[String(req.visit_id)] = info;
       if (req.status === REQ_SENT) {
-        byClientDate[String(req.client_id) + '|' + req.desired_date] = info;
+        (sentByClient[String(req.client_id)] = sentByClient[String(req.client_id)] || []).push(info);
       }
     });
-  return { byVisit: byVisit, byClientDate: byClientDate };
+  Object.keys(sentByClient).forEach(function (cid) {
+    sentByClient[cid].sort(function (a, b) { return a.desired_date < b.desired_date ? -1 : 1; });
+  });
+  return { byVisit: byVisit, sentByClient: sentByClient };
+}
+
+// Заявка для точки маршрута: по привязке visit_id, иначе ближайшая 'sent'-заявка
+// клиента с датой не позже визита. Просроченная заявка (забор не случился в её
+// день, визит назначили позже) так видна водителю; будущая — нет.
+function requestForVisit_(requests, visit) {
+  const linked = requests.byVisit[String(visit.id)];
+  if (linked) return linked;
+  const sent = requests.sentByClient[String(visit.client_id)] || [];
+  let best = null;
+  for (let i = 0; i < sent.length; i++) {
+    if (sent[i].desired_date <= visit.date) best = sent[i];
+    else break;
+  }
+  return best;
 }
 
 // «Забрал грязное» по визиту с привязанной заявкой: заявка уходит в 'picked'.
@@ -408,6 +427,6 @@ function clientGetTrack(session, requestId) {
 module.exports = {
   clientCreateRequest, clientGetRequests, clientGetRequest, clientGetPortalData,
   getClientRequests, linkRequestToVisit,
-  markRequestsPickedForVisit_, requestsForVisits_,
+  markRequestsPickedForVisit_, requestsForVisits_, requestForVisit_,
   clientGetTrack, clientStatus_
 };
