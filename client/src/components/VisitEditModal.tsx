@@ -149,6 +149,14 @@ export function VisitEditModal({ visit, onClose, viewerRole }: VisitEditModalPro
             ) : (
               <div className={styles.metaDim}>{visitMeta(visit, false).join(' · ')}</div>
             )}
+            {visit.request && (
+              <div className={styles.metaDim}>
+                📋 Заявка: {num(visit.request.bags) ? bags(num(visit.request.bags)) : 'кол-во не указано'}
+                {visit.request.items.length > 0 &&
+                  ' · ' + visit.request.items.map((it) => `${it.name} ×${it.qty}`).join(', ')}
+                {visit.request.comment && ` · ${visit.request.comment}`}
+              </div>
+            )}
             {visit.access_note && (
               <>
                 <Button

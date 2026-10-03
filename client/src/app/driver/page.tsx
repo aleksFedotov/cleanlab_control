@@ -36,6 +36,11 @@ function visitMeta(v: RouteVisit, done: boolean): string[] {
       meta.push('✨ чистое на складе: ' + (num(v.clean_stock_bags) ? bags(num(v.clean_stock_bags)) : 'есть'));
     }
     if (v.picked_at) meta.push('🟥 грязное у вас');
+    else if (v.request) {
+      const items = v.request.items.map((it) => `${it.name} ×${it.qty}`).join(', ');
+      const amount = num(v.request.bags) ? bags(num(v.request.bags)) : (items ? 'кол-во по позициям' : 'кол-во не указано');
+      meta.push(`📋 заявка: ${amount}` + (items ? ` · ${items}` : ''));
+    }
     else meta.push('🧺 забрать грязное');
   }
   return meta;

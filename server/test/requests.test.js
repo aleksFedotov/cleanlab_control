@@ -266,3 +266,72 @@ test('clientGetPortalData: профиль, активные виды, ближа
   assert.deepStrictEqual(rb.visits.map(function (v) { return v.date; }), [TOMORROW]);
   assert.strictEqual(ctx.api.clientGetPortalData(owner).error, 'Нет доступа');
 });
+
+// --- Заявка в маршруте водителя / развозе владельца ---
+
+test('getDriverRoute: привязанная заявка видна водителю (мешки, позиции с именами)', () => {
+  const ctx = makeCtx();
+  const owner = loginOwner();
+  const driver = loginDriver();
+  const a = seedClient(ctx, owner, 'Отель А');
+  const tokenA = clientAccount(ctx, owner, a, 'otel-a');
+
+  const req = ctx.api.clientCreateRequest(tokenA, TODAY, 3, 'у ресепшна',
+    [{ item_type_id: 'itm_1', qty: 10 }, { item_type_id: 'itm_2', qty: 20 }]).request;
+  const visit = ctx.api.addDeliveryVisit(owner, a, TODAY).visit;
+  assert.ok(ctx.api.linkRequestToVisit(owner, req.id, visit.id).ok);
+
+  const route = ctx.api.getDriverRoute(driver, TODAY);
+  assert.ok(route.ok, route.error);
+  const v = route.visits.filter(function (x) { return x.id === visit.id; })[0];
+  assert.ok(v.request, 'заявка подставлена');
+  assert.strictEqual(v.request.id, req.id);
+  assert.strictEqual(v.request.bags, 3);
+  assert.strictEqual(v.request.comment, 'у ресепшна');
+  assert.deepStrictEqual(v.request.items, [
+    { name: 'пододеяльник', qty: 10 },
+    { name: 'простыня', qty: 20 }
+  ]);
+
+  // Тот же блок — в развозе владельца
+  const ownerVisits = ctx.api.getDeliveryVisits(owner, TODAY);
+  const ov = ownerVisits.visits.filter(function (x) { return x.id === visit.id; })[0];
+  assert.ok(ov.request && ov.request.id === req.id);
+});
+
+test('getDriverRoute: fallback — sent-заявка того же клиента на дату визита без привязки', () => {
+  const ctx = makeCtx();
+  const owner = loginOwner();
+  const driver = loginDriver();
+  const a = seedClient(ctx, owner, 'Отель А');
+  const tokenA = clientAccount(ctx, owner, a, 'otel-a');
+
+  const req = ctx.api.clientCreateRequest(tokenA, TODAY, 2, '', []).request;
+  const visit = ctx.api.addDeliveryVisit(owner, a, TODAY).visit; // визит создан вручную, заявка не привязана
+
+  const route = ctx.api.getDriverRoute(driver, TODAY);
+  const v = route.visits.filter(function (x) { return x.id === visit.id; })[0];
+  assert.ok(v.request, 'заявка найдена по клиенту+дате');
+  assert.strictEqual(v.request.id, req.id);
+  assert.strictEqual(v.request.bags, 2);
+});
+
+test('getDriverRoute: без заявки request=null; picked без привязки не подставляется', () => {
+  const ctx = makeCtx();
+  const owner = loginOwner();
+  const driver = loginDriver();
+  const a = seedClient(ctx, owner, 'Отель А');
+  const b = seedClient(ctx, owner, 'Отель Б');
+  const tokenA = clientAccount(ctx, owner, a, 'otel-a');
+
+  // Заявка клиента А на завтра — на сегодняшний визит не влияет
+  ctx.api.clientCreateRequest(tokenA, TOMORROW, 1, '', []);
+  const visitA = ctx.api.addDeliveryVisit(owner, a, TODAY).visit;
+  const visitB = ctx.api.addDeliveryVisit(owner, b, TODAY).visit;
+
+  const route = ctx.api.getDriverRoute(driver, TODAY);
+  const vA = route.visits.filter(function (x) { return x.id === visitA.id; })[0];
+  const vB = route.visits.filter(function (x) { return x.id === visitB.id; })[0];
+  assert.strictEqual(vA.request, null);
+  assert.strictEqual(vB.request, null);
+});

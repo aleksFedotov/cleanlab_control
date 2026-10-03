@@ -181,6 +181,42 @@ function linkRequestToVisit(session, requestId, visitId) {
 
 // --- Интеграция с водителем ---
 
+// Заявки прачки для маршрута/развоза: мешки и позиции с именами видов белья.
+// byVisit — по привязке Requests.visit_id; byClientDate — 'sent'-заявки по
+// (client_id, desired_date) — fallback для визитов, созданных вручную без
+// привязки (водитель всё равно должен видеть, сколько забрать).
+function requestsForVisits_(laundryId) {
+  const typeNames = {};
+  db.getItemTypes_().forEach(function (t) { typeNames[String(t.id)] = t.name; });
+  const itemsByReq = {};
+  db.findRowsBy_(SHEETS.REQUEST_ITEMS, function () { return true; }, 5000)
+    .forEach(function (r) {
+      const ri = r.obj;
+      if (Number(ri.qty) <= 0) return;
+      (itemsByReq[ri.request_id] = itemsByReq[ri.request_id] || []).push({
+        name: typeNames[String(ri.item_type_id)] || ri.item_type_id,
+        qty: Number(ri.qty)
+      });
+    });
+  const byVisit = {};
+  const byClientDate = {};
+  db.findRowsByTenant_(SHEETS.REQUESTS, function () { return true; }, 5000, laundryId)
+    .forEach(function (r) {
+      const req = r.obj;
+      const info = {
+        id: req.id,
+        bags: Number(req.bags) || 0,
+        comment: String(req.comment || ''),
+        items: itemsByReq[req.id] || []
+      };
+      if (req.visit_id) byVisit[String(req.visit_id)] = info;
+      if (req.status === REQ_SENT) {
+        byClientDate[String(req.client_id) + '|' + req.desired_date] = info;
+      }
+    });
+  return { byVisit: byVisit, byClientDate: byClientDate };
+}
+
 // «Забрал грязное» по визиту с привязанной заявкой: заявка уходит в 'picked'.
 // Вызывается из driverAction внутри его транзакции (deliveries.js).
 function markRequestsPickedForVisit_(visitId, laundryId) {
@@ -372,6 +408,6 @@ function clientGetTrack(session, requestId) {
 module.exports = {
   clientCreateRequest, clientGetRequests, clientGetRequest, clientGetPortalData,
   getClientRequests, linkRequestToVisit,
-  markRequestsPickedForVisit_,
+  markRequestsPickedForVisit_, requestsForVisits_,
   clientGetTrack, clientStatus_
 };

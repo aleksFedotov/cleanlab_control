@@ -131,9 +131,10 @@ function main() {
   const acc = setClientAccess(session, cid, LOGIN, PASSWORD);
   if (!acc.ok) throw new Error('setClientAccess: ' + acc.error);
 
-  // 1. Заявка на завтра + planned-визит (предвыбор даты, правка открыта)
-  mkVisit_(cid, d(1), 'planned');
-  mkRequest_(cid, '', d(1), 'sent', 3, 'Забрать у администратора на ресепшне',
+  // 1. Заявка на завтра + planned-визит (предвыбор даты, правка открыта).
+  // Заявка привязана к визиту — так её видит водитель в маршруте (мешки, позиции).
+  const vTomorrow = mkVisit_(cid, d(1), 'planned');
+  mkRequest_(cid, vTomorrow, d(1), 'sent', 3, 'Забрать у администратора на ресепшне',
     [['itm_1', 10], ['itm_2', 20]]);
 
   // 2. Забор сегодня, стирка заведена (planned) — «В прачечной, в очереди».

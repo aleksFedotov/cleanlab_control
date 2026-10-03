@@ -126,6 +126,16 @@ export interface DecoratedVisit extends Visit {
   clean_kg: number;
   clean_items: number;
   clean_stock_bags: number;
+  // Заявка клиента на забор (P1): по привязке visit_id или 'sent' на дату визита
+  request: VisitRequest | null;
+}
+
+// Заявка клиента в маршруте водителя / развозе владельца (read-only)
+export interface VisitRequest {
+  id: string;
+  bags: number;
+  comment: string;
+  items: Array<{ name: string; qty: number }>;
 }
 
 export interface NotReady {

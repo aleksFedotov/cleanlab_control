@@ -13,7 +13,7 @@ const { addStorageEntry_, openStorage_, storageSummaryByClient_, storageBagsOf_ 
 const { resolveRate_ } = require('./payroll');
 const { notReadyForDelivery_, issueForVisit_, unissueForVisit_ } = require('./wash');
 const { isOpenVisit_, getVisitsByDate_, ensureVisit_ } = require('./visits');
-const { markRequestsPickedForVisit_ } = require('./api/requests');
+const { markRequestsPickedForVisit_, requestsForVisits_ } = require('./api/requests');
 
 // LockService в GAS; в однопроцессном Node с синхронным better-sqlite3 не нужен.
 function withLock_(fn) { return fn(); }
@@ -54,6 +54,14 @@ function findTenantVisit_(visitId, laundryId) {
   return found;
 }
 
+// Заявка клиента по точке: по привязке visit_id, иначе 'sent'-заявка того же
+// клиента на дату визита (визит мог быть создан вручную, без привязки).
+function attachRequest_(v, requests) {
+  v.request = requests.byVisit[String(v.id)] ||
+    requests.byClientDate[String(v.client_id) + '|' + v.date] || null;
+  return v;
+}
+
 // --- API ---
 
 function getDeliveryVisits(token, date) {
@@ -64,9 +72,12 @@ function getDeliveryVisits(token, date) {
   const clients = {};
   db.getClients_(laundryId).forEach(function (c) { clients[c.id] = c; });
   const storage = storageSummaryByClient_(laundryId);
+  const requests = requestsForVisits_(laundryId);
   return ok_({
     date: date,
-    visits: getVisitsByDate_(date, laundryId).map(function (v) { return decorateVisit_(v, clients, storage); }),
+    visits: getVisitsByDate_(date, laundryId).map(function (v) {
+      return attachRequest_(decorateVisit_(v, clients, storage), requests);
+    }),
     notReady: notReadyForDelivery_(date, laundryId),
     clients: db.getClients_(laundryId).filter(function (c) { return c.active === 'да'; })
   });
@@ -216,6 +227,7 @@ function getDriverRoute(token, date) {
   db.getClients_(laundryId).forEach(function (c) { clients[c.id] = c; });
   const storage = storageSummaryByClient_(laundryId);
   const visits = getVisitsByDate_(date, laundryId);
+  const requests = requestsForVisits_(laundryId);
   return ok_({
     date: date,
     laundryName: db.getSettings_(laundryId).LAUNDRY_NAME || 'CleanLab Pro',
@@ -225,7 +237,7 @@ function getDriverRoute(token, date) {
       const c = clients[v.client_id] || {};
       v.address = c.address || '';
       v.access_note = c.access_note || '';
-      return decorateVisit_(v, clients, storage);
+      return attachRequest_(decorateVisit_(v, clients, storage), requests);
     })
   });
 }
