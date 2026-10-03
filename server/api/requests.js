@@ -412,6 +412,7 @@ function clientGetTrack(session, requestId) {
     const names = {};
     db.getItemTypes_().forEach(function (t) { names[t.id] = t.name; });
     fact = {
+      wash_status: wash.status, // ready_clean — стирка не требовалась, пересчёта нет
       items: db.findRowsBy_(SHEETS.WASH_ITEMS, function (wi) { return wi.wash_id === wash.id; }, 1000)
         .map(function (r) {
           return { item_type_id: r.obj.item_type_id, name: names[r.obj.item_type_id] || r.obj.item_type_id, qty: Number(r.obj.qty) || 0 };

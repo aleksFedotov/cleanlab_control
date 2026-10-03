@@ -87,24 +87,30 @@ export function TrackView({
           </div>
           <div className={styles.factCol}>
             <div className={styles.factHead}>Постирано</div>
-            {fact.items.map((it) => (
-              <div key={it.item_type_id} className={styles.factRow}>
-                <span>{it.name}</span>
-                <span>×{it.qty}</span>
-              </div>
-            ))}
-            {fact.items.length === 0 && <div className={styles.factRow}>—</div>}
-            {fact.weight_kg != null && (
-              <div className={styles.factRow}>
-                <span>Вес</span>
-                <span>{fact.weight_kg} кг</span>
-              </div>
-            )}
-            {fact.bags != null && (
-              <div className={styles.factRow}>
-                <span>Мешки</span>
-                <span>{fact.bags}</span>
-              </div>
+            {fact.wash_status === 'ready_clean' ? (
+              <div className={styles.factRow}>Чистое было на складе — стирка не требовалась</div>
+            ) : (
+              <>
+                {fact.items.map((it) => (
+                  <div key={it.item_type_id} className={styles.factRow}>
+                    <span>{it.name}</span>
+                    <span>×{it.qty}</span>
+                  </div>
+                ))}
+                {fact.items.length === 0 && <div className={styles.factRow}>—</div>}
+                {fact.weight_kg != null && (
+                  <div className={styles.factRow}>
+                    <span>Вес</span>
+                    <span>{fact.weight_kg} кг</span>
+                  </div>
+                )}
+                {fact.bags != null && (
+                  <div className={styles.factRow}>
+                    <span>Мешки</span>
+                    <span>{fact.bags}</span>
+                  </div>
+                )}
+              </>
             )}
           </div>
         </div>

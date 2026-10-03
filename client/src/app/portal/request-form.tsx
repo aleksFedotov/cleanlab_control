@@ -188,7 +188,9 @@ function RequestFormInner({
       {existing && (
         <TrackView
           request={existing}
-          typeNames={Object.fromEntries(itemTypes.map((t) => [t.id, t.name]))}
+          // Имена — по всем активным видам, не по ограниченному списку клиента:
+          // в заявке могут быть позиции вне его текущего набора (состав менялся)
+          typeNames={Object.fromEntries((data.itemTypes || []).map((t) => [t.id, t.name]))}
         />
       )}
     </div>

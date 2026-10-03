@@ -505,6 +505,7 @@ export interface TrackStatus {
 }
 
 export interface TrackFact {
+  wash_status: string; // ready_clean — чистое было на складе, стирать не требовалось
   items: { item_type_id: string; name: string; qty: number }[];
   weight_kg: number | null;
   bags: number | null;
