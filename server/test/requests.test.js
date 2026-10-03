@@ -289,8 +289,8 @@ test('getDriverRoute: привязанная заявка видна водит�
   assert.strictEqual(v.request.bags, 3);
   assert.strictEqual(v.request.comment, 'у ресепшна');
   assert.deepStrictEqual(v.request.items, [
-    { name: 'пододеяльник', qty: 10 },
-    { name: 'простыня', qty: 20 }
+    { item_type_id: 'itm_1', name: 'пододеяльник', qty: 10 },
+    { item_type_id: 'itm_2', name: 'простыня', qty: 20 }
   ]);
 
   // Тот же блок — в развозе владельца
@@ -349,7 +349,7 @@ test('getDriverRoute: просроченная sent-заявка видна на
   assert.strictEqual(vA.request.id, overdueId);
   assert.strictEqual(vA.request.desired_date, yesterday);
   assert.strictEqual(vA.request.bags, 5);
-  assert.deepStrictEqual(vA.request.items, [{ name: 'пододеяльник', qty: 7 }]);
+  assert.deepStrictEqual(vA.request.items, [{ item_type_id: 'itm_1', name: 'пододеяльник', qty: 7 }]);
   assert.strictEqual(vB.request, null, 'будущая заявка не видна');
 });
 
@@ -371,4 +371,47 @@ test('getDriverRoute: без заявки request=null; picked без привя
   const vB = route.visits.filter(function (x) { return x.id === visitB.id; })[0];
   assert.strictEqual(vA.request, null);
   assert.strictEqual(vB.request, null);
+});
+
+test('getDayList: заявка клиента видна в карточке стирки; будущая не подтягивается', () => {
+  const ctx = makeCtx();
+  const owner = loginOwner();
+  const a = seedClient(ctx, owner, 'Отель А');
+  const b = seedClient(ctx, owner, 'Отель Б');
+  const tokenA = clientAccount(ctx, owner, a, 'otel-a');
+  const tokenB = clientAccount(ctx, owner, b, 'otel-b');
+
+  // Заявка А на сегодня; у Б — только на завтра (для сегодняшней стирки — будущая)
+  ctx.api.clientCreateRequest(tokenA, TODAY, 2, '', [{ item_type_id: 'itm_1', qty: 10 }]);
+  ctx.api.clientCreateRequest(tokenB, TOMORROW, 1, '', [{ item_type_id: 'itm_2', qty: 5 }]);
+  // Стирки сегодняшнего дня материализуются из завтрашнего развоза
+  ctx.api.addDeliveryVisit(owner, a, TOMORROW);
+  ctx.api.addDeliveryVisit(owner, b, TOMORROW);
+
+  const day = ctx.api.getDayList(owner, TODAY);
+  const wA = day.washes.filter(function (w) { return w.client_id === a; })[0];
+  const wB = day.washes.filter(function (w) { return w.client_id === b; })[0];
+  assert.ok(wA.request, 'заявка А в карточке стирки');
+  assert.strictEqual(wA.request.bags, 2);
+  assert.deepStrictEqual(wA.request.items, [
+    { item_type_id: 'itm_1', name: 'пододеяльник', qty: 10 }
+  ]);
+  assert.strictEqual(wB.request, null, 'будущая заявка не подтягивается');
+});
+
+test('getDayList: просроченная заявка подтягивается к более поздней стирке', () => {
+  const ctx = makeCtx();
+  const owner = loginOwner();
+  const a = seedClient(ctx, owner, 'Отель А');
+  const tokenA = clientAccount(ctx, owner, a, 'otel-a');
+
+  ctx.api.clientCreateRequest(tokenA, TODAY, 3, '', [{ item_type_id: 'itm_2', qty: 7 }]);
+  // Стирка завтрашнего дня (развоз послезавтра): заявка «на сегодня» уже просрочена
+  ctx.api.addDeliveryVisit(owner, a, '2026-08-14');
+
+  const day = ctx.api.getDayList(owner, TOMORROW);
+  const wA = day.washes.filter(function (w) { return w.client_id === a; })[0];
+  assert.ok(wA.request, 'просроченная заявка видна в стирке');
+  assert.strictEqual(wA.request.desired_date, TODAY);
+  assert.strictEqual(wA.request.bags, 3);
 });

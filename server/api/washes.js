@@ -13,6 +13,7 @@ const { storageSummaryByClient_, storageBagsOf_ } = require('../storage');
 const deliveries = require('../deliveries');
 const { getVisitsByDate_, getVisitsByWeek_, decorateVisit_, isOpenVisit_ } = deliveries;
 const { billingItems_, collectInvoiceInput_ } = require('./billing');
+const { requestsForVisits_, requestForWash_ } = require('./requests');
 const wash = require('../wash');
 const tgSend = require('../tg-send');
 
@@ -59,6 +60,8 @@ function getDayList(session, date) {
     }, 1000, laundryId).map(function (r) { return r.obj; });
     const shift = getShiftByDate_(date, laundryId);
     const storage = storageSummaryByClient_(laundryId);
+    // Заявки портала (P1): показываем работнику заявленный состав в пересчёте
+    const requests = requestsForVisits_(laundryId);
     // P7: «Осталось со вчера» — незавершённые стирки вчерашнего дня.
     // partial с deferred_reason='hold' исключаем: владелец уже решил «оставить на складе».
     const yesterday = addDaysStr_(date, -1);
@@ -149,6 +152,8 @@ function getDayList(session, date) {
     // Декорация карточки дня — общая для washes и overdue (P7)
     const decorate = function (w) {
       w.client_name = clientName_(w.client_id, clients);
+      // Заявка, чьё бельё в этой стирке — ориентир заявленного состава в пересчёте
+      w.request = requestForWash_(requests, w.client_id, w.wash_date) || null;
       // Состояние склада для раскраски «К работе» (check-storage из спеки);
       // цифры — для модалки проверки склада до выбора вердикта (P8)
       const s = storage[w.client_id] ||

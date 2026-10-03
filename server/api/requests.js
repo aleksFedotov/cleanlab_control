@@ -194,18 +194,21 @@ function requestsForVisits_(laundryId) {
       const ri = r.obj;
       if (Number(ri.qty) <= 0) return;
       (itemsByReq[ri.request_id] = itemsByReq[ri.request_id] || []).push({
+        item_type_id: String(ri.item_type_id),
         name: typeNames[String(ri.item_type_id)] || ri.item_type_id,
         qty: Number(ri.qty)
       });
     });
   const byVisit = {};
   const sentByClient = {};
+  const washByClient = {};
   db.findRowsByTenant_(SHEETS.REQUESTS, function () { return true; }, 5000, laundryId)
     .forEach(function (r) {
       const req = r.obj;
       const info = {
         id: req.id,
         desired_date: req.desired_date,
+        status: req.status,
         bags: Number(req.bags) || 0,
         comment: String(req.comment || ''),
         items: itemsByReq[req.id] || []
@@ -214,11 +217,22 @@ function requestsForVisits_(laundryId) {
       if (req.status === REQ_SENT) {
         (sentByClient[String(req.client_id)] = sentByClient[String(req.client_id)] || []).push(info);
       }
+      if (req.status === REQ_SENT || req.status === REQ_PICKED) {
+        (washByClient[String(req.client_id)] = washByClient[String(req.client_id)] || []).push(info);
+      }
     });
   Object.keys(sentByClient).forEach(function (cid) {
     sentByClient[cid].sort(function (a, b) { return a.desired_date < b.desired_date ? -1 : 1; });
   });
-  return { byVisit: byVisit, sentByClient: sentByClient };
+  Object.keys(washByClient).forEach(function (cid) {
+    // По возрастанию даты; при равной дате 'picked' позже — для стирки важнее
+    // заявка, чьё бельё реально забрали.
+    washByClient[cid].sort(function (a, b) {
+      if (a.desired_date !== b.desired_date) return a.desired_date < b.desired_date ? -1 : 1;
+      return (a.status === REQ_PICKED ? 1 : 0) - (b.status === REQ_PICKED ? 1 : 0);
+    });
+  });
+  return { byVisit: byVisit, sentByClient: sentByClient, washByClient: washByClient };
 }
 
 // Заявка для точки маршрута: по привязке visit_id, иначе ближайшая 'sent'-заявка
@@ -231,6 +245,19 @@ function requestForVisit_(requests, visit) {
   let best = null;
   for (let i = 0; i < sent.length; i++) {
     if (sent[i].desired_date <= visit.date) best = sent[i];
+    else break;
+  }
+  return best;
+}
+
+// Заявка для стирки (экран пересчёта работника): ближайшая sent/picked-заявка
+// клиента с датой не позже даты стирки. Просроченная подтягивается (бельё
+// забрали позже заявки — штатно), будущая — нет.
+function requestForWash_(requests, clientId, washDate) {
+  const list = requests.washByClient[String(clientId)] || [];
+  let best = null;
+  for (let i = 0; i < list.length; i++) {
+    if (list[i].desired_date <= washDate) best = list[i];
     else break;
   }
   return best;
@@ -428,6 +455,6 @@ function clientGetTrack(session, requestId) {
 module.exports = {
   clientCreateRequest, clientGetRequests, clientGetRequest, clientGetPortalData,
   getClientRequests, linkRequestToVisit,
-  markRequestsPickedForVisit_, requestsForVisits_, requestForVisit_,
+  markRequestsPickedForVisit_, requestsForVisits_, requestForVisit_, requestForWash_,
   clientGetTrack, clientStatus_
 };

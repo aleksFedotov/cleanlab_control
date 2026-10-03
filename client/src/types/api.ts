@@ -53,6 +53,8 @@ export interface DayWash extends Wash {
   items?: { item_type_id: string; qty: number; item_name?: string }[];
   // Типы белья клиента, идущие в счёт поштучно (P2) — «отобрать до взвешивания»
   piece_types?: string[];
+  // Заявка клиента (P1), чьё бельё в этой стирке — ориентир «заявлено» в пересчёте
+  request?: VisitRequest | null;
 }
 
 export interface Shift {
@@ -134,9 +136,10 @@ export interface DecoratedVisit extends Visit {
 export interface VisitRequest {
   id: string;
   desired_date: string; // может быть раньше даты визита (просроченный забор)
+  status?: string; // sent | picked — в карточке стирки
   bags: number;
   comment: string;
-  items: Array<{ name: string; qty: number }>;
+  items: Array<{ item_type_id: string; name: string; qty: number }>;
 }
 
 export interface NotReady {
