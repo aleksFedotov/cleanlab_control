@@ -13,7 +13,7 @@ import type { DecoratedVisit } from '@/types/api';
 import { useApiMutation } from '@/hooks/use-api';
 import { useUiStore } from '@/stores/ui';
 import { num, bags } from '@/lib/format';
-import { timeOf, todayStr, formatDateRu } from '@/lib/dates';
+import { timeOf, todayStr } from '@/lib/dates';
 import { Modal } from '@/components/ui/Modal';
 import { Button } from '@/components/ui/Button';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
@@ -151,9 +151,7 @@ export function VisitEditModal({ visit, onClose, viewerRole }: VisitEditModalPro
             )}
             {visit.request && (
               <div className={styles.metaDim}>
-                📋 Заявка{visit.request.desired_date !== visit.date ? ` на ${formatDateRu(visit.request.desired_date, false)}` : ''}:{' '}
-                {num(visit.request.bags) ? bags(num(visit.request.bags)) : 'кол-во не указано'}
-                {visit.request.comment && ` · ${visit.request.comment}`}
+                {num(visit.request.bags) ? `Забрать ${bags(num(visit.request.bags))}` : 'Забрать: кол-во не указано'}
               </div>
             )}
             {visit.access_note && (

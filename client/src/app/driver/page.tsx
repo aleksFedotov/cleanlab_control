@@ -37,9 +37,7 @@ function visitMeta(v: RouteVisit, done: boolean): string[] {
     }
     if (v.picked_at) meta.push('🟥 грязное у вас');
     else if (v.request) {
-      const amount = num(v.request.bags) ? bags(num(v.request.bags)) : 'кол-во не указано';
-      const when = v.request.desired_date !== v.date ? ` на ${formatDateRu(v.request.desired_date, false)}` : '';
-      meta.push(`📋 заявка${when}: ${amount}`);
+      meta.push(num(v.request.bags) ? `Забрать ${bags(num(v.request.bags))}` : 'Забрать: кол-во не указано');
     }
     else meta.push('🧺 забрать грязное');
   }
