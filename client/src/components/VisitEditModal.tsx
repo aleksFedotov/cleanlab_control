@@ -153,8 +153,6 @@ export function VisitEditModal({ visit, onClose, viewerRole }: VisitEditModalPro
               <div className={styles.metaDim}>
                 📋 Заявка{visit.request.desired_date !== visit.date ? ` на ${formatDateRu(visit.request.desired_date, false)}` : ''}:{' '}
                 {num(visit.request.bags) ? bags(num(visit.request.bags)) : 'кол-во не указано'}
-                {visit.request.items.length > 0 &&
-                  ' · ' + visit.request.items.map((it) => `${it.name} ×${it.qty}`).join(', ')}
                 {visit.request.comment && ` · ${visit.request.comment}`}
               </div>
             )}
