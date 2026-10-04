@@ -19,24 +19,13 @@ function clientAccount(ctx, owner, clientId, login) {
   return ctx.auth.login(login, 'portal-pass').token;
 }
 
-test('clientCreateRequest: прошедшая дата отклоняется', () => {
-  const ctx = makeCtx();
-  const owner = loginOwner();
-  const clientId = seedClient(ctx, owner);
-  const token = clientAccount(ctx, owner, clientId, 'otel-past');
-
-  const r = ctx.api.clientCreateRequest(token, '2020-01-10', 1, '', []);
-  assert.ok(!r.ok);
-  assert.match(r.error, /прошедшую дату/);
-});
-
 test('clientCreateRequest: создание, позиции сохранены, qty=0 не пишется', () => {
   const ctx = makeCtx();
   const owner = loginOwner();
   const clientId = seedClient(ctx, owner);
   const token = clientAccount(ctx, owner, clientId, 'otel-a');
 
-  const r = ctx.api.clientCreateRequest(token, TOMORROW, 3, 'забрать до 12',
+  const r = ctx.api.clientCreateRequest(token, 3, 'забрать до 12',
     [{ item_type_id: 'itm_1', qty: 10 }, { item_type_id: 'itm_2', qty: 0 }]);
   assert.ok(r.ok, r.error);
   assert.strictEqual(r.request.status, 'sent');
@@ -46,6 +35,8 @@ test('clientCreateRequest: создание, позиции сохранены, 
   assert.strictEqual(r.request.items.length, 1); // qty=0 отфильтрован
   assert.strictEqual(Number(r.request.items[0].qty), 10);
   assert.strictEqual(r.request.items[0].item_type_id, 'itm_1');
+  // Дату клиент не выбирает: заявка всегда на сегодня (дата снятия белья)
+  assert.strictEqual(r.request.desired_date, TODAY);
   // Одна строка RequestItems в БД, id с префиксом ri_
   const rows = ctx.db.readAll_('RequestItems');
   assert.strictEqual(rows.length, 1);
@@ -53,14 +44,14 @@ test('clientCreateRequest: создание, позиции сохранены, 
   assert.ok(r.request.id.startsWith('req_'));
 });
 
-test('повторная отправка на ту же дату — перезапись, а не дубль; другая дата — новая заявка', () => {
+test('повторная отправка в тот же день — перезапись, а не дубль', () => {
   const ctx = makeCtx();
   const owner = loginOwner();
   const clientId = seedClient(ctx, owner);
   const token = clientAccount(ctx, owner, clientId, 'otel-a');
 
-  assert.ok(ctx.api.clientCreateRequest(token, TOMORROW, 2, '', [{ item_type_id: 'itm_1', qty: 5 }]).ok);
-  const again = ctx.api.clientCreateRequest(token, TOMORROW, 4, 'передумали',
+  assert.ok(ctx.api.clientCreateRequest(token, 2, '', [{ item_type_id: 'itm_1', qty: 5 }]).ok);
+  const again = ctx.api.clientCreateRequest(token, 4, 'передумали',
     [{ item_type_id: 'itm_2', qty: 7 }]);
   assert.ok(again.ok, again.error);
   assert.strictEqual(again.request.bags, '4');
@@ -68,19 +59,11 @@ test('повторная отправка на ту же дату — перез
   assert.strictEqual(again.request.items.length, 1);
   assert.strictEqual(again.request.items[0].item_type_id, 'itm_2');
 
-  const other = ctx.api.clientCreateRequest(token, '2026-08-14', 1, '', []);
-  assert.ok(other.ok, other.error);
-  assert.notStrictEqual(other.request.id, again.request.id);
-
-  // Всего две заявки (две даты), позиции старой перезаписаны
+  // Одна заявка (сегодня), позиции первой отправки перезаписаны
   const list = ctx.api.clientGetRequests(token);
-  assert.strictEqual(list.requests.length, 2);
-  const byDate = {};
-  list.requests.forEach(function (r) { byDate[r.desired_date] = r; });
-  assert.strictEqual(byDate[TOMORROW].items.length, 1);
-  assert.strictEqual(byDate[TOMORROW].bags, '4');
-  assert.strictEqual(byDate['2026-08-14'].items.length, 0);
-  // Позиции первой отправки не осталось
+  assert.strictEqual(list.requests.length, 1);
+  assert.strictEqual(list.requests[0].desired_date, TODAY);
+  assert.strictEqual(list.requests[0].bags, '4');
   assert.strictEqual(ctx.db.readAll_('RequestItems')
     .filter(function (ri) { return ri.item_type_id === 'itm_1'; }).length, 0);
 });
@@ -92,7 +75,7 @@ test('правка после picked (забор водителем) — отк�
   const clientId = seedClient(ctx, owner);
   const token = clientAccount(ctx, owner, clientId, 'otel-a');
 
-  const req = ctx.api.clientCreateRequest(token, TODAY, 2, '', []).request;
+  const req = ctx.api.clientCreateRequest(token, 2, '', []).request;
   const visit = ctx.api.addDeliveryVisit(owner, clientId, TODAY).visit;
   assert.ok(ctx.api.linkRequestToVisit(owner, req.id, visit.id).ok, 'link');
 
@@ -102,7 +85,7 @@ test('правка после picked (забор водителем) — отк�
   assert.strictEqual(ctx.api.clientGetRequest(token, req.id).request.status, 'picked');
 
   // Правка той же датой отклонена, позиции не меняются
-  const edit = ctx.api.clientCreateRequest(token, TODAY, 9, 'хочу правку', [{ item_type_id: 'itm_1', qty: 3 }]);
+  const edit = ctx.api.clientCreateRequest(token, 9, 'хочу правку', [{ item_type_id: 'itm_1', qty: 3 }]);
   assert.strictEqual(edit.ok, false);
   assert.strictEqual(edit.error, 'Заявка уже в работе, правка недоступна');
   const after = ctx.api.clientGetRequest(token, req.id).request;
@@ -119,10 +102,10 @@ test('чужая заявка не читается и не правится; te
   const tokenA = clientAccount(ctx, owner, a, 'otel-a');
   const tokenB = clientAccount(ctx, owner, b, 'otel-b');
 
-  const reqA = ctx.api.clientCreateRequest(tokenA, TOMORROW, 1, '', []).request;
+  const reqA = ctx.api.clientCreateRequest(tokenA, 1, '', []).request;
   // Клиент Б не видит и не правит заявку А
   assert.strictEqual(ctx.api.clientGetRequest(tokenB, reqA.id).error, 'Заявка не существует');
-  const edit = ctx.api.clientCreateRequest(tokenB, TOMORROW, 5, '', []);
+  const edit = ctx.api.clientCreateRequest(tokenB, 5, '', []);
   assert.ok(edit.ok, edit.error); // у Б своя заявка на ту же дату — ок
   assert.notStrictEqual(edit.request.id, reqA.id);
   // Список А не содержит заявок Б
@@ -143,14 +126,20 @@ test('getClientRequests: фильтр по дате, sentCount, client_name', ()
   const a = seedClient(ctx, owner, 'Отель А');
   const tokenA = clientAccount(ctx, owner, a, 'otel-a');
 
-  assert.ok(ctx.api.clientCreateRequest(tokenA, TODAY, 1, '', []).ok);
-  assert.ok(ctx.api.clientCreateRequest(tokenA, TOMORROW, 2, '', []).ok);
+  assert.ok(ctx.api.clientCreateRequest(tokenA, 1, '', []).ok);
+  // Вчерашняя заявка — напрямую в БД (API создаёт только сегодняшние)
+  const yesterday = '2026-08-11'; // TODAY-1 при FIXED_NOW 2026-08-12
+  ctx.db.appendRow_('Requests', {
+    id: ctx.db.nextId_('Requests', 'req'), client_id: a, laundry_id: '1',
+    visit_id: '', desired_date: yesterday, bags: '2', comment: '',
+    status: 'sent', created_by: 'test', created_at: yesterday + ' 08:00:00', updated_at: yesterday + ' 08:00:00'
+  });
 
   const all = ctx.api.getClientRequests(owner);
   assert.strictEqual(all.requests.length, 2);
   assert.strictEqual(all.sentCount, 2);
   assert.strictEqual(all.requests[0].client_name, 'Отель А'); // сортировка по дате
-  assert.strictEqual(all.requests[0].desired_date, TODAY);
+  assert.strictEqual(all.requests[0].desired_date, yesterday);
 
   const todayOnly = ctx.api.getClientRequests(owner, TODAY);
   assert.strictEqual(todayOnly.requests.length, 1);
@@ -164,7 +153,7 @@ test('linkRequestToVisit: тенант- и клиент-проверки, при
   const b = seedClient(ctx, owner, 'Отель Б');
   const tokenA = clientAccount(ctx, owner, a, 'otel-a');
 
-  const req = ctx.api.clientCreateRequest(tokenA, TODAY, 1, '', []).request;
+  const req = ctx.api.clientCreateRequest(tokenA, 1, '', []).request;
   const visitA = ctx.api.addDeliveryVisit(owner, a, TODAY).visit;
   const visitB = ctx.api.addDeliveryVisit(owner, b, TODAY).visit;
 
@@ -187,7 +176,7 @@ test('водитель «Забрал грязное» переводит при
   const a = seedClient(ctx, owner, 'Отель А');
   const tokenA = clientAccount(ctx, owner, a, 'otel-a');
 
-  const req = ctx.api.clientCreateRequest(tokenA, TODAY, 2, '', [{ item_type_id: 'itm_1', qty: 4 }]).request;
+  const req = ctx.api.clientCreateRequest(tokenA, 2, '', [{ item_type_id: 'itm_1', qty: 4 }]).request;
   const visit = ctx.api.addDeliveryVisit(owner, a, TODAY).visit;
   assert.ok(ctx.api.linkRequestToVisit(owner, req.id, visit.id).ok);
 
@@ -208,7 +197,7 @@ test('водитель «Забрал грязное» без привязки: 
   const tokenA = clientAccount(ctx, owner, a, 'otel-a');
 
   // Заявка не привязана к визиту (визит создан вручную) — как в боевом баге
-  const req = ctx.api.clientCreateRequest(tokenA, TODAY, 2, '', [{ item_type_id: 'itm_1', qty: 4 }]).request;
+  const req = ctx.api.clientCreateRequest(tokenA, 2, '', [{ item_type_id: 'itm_1', qty: 4 }]).request;
   const visit = ctx.api.addDeliveryVisit(owner, a, TODAY).visit;
 
   const act = ctx.api.driverAction(driver, visit.id, 'pickup_dirty');
@@ -228,8 +217,14 @@ test('водитель «Забрал грязное» без привязки: 
   const tokenA = clientAccount(ctx, owner, a, 'otel-a');
   const tokenB = clientAccount(ctx, owner, b, 'otel-b');
 
-  const future = ctx.api.clientCreateRequest(tokenA, '2026-08-20', 1, '', []).request;
-  const other = ctx.api.clientCreateRequest(tokenB, TODAY, 1, '', []).request;
+  // Будущая заявка — напрямую в БД (API создаёт только сегодняшние)
+  ctx.db.appendRow_('Requests', {
+    id: ctx.db.nextId_('Requests', 'req'), client_id: a, laundry_id: '1',
+    visit_id: '', desired_date: '2026-08-20', bags: '1', comment: '',
+    status: 'sent', created_by: 'test', created_at: TODAY + ' 08:00:00', updated_at: TODAY + ' 08:00:00'
+  });
+  const future = { id: ctx.db.readAll_('Requests')[0].id };
+  const other = ctx.api.clientCreateRequest(tokenB, 1, '', []).request;
   const visit = ctx.api.addDeliveryVisit(owner, a, TODAY).visit;
 
   assert.ok(ctx.api.driverAction(driver, visit.id, 'pickup_dirty').ok);
@@ -245,8 +240,8 @@ test('матрица прав: owner/driver не создают заявки, cl
   const clientId = seedClient(ctx, owner);
   const token = clientAccount(ctx, owner, clientId, 'otel-a');
 
-  assert.strictEqual(ctx.api.clientCreateRequest(owner, TODAY, 1, '', []).error, 'Нет доступа');
-  assert.strictEqual(ctx.api.clientCreateRequest(driver, TODAY, 1, '', []).error, 'Нет доступа');
+  assert.strictEqual(ctx.api.clientCreateRequest(owner, 1, '', []).error, 'Нет доступа');
+  assert.strictEqual(ctx.api.clientCreateRequest(driver, 1, '', []).error, 'Нет доступа');
   assert.strictEqual(ctx.api.clientGetRequests(owner).error, 'Нет доступа');
   assert.strictEqual(ctx.api.linkRequestToVisit(token, 'req_x', 'del_x').error, 'Нет доступа');
 
@@ -254,19 +249,16 @@ test('матрица прав: owner/driver не создают заявки, cl
   assert.strictEqual(ctx.api.getClientRequests(token).error, 'Нет доступа');
 });
 
-test('clientCreateRequest валидирует дату; события пишутся в Log', () => {
+test('clientCreateRequest: события пишутся в Log', () => {
   const ctx = makeCtx();
   const owner = loginOwner();
   const clientId = seedClient(ctx, owner);
   const token = clientAccount(ctx, owner, clientId, 'otel-a');
 
-  assert.strictEqual(ctx.api.clientCreateRequest(token, '', 1, '', []).error, 'Укажите дату забора');
-  assert.strictEqual(ctx.api.clientCreateRequest(token, '13.08.2026', 1, '', []).error, 'Укажите дату забора');
-
-  assert.ok(ctx.api.clientCreateRequest(token, TODAY, 1, '', []).ok);
+  assert.ok(ctx.api.clientCreateRequest(token, 1, '', []).ok);
   const created = ctx.db.readAll_('Log').filter(function (e) { return e.action === 'request_create'; });
   assert.strictEqual(created.length, 1);
-  assert.ok(ctx.api.clientCreateRequest(token, TODAY, 2, '', []).ok);
+  assert.ok(ctx.api.clientCreateRequest(token, 2, '', []).ok);
   const updated = ctx.db.readAll_('Log').filter(function (e) { return e.action === 'request_update'; });
   assert.strictEqual(updated.length, 1);
 });
@@ -314,7 +306,7 @@ test('getDriverRoute: привязанная заявка видна водит�
   const a = seedClient(ctx, owner, 'Отель А');
   const tokenA = clientAccount(ctx, owner, a, 'otel-a');
 
-  const req = ctx.api.clientCreateRequest(tokenA, TODAY, 3, 'у ресепшна',
+  const req = ctx.api.clientCreateRequest(tokenA, 3, 'у ресепшна',
     [{ item_type_id: 'itm_1', qty: 10 }, { item_type_id: 'itm_2', qty: 20 }]).request;
   const visit = ctx.api.addDeliveryVisit(owner, a, TODAY).visit;
   assert.ok(ctx.api.linkRequestToVisit(owner, req.id, visit.id).ok);
@@ -344,7 +336,7 @@ test('getDriverRoute: fallback — sent-заявка того же клиент�
   const a = seedClient(ctx, owner, 'Отель А');
   const tokenA = clientAccount(ctx, owner, a, 'otel-a');
 
-  const req = ctx.api.clientCreateRequest(tokenA, TODAY, 2, '', []).request;
+  const req = ctx.api.clientCreateRequest(tokenA, 2, '', []).request;
   const visit = ctx.api.addDeliveryVisit(owner, a, TODAY).visit; // визит создан вручную, заявка не привязана
 
   const route = ctx.api.getDriverRoute(driver, TODAY);
@@ -374,8 +366,13 @@ test('getDriverRoute: просроченная sent-заявка видна на
   ctx.db.appendRow_('RequestItems', {
     id: ctx.db.nextId_('RequestItems', 'ri'), request_id: overdueId, item_type_id: 'itm_1', qty: 7
   });
-  // У Б заявка на завтра — на сегодняшний визит не подставляется
-  ctx.api.clientCreateRequest(tokenB, TOMORROW, 1, '', []);
+  // У Б заявка на завтра (напрямую в БД — API создаёт только сегодняшние):
+  // на сегодняшний визит не подставляется
+  ctx.db.appendRow_('Requests', {
+    id: ctx.db.nextId_('Requests', 'req'), client_id: b, laundry_id: '1',
+    visit_id: '', desired_date: TOMORROW, bags: '1', comment: '',
+    status: 'sent', created_by: 'test', created_at: TODAY + ' 08:00:00', updated_at: TODAY + ' 08:00:00'
+  });
 
   const visitA = ctx.api.addDeliveryVisit(owner, a, TODAY).visit;
   const visitB = ctx.api.addDeliveryVisit(owner, b, TODAY).visit;
@@ -399,8 +396,12 @@ test('getDriverRoute: без заявки request=null; picked без привя
   const b = seedClient(ctx, owner, 'Отель Б');
   const tokenA = clientAccount(ctx, owner, a, 'otel-a');
 
-  // Заявка клиента А на завтра — на сегодняшний визит не влияет
-  ctx.api.clientCreateRequest(tokenA, TOMORROW, 1, '', []);
+  // Заявка клиента А на завтра (напрямую в БД) — на сегодняшний визит не влияет
+  ctx.db.appendRow_('Requests', {
+    id: ctx.db.nextId_('Requests', 'req'), client_id: a, laundry_id: '1',
+    visit_id: '', desired_date: TOMORROW, bags: '1', comment: '',
+    status: 'sent', created_by: 'test', created_at: TODAY + ' 08:00:00', updated_at: TODAY + ' 08:00:00'
+  });
   const visitA = ctx.api.addDeliveryVisit(owner, a, TODAY).visit;
   const visitB = ctx.api.addDeliveryVisit(owner, b, TODAY).visit;
 
@@ -419,9 +420,19 @@ test('getDayList: заявка клиента видна в карточке с�
   const tokenA = clientAccount(ctx, owner, a, 'otel-a');
   const tokenB = clientAccount(ctx, owner, b, 'otel-b');
 
-  // Заявка А на сегодня; у Б — только на завтра (для сегодняшней стирки — будущая)
-  ctx.api.clientCreateRequest(tokenA, TODAY, 2, '', [{ item_type_id: 'itm_1', qty: 10 }]);
-  ctx.api.clientCreateRequest(tokenB, TOMORROW, 1, '', [{ item_type_id: 'itm_2', qty: 5 }]);
+  // Заявка А на сегодня; у Б — только на завтра (напрямую в БД; для сегодняшней
+  // стирки — будущая)
+  ctx.api.clientCreateRequest(tokenA, 2, '', [{ item_type_id: 'itm_1', qty: 10 }]);
+  ctx.db.appendRow_('Requests', {
+    id: ctx.db.nextId_('Requests', 'req'), client_id: b, laundry_id: '1',
+    visit_id: '', desired_date: TOMORROW, bags: '1', comment: '',
+    status: 'sent', created_by: 'test', created_at: TODAY + ' 08:00:00', updated_at: TODAY + ' 08:00:00'
+  });
+  ctx.db.appendRow_('RequestItems', {
+    id: ctx.db.nextId_('RequestItems', 'ri'),
+    request_id: ctx.db.readAll_('Requests').filter(function (r) { return r.client_id === b; })[0].id,
+    item_type_id: 'itm_2', qty: 5
+  });
   // Стирки сегодняшнего дня материализуются из завтрашнего развоза
   ctx.api.addDeliveryVisit(owner, a, TOMORROW);
   ctx.api.addDeliveryVisit(owner, b, TOMORROW);
@@ -443,7 +454,7 @@ test('getDayList: просроченная заявка подтягиваетс
   const a = seedClient(ctx, owner, 'Отель А');
   const tokenA = clientAccount(ctx, owner, a, 'otel-a');
 
-  ctx.api.clientCreateRequest(tokenA, TODAY, 3, '', [{ item_type_id: 'itm_2', qty: 7 }]);
+  ctx.api.clientCreateRequest(tokenA, 3, '', [{ item_type_id: 'itm_2', qty: 7 }]);
   // Стирка завтрашнего дня (развоз послезавтра): заявка «на сегодня» уже просрочена
   ctx.api.addDeliveryVisit(owner, a, '2026-08-14');
 

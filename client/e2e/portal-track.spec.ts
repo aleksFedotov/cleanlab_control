@@ -57,7 +57,7 @@ test.describe.serial('портал клиента: трекинг сдачи (P1
     VISIT_ID = visit.visit.id as string;
     const portalLogin = await api(request, 'login', [PORTAL_LOGIN, PORTAL_PASS]);
     const reqRes = await api(request, 'clientCreateRequest', [
-      portalLogin.token, TODAY, 2, '', [{ item_type_id: 'itm_2', qty: 5 }],
+      portalLogin.token, 2, '', [{ item_type_id: 'itm_2', qty: 5 }],
     ]);
     REQUEST_ID = reqRes.request.id as string;
     await api(request, 'linkRequestToVisit', [owner, REQUEST_ID, VISIT_ID]);

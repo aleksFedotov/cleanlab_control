@@ -1,8 +1,9 @@
 // Заявки клиентского портала (тикет P1, этап 2): клиент заявляет сдачу белья
-// на дату, владелец видит список и привязывает заявку к визиту развоза.
-// Одна активная (status='sent') заявка на клиента+дату: повторная отправка
-// переписывает состав. После забора водителем (driverAction, deliveries.js)
-// заявка уходит в 'picked' и правке не подлежит.
+// (сколько и чего снято сегодня — дату он не выбирает), владелец видит список
+// и привязывает заявку к визиту развоза. Одна активная (status='sent') заявка
+// на клиента в день: повторная отправка переписывает состав. После забора
+// водителем (driverAction, deliveries.js) заявка уходит в 'picked' и правке
+// не подлежит.
 const db = require('../db');
 const { SHEETS } = require('../schema');
 const { nowStr_, todayStr_, logEvent, actorOf_ } = require('../audit');
@@ -10,8 +11,6 @@ const { err_, ok_, findTenantRow_, addDaysStr_ } = require('../core');
 
 const REQ_SENT = 'sent';
 const REQ_PICKED = 'picked';
-
-function dateOk_(s) { return typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s); }
 
 function itemsOf_(requestId) {
   return db.findRowsBy_(SHEETS.REQUEST_ITEMS, function (ri) { return ri.request_id === requestId; }, 1000)
@@ -40,15 +39,15 @@ function rewriteItems_(requestId, items) {
 
 // --- Клиент ---
 
-// Создание заявки / перезапись активной на ту же дату. Ключ уникальности —
-// (client_id, desired_date): нашли 'sent' — переписали, нашли другой статус —
-// отказ («уже в работе»), не нашли — создали.
-function clientCreateRequest(session, desiredDate, bags, comment, items) {
+// Создание заявки / перезапись активной за сегодня. Дату клиент не выбирает:
+// desired_date — это «дата, когда сняли бельё», всегда сегодня. Ключ
+// уникальности — (client_id, сегодня): нашли 'sent' — переписали, нашли
+// другой статус — отказ («уже в работе»), не нашли — создали.
+function clientCreateRequest(session, bags, comment, items) {
   const laundryId = session.laundryId;
   const clientId = String(session.clientId || '');
   if (!clientId) return err_('Аккаунт не привязан к клиенту');
-  if (!dateOk_(desiredDate)) return err_('Укажите дату забора');
-  if (desiredDate < todayStr_()) return err_('На прошедшую дату заявку отправить нельзя');
+  const desiredDate = todayStr_();
   const bagsN = Math.max(0, Math.floor(Number(bags) || 0));
   return db.transaction_(function () {
     const existing = db.findRowsByTenant_(SHEETS.REQUESTS, function (r) {

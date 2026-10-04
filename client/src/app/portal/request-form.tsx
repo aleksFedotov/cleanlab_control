@@ -1,15 +1,17 @@
 'use client';
 
-// Форма заявки на забор белья (портал, тикет P1). Мобильный first: крупные
-// кнопки, степперы −/+, ручной ввод числа. Одна форма на создание и правку:
-// заявка в статусе 'sent' на выбранную дату перезаписывается сервером (upsert
-// по client_id + desired_date); после 'picked' — read-only.
+// Форма заявки на сдачу белья (портал, тикет P1). Мобильный first: крупные
+// кнопки, степперы −/+, ручной ввод числа. Дату клиент не выбирает: заявка
+// всегда «на сегодня» — день, когда бельё сняли. Одна форма на создание и
+// правку: заявка в статусе 'sent' за сегодня перезаписывается сервером
+// (upsert по client_id + desired_date); после 'picked' — read-only.
+// Из списка прошлых заявок открывается read-only просмотр (initialDate).
 import { useMemo, useState } from 'react';
 import { Button } from '@/components/ui/Button';
 import { Stepper } from '@/components/Stepper';
 import { useApiMutation, useClientRequests, usePortalData } from '@/hooks/use-api';
 import { useUiStore } from '@/stores/ui';
-import { todayStr } from '@/lib/dates';
+import { formatDateRu, todayStr } from '@/lib/dates';
 import { parseItemTypes } from '@/app/(dashboard)/refs/refs-utils';
 import { TrackView } from './track-view';
 import type { CreateRequestRes, ItemType, PortalDataRes, PortalRequest } from '@/types/api';
@@ -17,7 +19,7 @@ import styles from './portal.module.css';
 
 const STEPS = [{ delta: -1, label: '−' }, { delta: 1, label: '+' }];
 
-// Значения полей из заявки на дату (или нули — новая заявка)
+// Значения полей из заявки (или нули — новая заявка)
 function fieldsOf(existing: PortalRequest | null) {
   if (!existing) return { bags: 0, comment: '', counts: {} as Record<string, number> };
   const counts: Record<string, number> = {};
@@ -41,9 +43,10 @@ function RequestFormInner({
   const offline = useUiStore((s) => s.offline);
   const toast = useUiStore((s) => s.toast);
 
-  // Дата: из списка (правка) → ближайший визит (предвыбор) → сегодня
-  const firstVisit = (data.visits || [])[0];
-  const [date, setDate] = useState(initialDate || (firstVisit ? firstVisit.date : todayStr()));
+  const today = todayStr();
+  // Просмотр прошлой заявки из списка — только чтение; иначе работаем с сегодня
+  const viewing = !!initialDate && initialDate !== today;
+  const date = viewing ? initialDate! : today;
 
   const existing = useMemo(
     () => requests.find((r) => r.desired_date === date) || null,
@@ -60,20 +63,9 @@ function RequestFormInner({
     return own.length ? all.filter((t) => own.indexOf(t.id) !== -1) : all;
   }, [data]);
 
-  // Прошедшие даты — только просмотр (и даты без заявки тоже); забранные
-  // заявки ('picked') не редактируются на любой дате
-  const past = date < todayStr();
-  const readOnly = past || (!!existing && existing.status === 'picked');
-  const visitHint = (data.visits || []).find((v) => v.date === date);
-
-  // Смена даты — подставляем состав заявки на эту дату (правка) или чистим
-  function changeDate(next: string) {
-    const target = requests.find((r) => r.desired_date === next) || null;
-    setDate(next);
-    setBags(fieldsOf(target).bags);
-    setComment(fieldsOf(target).comment);
-    setCounts(fieldsOf(target).counts);
-  }
+  // Забранные заявки ('picked') не редактируются; прошлые даты — только просмотр
+  const readOnly = viewing || (!!existing && existing.status === 'picked');
+  const visitToday = (data.visits || []).find((v) => v.date === today);
 
   const saveMut = useApiMutation<CreateRequestRes>('clientCreateRequest', {
     onSuccess: () => {
@@ -83,20 +75,10 @@ function RequestFormInner({
   });
 
   function submit() {
-    if (!date) {
-      toast('Укажите дату забора', 'err');
-      return;
-    }
-    // Прошлые даты — только просмотр существующих заявок: новую «задним числом»
-    // не создаём и sent-заявку на прошедшую дату не переписываем
-    if (date < todayStr()) {
-      toast('На прошедшую дату заявку отправить нельзя', 'err');
-      return;
-    }
     const items = itemTypes
       .map((t) => ({ item_type_id: t.id, qty: counts[t.id] || 0 }))
       .filter((it) => it.qty > 0);
-    saveMut.mutate([date, bags, comment, items]);
+    saveMut.mutate([bags, comment, items]);
   }
 
   return (
@@ -108,23 +90,26 @@ function RequestFormInner({
       )}
       {readOnly && (
         <div className={styles.roBox}>
-          {existing && existing.status === 'picked'
-            ? 'Забрано водителем — правка недоступна'
-            : 'Прошедшая дата — только просмотр'}
+          {viewing
+            ? `Заявка за ${formatDateRu(date)} — только просмотр`
+            : 'Забрано водителем — правка недоступна'}
         </div>
       )}
 
-      <label className={styles.field}>
-        <span className={styles.label}>Дата забора</span>
-        <input
-          type="date"
-          className={styles.dateInput}
-          value={date}
-          onChange={(e) => changeDate(e.target.value)}
-          data-testid="pickup-date"
-        />
-        {visitHint && <span className={styles.hint}>В этот день запланирован забор белья</span>}
-      </label>
+      <div className={styles.field}>
+        <span className={styles.label}>Дата сдачи</span>
+        <span className={styles.roValue} data-testid="pickup-date">
+          {viewing ? formatDateRu(date) : `Сегодня, ${formatDateRu(today, false)}`}
+        </span>
+        {!viewing && visitToday && (
+          <span className={styles.hint}>Сегодня запланирован забор белья</span>
+        )}
+        {!viewing && !visitToday && (
+          <span className={styles.hint}>
+            Водитель заберёт бельё в ближайший визит
+          </span>
+        )}
+      </div>
 
       <div className={styles.field}>
         <span className={styles.label}>Бельё по видам</span>
@@ -181,7 +166,7 @@ function RequestFormInner({
       )}
       {existing && !readOnly && (
         <span className={styles.hint}>
-          Заявка на эту дату уже есть — отправка перезапишет её состав
+          Заявка за сегодня уже есть — отправка перезапишет её состав
         </span>
       )}
 

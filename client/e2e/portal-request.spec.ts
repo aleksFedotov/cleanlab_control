@@ -1,6 +1,7 @@
 import { test, expect, Page, Locator, APIRequestContext } from '@playwright/test';
 
 // P1, этап 3: форма заявки в портале клиента.
+// Дату клиент не выбирает: заявка всегда «на сегодня» (день, когда сняли бельё).
 // Сид (beforeAll): клиент + доступ в портал + planned-визит на завтра.
 // Сьюта последовательная: тест 1 создаёт заявку, тест 3 её правит, тест 4
 // поднимает статус в picked через API (визит + привязка + driverAction).
@@ -45,7 +46,7 @@ function stepperIn(scope: Locator) {
   };
 }
 
-test.describe.serial('портал клиента: заявка на забор (P1, этап 3)', () => {
+test.describe.serial('портал клиента: заявка на сдачу (P1, этап 3)', () => {
   test.use({ viewport: { width: 360, height: 740 } });
 
   test.beforeAll(async ({ request }) => {
@@ -57,15 +58,16 @@ test.describe.serial('портал клиента: заявка на забор 
     await api(request, 'addDeliveryVisit', [owner, clientId, TOMORROW]);
   });
 
-  test('создание с нуля: дата предвыбрана из визита, степперы, отправка → список', async ({
+  test('создание с нуля: дата — всегда сегодня, степперы, отправка → список', async ({
     page,
   }) => {
     await loginPortal(page);
 
-    // Дата забора предвыбрана ближайшим planned-визитом
-    const dateInput = page.getByTestId('pickup-date');
-    await expect(dateInput).toHaveValue(TOMORROW);
-    await expect(page.getByText('В этот день запланирован забор белья')).toBeVisible();
+    // Дата не выбирается: фиксированная строка «Сегодня, …»
+    await expect(page.getByTestId('pickup-date')).toContainText('Сегодня');
+    await expect(page.locator('input[type="date"]')).toHaveCount(0);
+    // Визит завтра — подсказка про ближайший визит
+    await expect(page.getByText('Водитель заберёт бельё в ближайший визит')).toBeVisible();
 
     // Виды белья — сидированный справочник (простыня есть)
     const sheetRow = page.locator('[data-item-type="простыня"]');
@@ -108,12 +110,11 @@ test.describe.serial('портал клиента: заявка на забор 
 
   test('правка до забора: префилл из списка, перезапись без дубля', async ({ page }) => {
     await loginPortal(page);
-    // Из списка открываем заявку → форма с префиллом
+    // Из списка открываем заявку за сегодня → форма с префиллом, редактируемая
     await page.getByRole('button', { name: 'Мои заявки' }).click();
     await page.locator('button', { hasText: 'Принята' }).click();
 
-    const dateInput = page.getByTestId('pickup-date');
-    await expect(dateInput).toHaveValue(TOMORROW);
+    await expect(page.getByTestId('pickup-date')).toContainText('Сегодня');
     const bs = stepperIn(page.getByTestId('bags-field'));
     await expect(bs.input).toHaveValue('2');
     await expect(page.getByRole('button', { name: 'Сохранить изменения' })).toBeVisible();
@@ -142,7 +143,7 @@ test.describe.serial('портал клиента: заявка на забор 
     // Клиент порта — из справочника (сид из beforeAll)
     const refs = await api(request, 'getRefs', [owner]);
     const me = refs.clients.find((c: { name: string }) => c.name === CLIENT_NAME);
-    const reqRes = await api(request, 'clientCreateRequest', [portal, TODAY, 3, 'срочно', []]);
+    const reqRes = await api(request, 'clientCreateRequest', [portal, 3, 'срочно', []]);
     const visit = await api(request, 'addDeliveryVisit', [owner, me.id, TODAY]);
     await api(request, 'linkRequestToVisit', [owner, reqRes.request.id, visit.visit.id]);
     await api(request, 'driverAction', [owner, visit.visit.id, 'pickup_dirty']);
@@ -155,25 +156,11 @@ test.describe.serial('портал клиента: заявка на забор 
     await expect(pickedCard).toBeVisible();
     await expect(pickedCard).toContainText('3 меш.');
 
-    // Форма read-only: баннер, поля disabled, кнопки сохранения нет
+    // Форма read-only: баннер, без степперов и кнопки сохранения
     await pickedCard.click();
     await expect(page.getByText('Забрано водителем — правка недоступна')).toBeVisible();
-    // Дата НЕ блокируется: иначе на прошедшей дате пользователь застревал
-    // в read-only без возможности выбрать другую дату
-    await expect(page.getByTestId('pickup-date')).toBeEnabled();
-    await expect(page.getByRole('button', { name: 'Сохранить изменения' })).toHaveCount(0);
-    await expect(page.getByRole('button', { name: 'Отправить заявку' })).toHaveCount(0);
-  });
-
-  test('прошедшая дата — только просмотр: без степперов и кнопки отправки', async ({
-    page,
-  }) => {
-    await loginPortal(page);
-    // Вчерашняя дата: заявки нет, но и создать/менять нельзя
-    await page.getByTestId('pickup-date').fill(shift(TODAY, -1));
-    await expect(page.getByText('Прошедшая дата — только просмотр')).toBeVisible();
     await expect(page.getByRole('button', { name: '+', exact: true })).toHaveCount(0);
-    await expect(page.getByRole('button', { name: '−', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Сохранить изменения' })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Отправить заявку' })).toHaveCount(0);
   });
 });

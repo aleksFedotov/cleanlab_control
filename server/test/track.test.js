@@ -84,7 +84,7 @@ test('clientGetTrack: от «Заявка принята» до «Готово»
   const driver = loginDriver();
   const s = seedClientWithAccess(ctx);
 
-  const req = ctx.api.clientCreateRequest(s.token, TODAY, 2, '', [{ item_type_id: 'itm_1', qty: 12 }]).request;
+  const req = ctx.api.clientCreateRequest(s.token, 2, '', [{ item_type_id: 'itm_1', qty: 12 }]).request;
   const visit = ctx.api.addDeliveryVisit(s.owner, s.clientId, TODAY).visit;
   assert.ok(ctx.api.linkRequestToVisit(s.owner, req.id, visit.id).ok);
 
@@ -138,7 +138,7 @@ test('clientGetTrack: «Направляется к вам» → «Достав�
   const driver = loginDriver();
   const s = seedClientWithAccess(ctx);
 
-  const req = ctx.api.clientCreateRequest(s.token, TODAY, 1, '', []).request;
+  const req = ctx.api.clientCreateRequest(s.token, 1, '', []).request;
   const visit = ctx.api.addDeliveryVisit(s.owner, s.clientId, TODAY).visit;
   assert.ok(ctx.api.linkRequestToVisit(s.owner, req.id, visit.id).ok);
   assert.ok(ctx.api.driverAction(driver, visit.id, 'pickup_dirty').ok);
@@ -166,8 +166,16 @@ test('clientGetTrack: «Направляется к вам» → «Достав�
   assert.strictEqual(t2.steps[7].current, true);
   assert.strictEqual(t2.fact.weight_kg, 10);
 
-  // no_linen: грязного не было — честный статус, без факта
-  const req2 = ctx.api.clientCreateRequest(s.token, '2026-08-14', 1, '', []).request;
+  // no_linen: грязного не было — честный статус, без факта.
+  // Заявка на 14-е — напрямую в БД (API создаёт только сегодняшние)
+  ctx.db.appendRow_('Requests', {
+    id: ctx.db.nextId_('Requests', 'req'), client_id: s.clientId, laundry_id: '1',
+    visit_id: '', desired_date: '2026-08-14', bags: '1', comment: '',
+    status: 'sent', created_by: 'test', created_at: '2026-08-14 08:00:00', updated_at: '2026-08-14 08:00:00'
+  });
+  const req2 = { id: ctx.db.readAll_('Requests').filter(function (r) {
+    return r.desired_date === '2026-08-14';
+  })[0].id };
   const visit2 = ctx.api.addDeliveryVisit(s.owner, s.clientId, '2026-08-14').visit;
   assert.ok(ctx.api.linkRequestToVisit(s.owner, req2.id, visit2.id).ok);
   ctx.db.appendRow_('Washes', {
@@ -190,7 +198,7 @@ test('clientGetTrack: непривязанная заявка — визит н�
   const s = seedClientWithAccess(ctx);
 
   // Без linkRequestToVisit — как заявки, забранные до появления автопривязки
-  const req = ctx.api.clientCreateRequest(s.token, TODAY, 2, '', []).request;
+  const req = ctx.api.clientCreateRequest(s.token, 2, '', []).request;
   const visit = ctx.api.addDeliveryVisit(s.owner, s.clientId, TODAY).visit;
   assert.ok(ctx.api.driverAction(driver, visit.id, 'pickup_dirty').ok);
 
@@ -216,7 +224,7 @@ test('clientGetTrack: чужой трек не читается; права то
   assert.ok(ctx.api.setClientAccess(owner, other.id, 'other-hotel', 'portal-pass').ok);
   const otherToken = ctx.auth.login('other-hotel', 'portal-pass').token;
 
-  const req = ctx.api.clientCreateRequest(s.token, TODAY, 1, '', []).request;
+  const req = ctx.api.clientCreateRequest(s.token, 1, '', []).request;
   assert.strictEqual(ctx.api.clientGetTrack(otherToken, req.id).error, 'Заявка не существует');
   assert.strictEqual(ctx.api.clientGetTrack(owner, req.id).error, 'Нет доступа');
 });
