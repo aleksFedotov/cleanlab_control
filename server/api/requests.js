@@ -265,14 +265,35 @@ function requestForWash_(requests, clientId, washDate) {
 
 // «Забрал грязное» по визиту с привязанной заявкой: заявка уходит в 'picked'.
 // Вызывается из driverAction внутри его транзакции (deliveries.js).
+// Если привязанной заявки нет (визит создан вручную), помечаем и привязываем
+// ближайшую 'sent'-заявку клиента с датой не позже визита — ту самую, которую
+// водитель видел на точке (requestForVisit_). Иначе заявка осталась бы 'sent'
+// навсегда и трек клиента встал бы на «Заявка принята».
 function markRequestsPickedForVisit_(visitId, laundryId) {
-  db.findRowsByTenant_(SHEETS.REQUESTS, function (r) {
+  const linked = db.findRowsByTenant_(SHEETS.REQUESTS, function (r) {
     return r.visit_id === String(visitId) && r.status === REQ_SENT;
-  }, 100, laundryId).forEach(function (row) {
+  }, 100, laundryId);
+  linked.forEach(function (row) {
     row.obj.status = REQ_PICKED;
     row.obj.updated_at = nowStr_();
     db.updateRow_(SHEETS.REQUESTS, row.rowNumber, row.obj);
   });
+  if (linked.length > 0) return;
+  const visit = db.findById_(SHEETS.DELIVERIES, visitId);
+  if (!visit) return;
+  const candidates = db.findRowsByTenant_(SHEETS.REQUESTS, function (r) {
+    return r.client_id === String(visit.obj.client_id)
+      && r.status === REQ_SENT && r.desired_date <= visit.obj.date;
+  }, 100, laundryId);
+  candidates.sort(function (a, b) {
+    return a.obj.desired_date < b.obj.desired_date ? 1 : a.obj.desired_date > b.obj.desired_date ? -1 : 0;
+  });
+  const best = candidates[0];
+  if (!best) return;
+  best.obj.status = REQ_PICKED;
+  best.obj.visit_id = String(visitId);
+  best.obj.updated_at = nowStr_();
+  db.updateRow_(SHEETS.REQUESTS, best.rowNumber, best.obj);
 }
 
 // --- Трекинг сдачи (этап 4) ---
@@ -381,7 +402,17 @@ function clientGetTrack(session, requestId) {
         const v = db.findById_(SHEETS.DELIVERIES, request.visit_id);
         return v && v.obj.laundry_id === String(laundryId) ? v.obj : null;
       })()
-    : null;
+    // Старые заявки без привязки (забраны до появления автопривязки в
+    // markRequestsPickedForVisit_): ближайший визит клиента, где грязное
+    // забрали, не раньше даты заявки — иначе трек встал бы на «Заявка принята».
+    : (function () {
+        const vs = db.findRowsByTenant_(SHEETS.DELIVERIES, function (v) {
+          return String(v.client_id) === String(request.client_id)
+            && v.picked_at && v.date >= request.desired_date && v.status !== 'cancelled';
+        }, 50, laundryId).map(function (r) { return r.obj; });
+        vs.sort(function (a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; });
+        return vs[0] || null;
+      })();
 
   // Стирка клиента: последняя (по дате) не отменённая в окне [visit.date−1, visit.date]
   let wash = null;

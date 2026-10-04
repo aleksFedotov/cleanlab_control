@@ -200,6 +200,44 @@ test('водитель «Забрал грязное» переводит при
   assert.strictEqual(ctx.api.getClientRequests(owner).sentCount, 0);
 });
 
+test('водитель «Забрал грязное» без привязки: ближайшая sent-заявка клиента помечается picked и привязывается', () => {
+  const ctx = makeCtx();
+  const owner = loginOwner();
+  const driver = loginDriver();
+  const a = seedClient(ctx, owner, 'Отель А');
+  const tokenA = clientAccount(ctx, owner, a, 'otel-a');
+
+  // Заявка не привязана к визиту (визит создан вручную) — как в боевом баге
+  const req = ctx.api.clientCreateRequest(tokenA, TODAY, 2, '', [{ item_type_id: 'itm_1', qty: 4 }]).request;
+  const visit = ctx.api.addDeliveryVisit(owner, a, TODAY).visit;
+
+  const act = ctx.api.driverAction(driver, visit.id, 'pickup_dirty');
+  assert.ok(act.ok, act.error);
+  const after = ctx.api.clientGetRequest(tokenA, req.id).request;
+  assert.strictEqual(after.status, 'picked');
+  assert.strictEqual(after.visit_id, visit.id, 'заявка привязалась к визиту');
+  assert.strictEqual(ctx.api.getClientRequests(owner).sentCount, 0);
+});
+
+test('водитель «Забрал грязное» без привязки: будущая заявка и заявка другого клиента не трогаются', () => {
+  const ctx = makeCtx();
+  const owner = loginOwner();
+  const driver = loginDriver();
+  const a = seedClient(ctx, owner, 'Отель А');
+  const b = seedClient(ctx, owner, 'Отель Б');
+  const tokenA = clientAccount(ctx, owner, a, 'otel-a');
+  const tokenB = clientAccount(ctx, owner, b, 'otel-b');
+
+  const future = ctx.api.clientCreateRequest(tokenA, '2026-08-20', 1, '', []).request;
+  const other = ctx.api.clientCreateRequest(tokenB, TODAY, 1, '', []).request;
+  const visit = ctx.api.addDeliveryVisit(owner, a, TODAY).visit;
+
+  assert.ok(ctx.api.driverAction(driver, visit.id, 'pickup_dirty').ok);
+  assert.strictEqual(ctx.api.clientGetRequest(tokenA, future.id).request.status, 'sent');
+  assert.strictEqual(ctx.api.clientGetRequest(tokenA, future.id).request.visit_id, '');
+  assert.strictEqual(ctx.api.clientGetRequest(tokenB, other.id).request.status, 'sent');
+});
+
 test('матрица прав: owner/driver не создают заявки, client не видит чужие выборки', () => {
   const ctx = makeCtx();
   const owner = loginOwner();

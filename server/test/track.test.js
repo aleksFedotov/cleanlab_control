@@ -184,6 +184,30 @@ test('clientGetTrack: «Направляется к вам» → «Достав�
   assert.ok(t3.steps.every(function (x) { return !x.current; }), 'ни один шаг не current');
 });
 
+test('clientGetTrack: непривязанная заявка — визит находится fallback\'ом, статус двигается', () => {
+  const ctx = makeCtx();
+  const driver = loginDriver();
+  const s = seedClientWithAccess(ctx);
+
+  // Без linkRequestToVisit — как заявки, забранные до появления автопривязки
+  const req = ctx.api.clientCreateRequest(s.token, TODAY, 2, '', []).request;
+  const visit = ctx.api.addDeliveryVisit(s.owner, s.clientId, TODAY).visit;
+  assert.ok(ctx.api.driverAction(driver, visit.id, 'pickup_dirty').ok);
+
+  const t = ctx.api.clientGetTrack(s.token, req.id);
+  assert.ok(t.ok, t.error);
+  assert.strictEqual(t.status.key, 'to_laundry');
+  assert.ok(t.steps[2].at.includes(TODAY), 'picked_at в шаге «На пути в прачечную»');
+
+  // Легаси-заявка: забрана до автопривязки, visit_id остался пуст — трек
+  // всё равно находит визит fallback'ом
+  const row = ctx.db.findRowsByTenant_('Requests', function (r) { return r.id === req.id; }, 1, '1')[0];
+  row.obj.visit_id = '';
+  ctx.db.updateRow_('Requests', row.rowNumber, row.obj);
+  const t2 = ctx.api.clientGetTrack(s.token, req.id);
+  assert.strictEqual(t2.status.key, 'to_laundry');
+});
+
 test('clientGetTrack: чужой трек не читается; права только у client', () => {
   const ctx = makeCtx();
   const owner = loginOwner();
