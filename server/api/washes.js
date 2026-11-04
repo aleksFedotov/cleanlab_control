@@ -528,14 +528,14 @@ function getDayReport(session, date) {
 }
 
 // Сводный отчёт за произвольный период: итоги по клиентам (мешки/вес/вещи/стирки)
-// + разбивка по видам вещей. Учитываются только завершённые стирки (DONE_STATUSES).
+// + разбивка по видам вещей. ready_clean — проверка остатка, а не новая стирка.
 function getSummaryReport(session, from, to) {
   const laundryId = session.laundryId;
   const re = /^\d{4}-\d{2}-\d{2}$/;
   if (!re.test(from || '') || !re.test(to || '') || from > to) {
     return err_('Некорректный период');
   }
-  const DONE = core.DONE_STATUSES;
+  const DONE = core.DONE_STATUSES.filter(function (status) { return status !== 'ready_clean'; });
   // Полный скан журнала: период может быть годовым, хвостового лимита недостаточно
   const washes = db.findRowsByTenant_(SHEETS.WASHES, function (w) {
     return w.wash_date >= from && w.wash_date <= to && DONE.indexOf(w.status) !== -1;
@@ -586,7 +586,7 @@ function getFinanceSummary(session, from, to) {
     const d = String(ts || '').slice(0, 10);
     return d >= from && d <= to;
   };
-  const DONE = core.DONE_STATUSES;
+  const DONE = core.DONE_STATUSES.filter(function (status) { return status !== 'ready_clean'; });
   // Единый сбор входа счёта (R6, api/billing.js). doneOnly: true — объёмы и
   // счёт строятся по завершённым стиркам; различие со счётом клиента (без
   // doneOnly) сознательное, зафиксировано characterization-тестом в finance.test.js.
@@ -611,7 +611,7 @@ function getFinanceSummary(session, from, to) {
   const tariffs = input.tariffs;
   const clients = {};
   db.getClients_(laundryId).forEach(function (c) { clients[c.id] = c; });
-  // Объёмы: только стирки по wash_date со статусами DONE_STATUSES (как getSummaryReport)
+  // Объёмы: фактические стирки по wash_date; проверки ready_clean не дублируют остатки.
   const byClient = {};
   washes.forEach(function (w) {
     if (!(w.wash_date >= from && w.wash_date <= to && DONE.indexOf(w.status) !== -1)) return;

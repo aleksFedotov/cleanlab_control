@@ -103,6 +103,52 @@ function row(res, clientId) {
   return res.clients.find(c => c.client_id === clientId);
 }
 
+test('проверка уже чистого на складе не дублирует фактические стирки в отчётах', () => {
+  const { ctx, owner, bi } = mkBillingCtx();
+  const cid = addClient(ctx, 'storage_check_client');
+  assert.ok(ctx.api.saveTariff(owner, '', bi.weight, 50).ok);
+  const source = addWash(ctx, { client_id: cid, wash_date: '2026-08-10', status: 'stored', kg: 17, items_total: '44' });
+  // Одинаковые вес и количество не делают реальные стирки дублями.
+  const second = addWash(ctx, { client_id: cid, wash_date: '2026-08-11', status: 'done', kg: 17, items_total: '44' });
+  ctx.db.appendRowTenant_('Storage', {
+    id: 'st_report_clean', client_id: cid, kind: 'clean', weight_kg: '17',
+    items_total: '44', bags: '1', wash_id: source, visit_id: '',
+    created_at: '2026-08-10 18:00:00', consumed_at: ''
+  }, '1');
+  const checkId = addWash(ctx, { client_id: cid, wash_date: '2026-08-12', status: 'planned', kg: '' });
+  const beforeInvoice = invoice(ctx, owner, cid);
+  const checked = ctx.api.confirmStorageCheck(owner, checkId, 'already_clean');
+  assert.ok(checked.ok, checked.error);
+  assert.strictEqual(checked.wash.status, 'ready_clean');
+  assert.strictEqual(Number(checked.wash.dirty_weight_kg), 17);
+  assert.strictEqual(Number(checked.wash.items_total), 44);
+
+  const onlyCheck = addClient(ctx, 'only_storage_check');
+  assert.ok(ctx.api.addManualClean(owner, onlyCheck, 10, 24, 1, 'Начальный остаток').ok);
+  const onlyId = addWash(ctx, { client_id: onlyCheck, wash_date: '2026-08-12', status: 'planned', kg: '' });
+  assert.ok(ctx.api.confirmStorageCheck(owner, onlyId, 'already_clean').ok);
+
+  const result = summary(ctx, owner);
+  const client = row(result, cid);
+  assert.deepStrictEqual(client.wash_details.map(w => w.id), [source, second]);
+  assert.strictEqual(client.washes, 2);
+  assert.strictEqual(client.weight_kg, 34);
+  assert.strictEqual(client.items_total, 88);
+  assert.deepStrictEqual(result.totals, { washes: 2, weight_kg: 34, items_total: 88, amount: beforeInvoice.total });
+  assert.strictEqual(row(result, onlyCheck), undefined);
+  assert.deepStrictEqual(invoice(ctx, owner, cid), beforeInvoice);
+
+  const volumes = ctx.api.getSummaryReport(owner, FROM, TO);
+  assert.ok(volumes.ok, volumes.error);
+  assert.strictEqual(row(volumes, cid).washes, 2);
+  assert.strictEqual(row(volumes, cid).weight_kg, 34);
+  assert.strictEqual(row(volumes, cid).items_total, 88);
+  assert.strictEqual(row(volumes, onlyCheck), undefined);
+  // Проверка по-прежнему нужна работнику в дневном списке.
+  const day = ctx.api.getDayReport(owner, '2026-08-12');
+  assert.ok(day.washes.some(w => w.id === checkId && w.status === 'ready_clean'));
+});
+
 test('детализация: границы, порядок, состав и изоляция совпадают с объёмами', () => {
   const { ctx, owner, bi } = mkBillingCtx();
   const cid = addClient(ctx, 'detail_client');
