@@ -268,6 +268,14 @@ export interface FinanceSummaryLine {
   amount: number | null;
 }
 
+export interface FinanceSummaryWash {
+  id: string;
+  wash_date: string;
+  weight_kg: number;
+  items_total: number;
+  items: { item_type_id: string; item_name: string; qty: number }[];
+}
+
 export interface FinanceSummaryClient {
   client_id: string;
   client_name: string;
@@ -280,6 +288,7 @@ export interface FinanceSummaryClient {
   amount: number;
   missing_prices: number; // позиций без цены — сумма занижена
   lines: FinanceSummaryLine[];
+  wash_details: FinanceSummaryWash[];
 }
 
 export interface FinanceSummaryRes {

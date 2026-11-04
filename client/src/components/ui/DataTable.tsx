@@ -69,17 +69,28 @@ export function DataTable({ columns, rows, keyField, expandable, empty, onRowCli
                   ))}
                   {expandable && (
                     <td className={`${styles.td} ${styles.chevCol}`}>
-                      <ChevronDown
-                        size={16}
-                        className={`${styles.chev} ${isOpen ? styles.chevOpen : ''}`}
-                      />
+                      <button
+                        type="button"
+                        className={styles.expandButton}
+                        aria-label={`Подробности: ${row[columns[0].key] ?? key}`}
+                        aria-expanded={isOpen}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          toggle(key);
+                        }}
+                      >
+                        <ChevronDown
+                          size={16}
+                          className={`${styles.chev} ${isOpen ? styles.chevOpen : ''}`}
+                        />
+                      </button>
                     </td>
                   )}
                 </tr>
                 {expandable && (
                   <tr className={styles.detailTr}>
                     <td colSpan={columns.length + 1} className={styles.detailTd}>
-                      <div className={`${styles.detail} ${isOpen ? styles.detailOpen : ''}`}>
+                      <div inert={!isOpen} className={`${styles.detail} ${isOpen ? styles.detailOpen : ''}`}>
                         <div className={styles.detailInner}>{expandable(row)}</div>
                       </div>
                     </td>
