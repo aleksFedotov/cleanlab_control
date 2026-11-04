@@ -51,6 +51,24 @@
   text-align: right;
 }
 
+.expandButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 32px;
+  min-height: 32px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.expandButton:focus-visible {
+  outline: 2px solid var(--bluing);
+  outline-offset: 2px;
+}
+
 .chev {
   color: var(--text-4);
   transition: transform 0.2s ease;

@@ -596,6 +596,13 @@ function getFinanceSummary(session, from, to) {
   const visits = input.visits;
   const storageRows = input.storageRows;
   const itemTypes = input.itemTypes;
+  const itemNames = new Map(itemTypes.map(function (t) { return [t.id, t.name]; }));
+  const itemsByWash = new Map();
+  washItems.forEach(function (wi) {
+    if (!itemsByWash.has(wi.wash_id)) itemsByWash.set(wi.wash_id, new Map());
+    const items = itemsByWash.get(wi.wash_id);
+    items.set(wi.item_type_id, (items.get(wi.item_type_id) || 0) + (Number(wi.qty) || 0));
+  });
   const clientItemBilling = input.clientItemBilling;
   const billingItems = input.billingItems;
   // kind позиции прайса по id: у строк счёта buildInvoice_ поля kind нет
@@ -610,12 +617,19 @@ function getFinanceSummary(session, from, to) {
     if (!(w.wash_date >= from && w.wash_date <= to && DONE.indexOf(w.status) !== -1)) return;
     const s = byClient[w.client_id] || (byClient[w.client_id] = {
       client_id: w.client_id, client_name: clientName_(w.client_id, clients),
-      washes: 0, bags: 0, weight_kg: 0, items_total: 0
+      washes: 0, bags: 0, weight_kg: 0, items_total: 0, wash_details: []
     });
     s.washes++;
     s.bags += Number(w.bags) || 0;
     s.weight_kg = round1_(s.weight_kg + (Number(w.dirty_weight_kg) || 0));
     s.items_total += Number(w.items_total) || 0;
+    s.wash_details.push({
+      id: w.id, wash_date: w.wash_date,
+      weight_kg: Number(w.dirty_weight_kg) || 0, items_total: Number(w.items_total) || 0,
+      items: Array.from(itemsByWash.get(w.id) || [], function (entry) {
+        return { item_type_id: entry[0], item_name: itemNames.get(entry[0]) || entry[0], qty: entry[1] };
+      }).sort(function (a, b) { return a.item_name.localeCompare(b.item_name, 'ru'); })
+    });
   });
   const totals = { washes: 0, weight_kg: 0, items_total: 0, amount: 0 };
   const result = Object.keys(byClient).map(function (cid) {
@@ -649,7 +663,10 @@ function getFinanceSummary(session, from, to) {
       client_id: cid, client_name: s.client_name,
       washes: s.washes, bags: s.bags, weight_kg: s.weight_kg, items_total: s.items_total,
       trips: trips, lifts: lifts, amount: invoice.total,
-      missing_prices: invoice.missing_prices.length, lines: invoice.lines
+      missing_prices: invoice.missing_prices.length, lines: invoice.lines,
+      wash_details: s.wash_details.sort(function (a, b) {
+        return a.wash_date.localeCompare(b.wash_date) || a.id.localeCompare(b.id);
+      })
     };
   }).sort(function (a, b) { return a.client_name < b.client_name ? -1 : 1; });
   return ok_({ from: from, to: to, clients: result, totals: totals });
