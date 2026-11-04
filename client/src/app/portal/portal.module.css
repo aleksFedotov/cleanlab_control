@@ -1,0 +1,343 @@
+/* Клиентский портал (тикет P1) — форма заявки, список, профиль. Mobile first. */
+
+.offlineBox {
+  background: var(--danger-soft, #fdecec);
+  border: 1px solid var(--danger, #d64545);
+  color: var(--danger, #b03030);
+  border-radius: var(--radius-m);
+  padding: 10px 12px;
+  font-size: 13.5px;
+  font-weight: 600;
+  margin-bottom: 12px;
+}
+
+.roBox {
+  background: var(--bluing-soft);
+  border: 1px solid var(--border);
+  color: var(--text-2);
+  border-radius: var(--radius-m);
+  padding: 10px 12px;
+  font-size: 13.5px;
+  margin-bottom: 12px;
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--text-4);
+}
+
+.dateInput,
+.comment {
+  width: 100%;
+  min-height: 48px;
+  padding: 10px 12px;
+  font-size: 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-m);
+  color: inherit;
+}
+
+.comment {
+  min-height: 84px;
+  resize: vertical;
+  line-height: 1.4;
+}
+
+.dateInput:focus,
+.comment:focus {
+  outline: none;
+  border-color: var(--bluing-border);
+  box-shadow: 0 0 0 2px var(--bluing-soft);
+}
+
+.dateInput:disabled,
+.comment:disabled {
+  opacity: 0.6;
+}
+
+.hint {
+  font-size: 12.5px;
+  color: var(--text-4);
+}
+
+.itemRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.itemRow:last-child {
+  border-bottom: none;
+}
+
+.itemName {
+  flex: 1;
+  font-size: 15px;
+}
+
+.roValue {
+  min-width: 64px;
+  text-align: center;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-2);
+}
+
+.submit {
+  min-height: 52px;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.newBtn {
+  width: 100%;
+  margin-bottom: 12px;
+  min-height: 48px;
+}
+
+.empty {
+  background: var(--surface);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-m);
+  padding: 16px;
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--text-4);
+}
+
+.reqCard {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-m);
+  padding: 12px 14px;
+  margin-bottom: 10px;
+}
+
+.reqCard:active {
+  border-color: var(--bluing-border);
+}
+
+.reqHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.reqDate {
+  font-size: 15.5px;
+  font-weight: 700;
+}
+
+.reqStatus {
+  font-size: 11.5px;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: var(--bluing-soft);
+  color: var(--bluing);
+}
+
+.reqStatus.picked {
+  background: var(--ok-soft, #e8f6ec);
+  color: var(--ok);
+}
+
+.reqMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  margin-top: 6px;
+  font-size: 13px;
+  color: var(--text-2);
+}
+
+.reqItems {
+  width: 100%;
+  color: var(--text-4);
+}
+
+.reqComment {
+  width: 100%;
+  font-style: italic;
+}
+
+.profileCard {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-m);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.profileName {
+  font-size: 17px;
+  font-weight: 800;
+}
+
+/* --- Трекинг сдачи (этап 4) --- */
+
+.track {
+  border-top: 1px solid var(--border);
+  padding-top: 14px;
+  margin-top: 4px;
+}
+
+.trackHead {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 12px;
+}
+
+.trackStatus {
+  font-size: 17px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+
+.trackNote {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--warn, #b45309);
+}
+
+.steps {
+  list-style: none;
+  margin: 0 0 16px;
+  padding: 0;
+}
+
+.step {
+  display: flex;
+  gap: 10px;
+  padding: 6px 0;
+  opacity: 0.55;
+}
+
+.stepDone {
+  opacity: 1;
+}
+
+.stepCurrent {
+  opacity: 1;
+}
+
+.stepDot {
+  width: 20px;
+  height: 20px;
+  flex: none;
+  border-radius: 50%;
+  border: 2px solid var(--border);
+  background: var(--surface);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 1px;
+  color: var(--surface);
+}
+
+.stepDone .stepDot {
+  background: var(--ok);
+  border-color: var(--ok);
+}
+
+.stepCurrent .stepDot {
+  border-color: var(--bluing);
+  box-shadow: 0 0 0 3px var(--bluing-soft);
+}
+
+.stepBody {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.stepLabel {
+  font-size: 14.5px;
+  font-weight: 600;
+}
+
+.stepCurrent .stepLabel {
+  color: var(--bluing);
+}
+
+.stepAt {
+  font-size: 12px;
+  color: var(--text-4);
+  font-variant-numeric: tabular-nums;
+}
+
+.trackLabel {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--text-4);
+  margin-bottom: 8px;
+}
+
+.fact {
+  display: flex;
+  gap: 10px;
+}
+
+.factCol {
+  flex: 1;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-m);
+  padding: 10px 12px;
+}
+
+.factHead {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--text-4);
+  margin-bottom: 6px;
+}
+
+.factRow {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 13.5px;
+  padding: 2px 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.factPending {
+  background: var(--surface);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-m);
+  padding: 12px;
+  font-size: 13px;
+  color: var(--text-4);
+}

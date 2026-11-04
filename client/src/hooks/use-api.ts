@@ -16,6 +16,7 @@ import type {
   BillingItemsRes, TariffsRes, ClientItemBillingRes, InvoiceRes,
   PayrollRes, PayRatesRes, PaySettingsRes, MyPayrollRes, PayAdjustmentRes, PayAdjustmentsListRes,
   ExtraWorksListRes, ClientsBriefRes,
+  PortalDataRes, PortalRequestsRes, ClientTrackRes,
 } from '@/types/api';
 
 function token(): string {
@@ -228,6 +229,35 @@ export function useClientsBrief() {
     queryKey: qk.clientsBrief(),
     queryFn: () => api<ClientsBriefRes>('listClientsBrief', token()),
     enabled: !!token(),
+  });
+}
+
+// --- Портал клиента (P1) ---
+
+// Стартовые данные портала: профиль клиента, активные виды белья, ближайшие визиты
+export function usePortalData() {
+  return useQuery({
+    queryKey: qk.portalData(),
+    queryFn: () => api<PortalDataRes>('clientGetPortalData', token()),
+    enabled: !!token(),
+  });
+}
+
+// Заявки клиента (новые сверху)
+export function useClientRequests() {
+  return useQuery({
+    queryKey: qk.requests(),
+    queryFn: () => api<PortalRequestsRes>('clientGetRequests', token()),
+    enabled: !!token(),
+  });
+}
+
+// Трек сдачи по заявке (шаги, статус, фактический пересчёт)
+export function useClientTrack(requestId: string) {
+  return useQuery({
+    queryKey: qk.track(requestId),
+    queryFn: () => api<ClientTrackRes>('clientGetTrack', token(), requestId),
+    enabled: !!token() && !!requestId,
   });
 }
 

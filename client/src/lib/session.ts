@@ -2,7 +2,7 @@
 // чтобы вход переживал переключение между старым и новым фронтом.
 export interface Session {
   token: string;
-  role: string; // 'owner' | 'worker' | 'driver'
+  role: string; // 'owner' | 'worker' | 'driver' | 'client'
   name: string;
   laundryId: string;
 }

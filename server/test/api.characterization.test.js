@@ -244,24 +244,24 @@ test('R1-char: права — worker на owner-методах получает 
 
 const API_SNAPSHOT = [
   'addDeliveryVisit', 'addExtraWork', 'addManualClean', 'addToDelivery', 'addUnplannedWash', 'addWeekCard', 'cancelWash',
-  'closeShift', 'completeWash', 'confirmStorageCheck', 'correctVisit', 'createLaundry', 'createUser',
+  'clientCreateRequest', 'clientGetPortalData', 'clientGetRequest', 'clientGetRequests', 'clientGetTrack', 'closeShift', 'completeWash', 'confirmStorageCheck', 'correctVisit', 'createLaundry', 'createUser',
   'deactivateLaundry', 'deactivateUser', 'deferWash', 'deleteBillingItem', 'deleteClient',
   'deleteExtraWork', 'deleteItemType', 'deletePayAdjustment', 'deleteUser', 'deleteWash', 'driverAction',
-  'driverHandover', 'driverReturnClean', 'driverTakeAllClean', 'driverTakeClean', 'editExtraWork', 'editManualClean', 'editWashData', 'getClientInvoice', 'getDayList',
+  'driverHandover', 'driverReturnClean', 'driverTakeAllClean', 'driverTakeClean', 'editExtraWork', 'editManualClean', 'editWashData', 'getClientInvoice', 'getClientRequests', 'getDayList',
   'getDayReport', 'getDeliveryPlan', 'getDeliveryPointStats', 'getDeliveryVisits',
   'getDriverRoute', 'getFinanceSummary', 'getMyPayroll', 'getPayroll', 'getRefs',
   'getShiftCloseState', 'getStorage', 'getSummaryReport', 'getTvData', 'getWeekPlan',
-  'getWorkHours', 'holdPartialWash', 'listBillingItems', 'listClientItemBilling',
+  'getWorkHours', 'holdPartialWash', 'linkRequestToVisit', 'listBillingItems', 'listClientItemBilling',
   'listClientsBrief', 'listExtraWorks', 'listLaundries', 'listPayAdjustments', 'listPayRates', 'listPaySettings', 'listTariffs',
   'listUsers', 'login', 'logout', 'makeTelegramBindCode', 'markIssued', 'moveDeliveryVisit',
   'moveWeekCard', 'purgeClient', 'reactivateUser', 'rememberClientItemType',
-  'removeDeliveryVisit', 'removeWeekCard', 'resetUserPassword', 'saveBillingItem',
+  'removeDeliveryVisit', 'removeWeekCard', 'resetClientPassword', 'resetUserPassword', 'saveBillingItem',
   'saveClient', 'saveClientItemBilling', 'saveItemType', 'savePayAdjustment', 'savePayRate',
-  'savePaySettings', 'saveTariff', 'setPickupOnly', 'setVisitLiftFloor', 'setWorkHours',
+  'savePaySettings', 'saveTariff', 'setClientAccess', 'setPickupOnly', 'setVisitLiftFloor', 'setWorkHours',
   'startWash', 'switchLaundry', 'updateIssueDate', 'updateLaundry', 'updateUser'
 ];
 
-test('R1-char: снапшот — состав публичного api не изменился (87 методов)', () => {
+test('R1-char: снапшот — состав публичного api не изменился (96 методов)', () => {
   const api = require('../api').api;
   assert.deepStrictEqual(Object.keys(api).sort(), API_SNAPSHOT);
 });

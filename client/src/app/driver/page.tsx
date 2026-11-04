@@ -36,6 +36,9 @@ function visitMeta(v: RouteVisit, done: boolean): string[] {
       meta.push('✨ чистое на складе: ' + (num(v.clean_stock_bags) ? bags(num(v.clean_stock_bags)) : 'есть'));
     }
     if (v.picked_at) meta.push('🟥 грязное у вас');
+    else if (v.request) {
+      meta.push(num(v.request.bags) ? `Забрать ${bags(num(v.request.bags))}` : 'Забрать: кол-во не указано');
+    }
     else meta.push('🧺 забрать грязное');
   }
   return meta;

@@ -16,6 +16,7 @@ const {
 } = require('./api/billing');
 const {
   listUsers, createUser, updateUser, resetUserPassword,
+  setClientAccess, resetClientPassword,
   deactivateUser, reactivateUser, deleteUser,
   makeTelegramBindCode, consumeTelegramBindCode_
 } = require('./api/users');
@@ -23,6 +24,10 @@ const {
   saveClient, deleteClient, purgeClient,
   saveItemType, deleteItemType, rememberClientItemType, getRefs
 } = require('./api/clients');
+const {
+  clientCreateRequest, clientGetRequests, clientGetRequest, clientGetPortalData,
+  getClientRequests, linkRequestToVisit, clientGetTrack
+} = require('./api/requests');
 const {
   listLaundries, createLaundry, updateLaundry, deactivateLaundry, getTvData
 } = require('./api/laundries');
@@ -66,7 +71,12 @@ const API_ROLES = {
   listClientItemBilling: OWNER, getClientInvoice: OWNER,
   // api/users.js
   listUsers: OWNER, createUser: OWNER, updateUser: OWNER, resetUserPassword: OWNER,
+  setClientAccess: OWNER, resetClientPassword: OWNER,
   deactivateUser: OWNER, reactivateUser: OWNER, deleteUser: OWNER, makeTelegramBindCode: OWNER,
+  // api/requests.js (портал P1)
+  clientCreateRequest: ['client'], clientGetRequests: ['client'], clientGetRequest: ['client'],
+  clientGetPortalData: ['client'], clientGetTrack: ['client'],
+  getClientRequests: OWNER, linkRequestToVisit: OWNER,
   // api/laundries.js (getTvData — без проверки)
   listLaundries: OWNER, createLaundry: OWNER, updateLaundry: OWNER, deactivateLaundry: OWNER,
   // deliveries.js (legacy: token-first, requireRole_ остался в телах)
@@ -99,7 +109,8 @@ const sessionFirst = {
   saveClient, deleteClient, purgeClient, saveItemType, deleteItemType, rememberClientItemType, getRefs,
   listBillingItems, saveBillingItem, deleteBillingItem,
   listTariffs, saveTariff, saveClientItemBilling, listClientItemBilling, getClientInvoice,
-  listUsers, createUser, updateUser, resetUserPassword, deactivateUser, reactivateUser, deleteUser, makeTelegramBindCode,
+  listUsers, createUser, updateUser, resetUserPassword, setClientAccess, resetClientPassword, deactivateUser, reactivateUser, deleteUser, makeTelegramBindCode,
+  clientCreateRequest, clientGetRequests, clientGetRequest, clientGetPortalData, clientGetTrack, getClientRequests, linkRequestToVisit,
   listLaundries, createLaundry, updateLaundry, deactivateLaundry
 };
 
