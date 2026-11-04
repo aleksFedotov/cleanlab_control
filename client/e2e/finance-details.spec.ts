@@ -1,5 +1,32 @@
 import { test, expect } from '@playwright/test';
 
+test('финансы открываются при ответе API без детализации стирок', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', error => errors.push(error.message));
+  await page.addInitScript(() => {
+    localStorage.setItem('cl_token', 'finance-test');
+    localStorage.setItem('cl_role', 'owner');
+    localStorage.setItem('cl_laundry', '1');
+  });
+  await page.route('**/api/getDeliveryVisits', route => route.fulfill({ json: { ok: true, visits: [] } }));
+  await page.route('**/api/listLaundries', route => route.fulfill({ json: { ok: true, laundries: [] } }));
+  await page.route('**/api/getFinanceSummary', route => route.fulfill({ json: {
+    ok: true, from: '2026-10-16', to: '2026-10-31',
+    totals: { washes: 1, weight_kg: 20, items_total: 2, amount: 1000 },
+    clients: [{
+      client_id: 'legacy', client_name: 'Клиент без детализации', washes: 1, bags: 0,
+      weight_kg: 20, items_total: 2, trips: 0, lifts: 0, amount: 1000, missing_prices: 0,
+      lines: [{ billing_item_id: 'weight', name: 'Стирка белья', qty: 20, unit: 'кг', price: 50, amount: 1000 }],
+    }],
+  } }));
+  await page.goto('/finance');
+  await page.getByRole('button', { name: 'Подробности: Клиент без детализации' }).click();
+  await expect(page.getByText('Детализация стирок временно недоступна')).toBeVisible();
+  await expect(page.getByText('Стирка белья', { exact: true })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Открыть счёт' })).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
 for (const width of [1280, 390]) {
   test(`детализация стирок и смена периода (${width}px)`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });

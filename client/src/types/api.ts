@@ -274,7 +274,7 @@ export interface FinanceSummaryClient {
   amount: number;
   missing_prices: number; // позиций без цены — сумма занижена
   lines: FinanceSummaryLine[];
-  wash_details: FinanceSummaryWash[];
+  wash_details?: FinanceSummaryWash[]; // Может отсутствовать при раздельном обновлении API и фронта.
 }
 
 export interface FinanceSummaryRes {

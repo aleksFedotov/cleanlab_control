@@ -233,7 +233,10 @@ export default function FinancePage() {
               <div className={styles.detail}>
                 <section aria-label="Стирки за период" className={styles.washes}>
                   <h3 className={styles.detailTitle}>Стирки за период</h3>
-                  {c.wash_details.map((wash) => (
+                  {!c.wash_details && (
+                    <p className={styles.detailMeta}>Детализация стирок временно недоступна</p>
+                  )}
+                  {(c.wash_details || []).map((wash) => (
                     <details key={wash.id} className={styles.wash}>
                       <summary className={styles.washSummary}>
                         <span>{formatDateRu(wash.wash_date)}</span>
