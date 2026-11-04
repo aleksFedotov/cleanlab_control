@@ -218,7 +218,6 @@ export default function FinancePage() {
           </StatRow>
 
           <DataTable
-            key={`${range.from}:${range.to}`}
             columns={columns}
             rows={clients}
             keyField="client_id"
@@ -231,27 +230,6 @@ export default function FinancePage() {
             }
             expandable={(c: FinanceSummaryClient) => (
               <div className={styles.detail}>
-                <section aria-label="Стирки за период" className={styles.washes}>
-                  <h3 className={styles.detailTitle}>Стирки за период</h3>
-                  {c.wash_details.map((wash) => (
-                    <details key={wash.id} className={styles.wash}>
-                      <summary className={styles.washSummary}>
-                        <span>{formatDateRu(wash.wash_date)}</span>
-                        <span>{kg(wash.weight_kg)}</span>
-                        <span>{num(wash.items_total)} шт.</span>
-                      </summary>
-                      {wash.items.length ? (
-                        <ul className={styles.washItems}>
-                          {wash.items.map((item) => (
-                            <li key={item.item_type_id}>{item.item_name} — {num(item.qty)} шт.</li>
-                          ))}
-                        </ul>
-                      ) : (
-                        <p className={styles.detailMeta}>Состав вещей не указан</p>
-                      )}
-                    </details>
-                  ))}
-                </section>
                 {c.lines.length ? (
                   <table className={styles.lines}>
                     <thead>

@@ -2,10 +2,9 @@
 // Вынесено из api.js при делёжке (R1); код перенесён как есть.
 const crypto = require('node:crypto');
 const db = require('../db');
-const { SHEETS } = require('../schema');
 const { logEvent, actorOf_ } = require('../audit');
 const { hashPassword_ } = require('../auth');
-const { err_, ok_, findTenantRow_ } = require('../core');
+const { err_, ok_ } = require('../core');
 
 // --- Пользователи (owner): экран «Сотрудники» ---
 
@@ -142,60 +141,6 @@ function deleteUser(session, id) {
   return ok_({ id: id });
 }
 
-// Аккаунт client для карточки клиента (тикет P1): заводится владельцем из
-// карточки клиента, а не с экрана «Сотрудники». Один аккаунт на клиента:
-// повторный вызов обновляет логин/пароль существующего, а не плодит дубль.
-// Логин глобально уникален (как у остальных пользователей).
-function setClientAccess(session, clientId, login, password) {
-  login = String(login || '').trim();
-  if (!login) return err_('Укажите логин');
-  if (!password) return err_('Укажите пароль');
-  const client = findTenantRow_(SHEETS.CLIENTS, clientId, session.laundryId);
-  if (!client) return err_('Клиент не найден');
-  const existing = db.readAll_('Users').filter(function (u) {
-    return u.role === 'client' && String(u.client_id) === String(clientId)
-      && u.laundry_id === session.laundryId;
-  })[0] || null;
-  const taken = db.readAll_('Users').some(function (u) {
-    return u.active === 'да' && u.login === login && (!existing || u.id !== existing.id);
-  });
-  if (taken) return err_('Логин уже занят');
-  if (!existing) {
-    const saved = {
-      id: db.nextId_('Users', 'usr'),
-      laundry_id: session.laundryId,
-      name: client.obj.name, role: 'client', pin: '', active: 'да',
-      client_id: String(clientId), login: login, pass_hash: hashPassword_(password)
-    };
-    db.appendRow_('Users', saved);
-    logEvent(actorOf_(session), 'user_create', saved.id, { name: saved.name, role: saved.role, client_id: saved.client_id }, session.laundryId);
-    return ok_({ user: { id: saved.id, laundry_id: saved.laundry_id, name: saved.name, role: saved.role, login: saved.login, active: saved.active, client_id: saved.client_id } });
-  }
-  existing.login = login;
-  existing.pass_hash = hashPassword_(password);
-  if (existing.active !== 'да') existing.active = 'да';
-  const row = db.findRowsBy_('Users', function (u) { return u.id === existing.id; }, 1)[0];
-  db.updateRow_('Users', row.rowNumber, existing);
-  logEvent(actorOf_(session), 'user_update', existing.id, { name: existing.name, role: existing.role, client_id: existing.client_id }, session.laundryId);
-  return ok_({ user: { id: existing.id, laundry_id: existing.laundry_id, name: existing.name, role: existing.role, login: existing.login, active: existing.active, client_id: existing.client_id } });
-}
-
-// Сброс пароля портала (owner) — та же логика, что resetUserPassword,
-// но адресуется по clientId карточки клиента, а не по id пользователя.
-function resetClientPassword(session, clientId, password) {
-  if (!password) return err_('Укажите пароль');
-  const found = db.readAll_('Users').filter(function (u) {
-    return u.role === 'client' && String(u.client_id) === String(clientId)
-      && u.laundry_id === session.laundryId;
-  })[0] || null;
-  if (!found) return err_('Доступ в портал не настроен');
-  found.pass_hash = hashPassword_(password);
-  const row = db.findRowsBy_('Users', function (u) { return u.id === found.id; }, 1)[0];
-  db.updateRow_('Users', row.rowNumber, found);
-  logEvent(actorOf_(session), 'user_password_reset', found.id, { name: found.name }, session.laundryId);
-  return ok_({ user: { id: found.id, login: found.login } });
-}
-
 // Одноразовые коды привязки Telegram-чата (в памяти процесса, TTL 10 мин).
 // Код генерирует владелец с экрана «Сотрудники»; бот принимает код и пишет
 // chat_id в per-tenant Settings OWNER_CHAT_ID прачки, к которой привязан код.
@@ -221,7 +166,6 @@ function consumeTelegramBindCode_(code) {
 }
 module.exports = {
   listUsers, createUser, updateUser, resetUserPassword,
-  setClientAccess, resetClientPassword,
   deactivateUser, reactivateUser, deleteUser,
   makeTelegramBindCode, consumeTelegramBindCode_
 };

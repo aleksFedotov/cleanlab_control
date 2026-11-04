@@ -13,7 +13,6 @@ const { addStorageEntry_, openStorage_, storageSummaryByClient_, storageBagsOf_ 
 const { resolveRate_ } = require('./payroll');
 const { notReadyForDelivery_, issueForVisit_, unissueForVisit_ } = require('./wash');
 const { isOpenVisit_, getVisitsByDate_, ensureVisit_ } = require('./visits');
-const { markRequestsPickedForVisit_, requestsForVisits_, requestForVisit_ } = require('./api/requests');
 
 // LockService в GAS; в однопроцессном Node с синхронным better-sqlite3 не нужен.
 function withLock_(fn) { return fn(); }
@@ -54,14 +53,6 @@ function findTenantVisit_(visitId, laundryId) {
   return found;
 }
 
-// Заявка клиента по точке: по привязке visit_id, иначе ближайшая 'sent'-заявка
-// клиента с датой не позже визита (визит мог быть создан вручную без привязки,
-// а забор в день заявки мог не случиться).
-function attachRequest_(v, requests) {
-  v.request = requestForVisit_(requests, v);
-  return v;
-}
-
 // --- API ---
 
 function getDeliveryVisits(token, date) {
@@ -72,12 +63,9 @@ function getDeliveryVisits(token, date) {
   const clients = {};
   db.getClients_(laundryId).forEach(function (c) { clients[c.id] = c; });
   const storage = storageSummaryByClient_(laundryId);
-  const requests = requestsForVisits_(laundryId);
   return ok_({
     date: date,
-    visits: getVisitsByDate_(date, laundryId).map(function (v) {
-      return attachRequest_(decorateVisit_(v, clients, storage), requests);
-    }),
+    visits: getVisitsByDate_(date, laundryId).map(function (v) { return decorateVisit_(v, clients, storage); }),
     notReady: notReadyForDelivery_(date, laundryId),
     clients: db.getClients_(laundryId).filter(function (c) { return c.active === 'да'; })
   });
@@ -227,7 +215,6 @@ function getDriverRoute(token, date) {
   db.getClients_(laundryId).forEach(function (c) { clients[c.id] = c; });
   const storage = storageSummaryByClient_(laundryId);
   const visits = getVisitsByDate_(date, laundryId);
-  const requests = requestsForVisits_(laundryId);
   return ok_({
     date: date,
     laundryName: db.getSettings_(laundryId).LAUNDRY_NAME || 'CleanLab Pro',
@@ -237,7 +224,7 @@ function getDriverRoute(token, date) {
       const c = clients[v.client_id] || {};
       v.address = c.address || '';
       v.access_note = c.access_note || '';
-      return attachRequest_(decorateVisit_(v, clients, storage), requests);
+      return decorateVisit_(v, clients, storage);
     })
   });
 }
@@ -381,8 +368,6 @@ function driverAction(token, visitId, action, liftFloor) {
       if (v.picked_at) return err_('Грязное уже забрано');
       v.picked_at = nowStr_();
       v.pickup = 'да';
-      // Привязанная заявка портала (P1) уходит в 'picked' в той же транзакции
-      markRequestsPickedForVisit_(visitId, laundryId);
       // Если чистое уже отдано (или его не было и не взято) — точка закрыта
       if (v.delivered_at) v.status = 'both';
       else if (!v.clean_taken_at) v.status = 'picked';

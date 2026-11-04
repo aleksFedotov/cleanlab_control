@@ -1,7 +1,7 @@
 // Схема данных CleanLab Control — порт src/Schema.gs.
 // Таблицы SQLite = листам Sheets, колонки = HEADERS. Все значения храним как TEXT
 // (даты — строками формата схемы), как и в Sheets.
-const SCHEMA_VERSION = 13;
+const SCHEMA_VERSION = 12;
 
 const SHEETS = {
   SETTINGS: 'Settings',
@@ -22,9 +22,7 @@ const SHEETS = {
   CLIENT_ITEM_BILLING: 'ClientItemBilling',
   PAY_RATES: 'PayRates',
   PAY_ADJUSTMENTS: 'PayAdjustments',
-  EXTRA_WORKS: 'ExtraWorks',
-  REQUESTS: 'Requests',
-  REQUEST_ITEMS: 'RequestItems'
+  EXTRA_WORKS: 'ExtraWorks'
 };
 
 // Мультитенантность: laundry_id — во всех операционных таблицах.
@@ -109,16 +107,7 @@ const HEADERS = {
   // отдельным тикетом. edited_by/edited_at — след правки owner (деньги + будущий
   // биллинг: история обязательна).
   ExtraWorks: ['id', 'user_id', 'date', 'client_id', 'amount', 'comment',
-    'created_by', 'created_at', 'edited_by', 'edited_at', 'laundry_id'],
-  // Заявки клиентского портала (P1): клиент заявляет сдачу белья на дату.
-  // Одна активная (status='sent') заявка на клиента+дату — повторная отправка
-  // переписывает состав. visit_id — привязка к визиту развоза (owner, этап 5);
-  // водитель «Забрал грязное» переводит заявку в 'picked' (правка закрыта).
-  Requests: ['id', 'client_id', 'laundry_id', 'visit_id', 'desired_date', 'bags',
-    'comment', 'status', 'created_by', 'created_at', 'updated_at'],
-  // Позиции заявки: тенант через request_id (заявка хранит laundry_id).
-  // qty<=0 не пишутся. Позиции переписываются целиком при каждой отправке.
-  RequestItems: ['id', 'request_id', 'item_type_id', 'qty']
+    'created_by', 'created_at', 'edited_by', 'edited_at', 'laundry_id']
 };
 
 // Стартовое наполнение ItemTypes (spec §3.4).

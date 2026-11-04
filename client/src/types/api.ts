@@ -53,8 +53,6 @@ export interface DayWash extends Wash {
   items?: { item_type_id: string; qty: number; item_name?: string }[];
   // Типы белья клиента, идущие в счёт поштучно (P2) — «отобрать до взвешивания»
   piece_types?: string[];
-  // Заявка клиента (P1), чьё бельё в этой стирке — ориентир «заявлено» в пересчёте
-  request?: VisitRequest | null;
 }
 
 export interface Shift {
@@ -128,18 +126,6 @@ export interface DecoratedVisit extends Visit {
   clean_kg: number;
   clean_items: number;
   clean_stock_bags: number;
-  // Заявка клиента на забор (P1): по привязке visit_id или 'sent' на дату визита
-  request: VisitRequest | null;
-}
-
-// Заявка клиента в маршруте водителя / развозе владельца (read-only)
-export interface VisitRequest {
-  id: string;
-  desired_date: string; // может быть раньше даты визита (просроченный забор)
-  status?: string; // sent | picked — в карточке стирки
-  bags: number;
-  comment: string;
-  items: Array<{ item_type_id: string; name: string; qty: number }>;
 }
 
 export interface NotReady {
@@ -268,14 +254,6 @@ export interface FinanceSummaryLine {
   amount: number | null;
 }
 
-export interface FinanceSummaryWash {
-  id: string;
-  wash_date: string;
-  weight_kg: number;
-  items_total: number;
-  items: { item_type_id: string; item_name: string; qty: number }[];
-}
-
 export interface FinanceSummaryClient {
   client_id: string;
   client_name: string;
@@ -288,7 +266,6 @@ export interface FinanceSummaryClient {
   amount: number;
   missing_prices: number; // позиций без цены — сумма занижена
   lines: FinanceSummaryLine[];
-  wash_details: FinanceSummaryWash[];
 }
 
 export interface FinanceSummaryRes {
@@ -449,86 +426,6 @@ export interface Invoice {
 export interface InvoiceRes {
   ok: true;
   invoice: Invoice;
-}
-
-// --- Заявки клиентского портала (P1): форматы — server/api/requests.js ---
-
-export type RequestStatus = 'sent' | 'picked';
-
-export interface RequestItem {
-  id: string;
-  request_id: string;
-  item_type_id: string;
-  qty: number | string; // TEXT в БД — приводить через Number()
-}
-
-export interface PortalRequest {
-  id: string;
-  client_id: string;
-  laundry_id: string;
-  visit_id: string;
-  desired_date: string; // yyyy-MM-dd
-  bags: number | string;
-  comment: string;
-  status: RequestStatus;
-  created_by: string;
-  created_at: string;
-  updated_at: string;
-  items: RequestItem[];
-  client_name?: string; // только в getClientRequests (владелец)
-}
-
-export interface PortalRequestsRes {
-  ok: true;
-  requests: PortalRequest[];
-}
-
-export interface PortalDataRes {
-  ok: true;
-  client: { id: string; name: string; item_types: string; accounting: string };
-  itemTypes: ItemType[];
-  visits: Visit[]; // ближайшие planned-визиты клиента (предвыбор даты забора)
-}
-
-export interface CreateRequestRes {
-  ok: true;
-  request: PortalRequest;
-}
-
-// --- Трекинг сдачи (P1, этап 4): форматы — clientGetTrack ---
-
-export type TrackKey =
-  | 'accepted' | 'driver_coming' | 'to_laundry' | 'in_queue'
-  | 'washing' | 'ready' | 'to_client' | 'delivered';
-
-export interface TrackStep {
-  key: TrackKey;
-  label: string;
-  at: string; // 'yyyy-MM-dd HH:mm:ss' или '' — событие ещё не случилось
-  done: boolean;
-  current: boolean;
-}
-
-export interface TrackStatus {
-  key: TrackKey | 'no_linen' | 'cancelled';
-  label: string;
-  note: string; // «перенесено на ‹дата›» / комментарий при отмене
-  step: number; // −1 — особый статус вне восьми шагов
-}
-
-export interface TrackFact {
-  wash_status: string; // ready_clean — чистое было на складе, стирать не требовалось
-  items: { item_type_id: string; name: string; qty: number }[];
-  weight_kg: number | null;
-  bags: number | null;
-}
-
-export interface ClientTrackRes {
-  ok: true;
-  request: PortalRequest;
-  status: TrackStatus;
-  steps: TrackStep[];
-  fact: TrackFact | null; // только после завершения стирки
 }
 
 // --- Зарплаты (P3): форматы — server/payroll.js ---

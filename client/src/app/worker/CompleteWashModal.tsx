@@ -53,12 +53,6 @@ export function CompleteWashModal({ w, itemTypes, onClose }: CompleteWashModalPr
       ? itemTypes.filter((t) => w.client_item_types.indexOf(t.id) !== -1)
       : itemTypes.slice();
 
-  // Заявленное клиентом по видам (P1): ориентир при вводе фактического пересчёта
-  const declared: Record<string, number> = {};
-  (w.request?.items || []).forEach((it) => {
-    declared[it.item_type_id] = it.qty;
-  });
-
   const total = Object.keys(counts).reduce((s, k) => s + (counts[k] || 0), 0);
 
   const mutation = useApiMutation<{ ok: true; wash: Wash }>('completeWash', {
@@ -146,15 +140,7 @@ export function CompleteWashModal({ w, itemTypes, onClose }: CompleteWashModalPr
             <div className={styles.fieldLabel}>Количество вещей</div>
             {vis.map((t) => (
               <div key={t.id} className={styles.itemRow}>
-                <span className={styles.itemName}>
-                  {t.name}
-                  {declared[t.id] > 0 && (
-                    <>
-                      {' '}
-                      <span className={styles.declaredQty}>заявлено: {declared[t.id]}</span>
-                    </>
-                  )}
-                </span>
+                <span className={styles.itemName}>{t.name}</span>
                 <Stepper
                   value={counts[t.id] || 0}
                   steps={UNIT_STEPS}

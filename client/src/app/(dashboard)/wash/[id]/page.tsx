@@ -214,11 +214,6 @@ export default function WashCardPage() {
   const extra = extraMap[id] || [];
   const checkedDirty = !!checkedMap[id];
   const total = totalQty(counts);
-  // Заявленное клиентом по видам (P1): ориентир при вводе фактического пересчёта
-  const declared: Record<string, number> = {};
-  (w.request?.items || []).forEach((it) => {
-    declared[it.item_type_id] = it.qty;
-  });
 
   const dayTypes = data.itemTypes || [];
   const types: ItemType[] = [
@@ -452,15 +447,7 @@ export default function WashCardPage() {
           <div className={styles.cardTitle}>Состав</div>
           {vis.map((t) => (
             <div key={t.id} className={styles.itemRow}>
-              <span className={styles.itemName}>
-                {t.name}
-                {declared[t.id] > 0 && (
-                  <>
-                    {' '}
-                    <span className={styles.declaredQty}>заявлено: {declared[t.id]}</span>
-                  </>
-                )}
-              </span>
+              <span className={styles.itemName}>{t.name}</span>
               <Stepper
                 value={counts[t.id] || 0}
                 steps={BAG_STEPS}

@@ -11,12 +11,7 @@ export default function Home() {
   useEffect(() => {
     if (session === undefined) return;
     if (!session) return router.replace('/login');
-    router.replace(
-      session.role === 'driver' ? '/driver'
-        : session.role === 'worker' ? '/worker'
-        : session.role === 'client' ? '/portal'
-        : '/today'
-    );
+    router.replace(session.role === 'driver' ? '/driver' : session.role === 'worker' ? '/worker' : '/today');
   }, [session, router]);
   return null;
 }

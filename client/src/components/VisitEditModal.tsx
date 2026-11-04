@@ -80,7 +80,6 @@ export function VisitEditModal({ visit, onClose, viewerRole }: VisitEditModalPro
   const [floor, setFloor] = useState(1);
   const [noteOpen, setNoteOpen] = useState(false);
   const [takeConfirm, setTakeConfirm] = useState(false);
-  const [pickupAction, setPickupAction] = useState<DriverAction | null>(null);
   const [undoTarget, setUndoTarget] = useState<{ op: CorrectOp; what: string } | null>(null);
   const [returnConfirm, setReturnConfirm] = useState(false);
   const [extraOpen, setExtraOpen] = useState(false);
@@ -93,7 +92,6 @@ export function VisitEditModal({ visit, onClose, viewerRole }: VisitEditModalPro
     setFloor(Math.max(1, Math.floor(num(visit?.lift_floor)) || 1));
     setNoteOpen(false);
     setExtraOpen(false);
-    setPickupAction(null);
   }
 
   const actionMut = useApiMutation('driverAction', {
@@ -129,11 +127,6 @@ export function VisitEditModal({ visit, onClose, viewerRole }: VisitEditModalPro
       setTakeConfirm(true);
       return;
     }
-    // Забор грязного по заявке — подтверждение количества мешков (P1)
-    if ((act === 'pickup_dirty' || act === 'both') && visit.request && num(visit.request.bags) > 0) {
-      setPickupAction(act);
-      return;
-    }
     actionMut.mutate([visit.id, act, lift]);
   };
 
@@ -155,11 +148,6 @@ export function VisitEditModal({ visit, onClose, viewerRole }: VisitEditModalPro
               </div>
             ) : (
               <div className={styles.metaDim}>{visitMeta(visit, false).join(' · ')}</div>
-            )}
-            {visit.request && (
-              <div className={styles.metaDim}>
-                {num(visit.request.bags) ? `Забрать ${bags(num(visit.request.bags))}` : 'Забрать: кол-во не указано'}
-              </div>
             )}
             {visit.access_note && (
               <>
@@ -262,25 +250,6 @@ export function VisitEditModal({ visit, onClose, viewerRole }: VisitEditModalPro
         }}
         text="Чистое бельё взято со склада?"
         okLabel="Да, взял"
-        busy={actionMut.isPending}
-      />
-
-      {/* Забор грязного по заявке: подтверждение заявленного количества (P1) */}
-      <ConfirmDialog
-        open={!!pickupAction}
-        onClose={() => setPickupAction(null)}
-        onConfirm={() => {
-          if (visit && pickupAction) {
-            actionMut.mutate([visit.id, pickupAction, floor > 2 ? floor : null]);
-          }
-          setPickupAction(null);
-        }}
-        text={
-          visit && visit.request
-            ? `По заявке: ${bags(num(visit.request.bags))}. Забрали ${bags(num(visit.request.bags))}?`
-            : ''
-        }
-        okLabel="Да, забрал"
         busy={actionMut.isPending}
       />
 

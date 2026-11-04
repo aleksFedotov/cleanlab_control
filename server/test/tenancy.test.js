@@ -232,15 +232,15 @@ test('пользователи: логин глобально уникален; 
   // Дубль логина отклонён — глобально, в любой прачке и роли
   assert.ok(!ctx.api.createUser(owner, { laundryId: '1', name: 'Иван', role: 'driver', login: 'petr', password: 'p2' }).ok);
   assert.ok(!ctx.api.createUser(owner, { name: 'Второй владелец', role: 'owner', login: 'boss', password: 'p2' }).ok);
-  // Роль client требует clientId; вход открыт (тикет P1, этап 1)
+  // Роль client требует clientId; вход для неё не настроен
   assert.ok(!ctx.api.createUser(owner, { laundryId: '1', name: 'Клиент', role: 'client', login: 'k1', password: 'p3' }).ok);
   const clientId = ctx.api.saveClient(owner, { name: 'Отель А' }).client.id;
   const cu = ctx.api.createUser(owner, { laundryId: '1', name: 'Клиент', role: 'client', login: 'k1', password: 'p3', clientId: clientId });
   assert.ok(cu.ok);
   assert.strictEqual(cu.user.client_id, clientId);
   const login = ctx.auth.login('k1', 'p3');
-  assert.ok(login.ok);
-  assert.strictEqual(ctx.auth.getSession_(login.token).clientId, clientId);
+  assert.ok(!login.ok);
+  assert.ok(/не настроен/.test(login.error));
   // listUsers не отдаёт pass_hash и pin
   const users = ctx.api.listUsers(owner, '1').users;
   assert.ok(users.some(x => x.name === 'Пётр'));

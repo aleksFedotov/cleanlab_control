@@ -25,7 +25,6 @@ import type { Client, ItemType } from '@/types/api';
 import { parseItemTypes } from '../../refs-utils';
 import { ClientPricesSection, pricesSummary, SaveStatusCallbacks } from '../../client-prices-section';
 import { ClientBindingsSection } from '../../client-bindings-section';
-import { PortalAccessBlock } from './portal-access-block';
 import styles from '../../refs.module.css';
 import pillStyles from '@/components/ui/FilterPills.module.css';
 
@@ -311,8 +310,6 @@ function ProfileTab({
           </div>
         )}
       </div>
-
-      <PortalAccessBlock clientId={client.id} />
     </div>
   );
 }

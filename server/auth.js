@@ -62,6 +62,8 @@ function login(username, password) {
     return { ok: false, error: AUTH_ERROR };
   }
   loginFails.delete(username);
+  // Роль client — задел под кабинет клиента: аккаунт можно создать, но входа нет
+  if (user.role === 'client') return { ok: false, error: 'Доступ для клиента не настроен' };
   const laundries = listActiveLaundries_();
   // Активная прачка в сессии: у owner (laundry_id пуст) — первая активная
   const activeLaundry = user.role === 'owner'

@@ -41,7 +41,7 @@ function addWash(ctx, o) {
     id: id, client_id: o.client_id, wash_date: o.wash_date,
     issue_date: o.issue_date || o.wash_date, status: o.status,
     dirty_weight_kg: o.kg !== undefined && o.kg !== '' ? String(o.kg) : '',
-    items_total: o.items_total || '', comment: '',
+    items_total: '', comment: '',
     created_by: 'test', created_at: o.wash_date + ' 08:00:00',
     started_at: '', done_at: '', issued_at: o.issued_at || '',
     deferred_from: '', deferred_reason: '', bags: ''
@@ -102,51 +102,6 @@ function summary(ctx, owner, from, to) {
 function row(res, clientId) {
   return res.clients.find(c => c.client_id === clientId);
 }
-
-test('детализация: границы, порядок, состав и изоляция совпадают с объёмами', () => {
-  const { ctx, owner, bi } = mkBillingCtx();
-  const cid = addClient(ctx, 'detail_client');
-  const other = addClient(ctx, 'detail_other');
-  seedLaundry2();
-  ctx.api.saveTariff(owner, '', bi.weight, 50);
-  const pillow = addLinkedType(ctx, owner, 'Подушка детализация', bi.pillow);
-  const blanket = addLinkedType(ctx, owner, 'Одеяло детализация', '');
-  const last = addWash(ctx, { id: 'detail_z', client_id: cid, wash_date: TO, status: 'issued', kg: 30 });
-  const first = addWash(ctx, { id: 'detail_a', client_id: cid, wash_date: FROM, status: 'done', kg: 20, items_total: '7' });
-  addWash(ctx, { id: 'detail_b', client_id: cid, wash_date: FROM, status: 'stored', kg: 10 });
-  addWashItem(ctx, first, pillow, 2);
-  addWashItem(ctx, first, pillow, 1);
-  addWashItem(ctx, first, blanket, 4);
-  addWashItem(ctx, last, 'missing_type', 5);
-  [
-    { wash_date: '2026-07-31', status: 'done', issued_at: FROM },
-    { wash_date: '2026-09-01', status: 'done' },
-    { wash_date: FROM, status: 'in_progress' },
-    { wash_date: FROM, status: 'cancelled' },
-    { wash_date: FROM, status: 'done', laundry_id: '2' }
-  ].forEach(o => {
-    const id = addWash(ctx, { client_id: cid, kg: 999, ...o });
-    addWashItem(ctx, id, pillow, 999);
-  });
-  const otherId = addWash(ctx, { client_id: other, wash_date: FROM, status: 'done', kg: 15 });
-  addWashItem(ctx, otherId, pillow, 88);
-  const result = summary(ctx, owner);
-  const client = row(result, cid);
-  assert.deepStrictEqual(client.wash_details.map(w => w.id), ['detail_a', 'detail_b', 'detail_z']);
-  assert.strictEqual(client.wash_details.length, client.washes);
-  assert.strictEqual(client.wash_details.reduce((n, w) => n + w.weight_kg, 0), client.weight_kg);
-  assert.strictEqual(client.wash_details[0].items_total, 7);
-  assert.deepStrictEqual(client.wash_details[0].items, [
-    { item_type_id: blanket, item_name: 'Одеяло детализация', qty: 4 },
-    { item_type_id: pillow, item_name: 'Подушка детализация', qty: 3 }
-  ]);
-  assert.deepStrictEqual(client.wash_details[1].items, []);
-  assert.deepStrictEqual(client.wash_details[2].items, [
-    { item_type_id: 'missing_type', item_name: 'missing_type', qty: 5 }
-  ]);
-  assert.deepStrictEqual(row(result, other).wash_details.map(w => w.id), [otherId]);
-  assert.strictEqual(client.amount, invoice(ctx, owner, cid).total);
-});
 
 function kindTotals(bi, inv) {
   const kindById = {

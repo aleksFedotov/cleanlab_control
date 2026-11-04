@@ -94,46 +94,6 @@
   color: var(--text-2);
 }
 
-.washes {
-  max-width: 540px;
-}
-
-.detailTitle {
-  margin: 0 0 8px;
-  font-size: 14px;
-}
-
-.wash {
-  border-bottom: 1px solid var(--border);
-  font-size: 13px;
-}
-
-.washSummary {
-  padding: 12px 4px;
-  cursor: pointer;
-}
-
-.washSummary span {
-  display: inline-block;
-  margin-right: 12px;
-}
-
-.washSummary:focus-visible {
-  outline: 2px solid var(--bluing);
-  outline-offset: 2px;
-}
-
-.washItems {
-  margin: 0 0 12px;
-  padding-left: 24px;
-  color: var(--text-2);
-  overflow-wrap: anywhere;
-}
-
-.washItems li + li {
-  margin-top: 6px;
-}
-
 .lines {
   border-collapse: collapse;
   font-size: 12.5px;

@@ -39,12 +39,9 @@ export const MUTATION_INVALIDATES = {
   saveTariff: ['tariffs'],
   createUser: ['users'], updateUser: ['users'], deactivateUser: ['users'],
   reactivateUser: ['users'], deleteUser: ['users'],
-  setClientAccess: ['users'],
   createLaundry: ['laundries'], updateLaundry: ['laundries'], deactivateLaundry: ['laundries'],
-  // --- портал (P1) ---
-  clientCreateRequest: ['requests'],
   // --- без инвалидации ---
-  rememberClientItemType: [], resetUserPassword: [], resetClientPassword: [], makeTelegramBindCode: [],
+  rememberClientItemType: [], resetUserPassword: [], makeTelegramBindCode: [],
 } as const;
 
 export type MutationMethod = keyof typeof MUTATION_INVALIDATES;
