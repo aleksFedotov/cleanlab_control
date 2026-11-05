@@ -283,17 +283,49 @@
   .driverAssignment select { width: 100%; }
 }
 
+/* Bulk selection and assignment stay within the dashboard content column. */
 .batchPanel {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-l);
+  background: var(--surface);
 }
-.batchPanel > * { min-width: 0; max-width: 100%; }
-.batchPanel select { min-width: 0; max-width: 100%; }
-.selectVisit { display: flex; align-items: center; gap: 8px; font-size: 14px; }
-.selectVisit input { width: 20px; height: 20px; accent-color: var(--bluing); }
-.selectVisit input:focus-visible { outline: 2px solid var(--bluing); outline-offset: 2px; }
+.batchIntro { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+.batchIntro h2 { margin: 0; font-size: 15px; font-weight: 700; }
+.batchIntro p { margin: 4px 0 0; font-size: 13px; color: var(--text-3); }
+.availableCount { flex: none; padding: 4px 8px; border-radius: var(--radius-s); background: var(--neutral-bg); color: var(--text-2); font-size: 12px; font-weight: 600; }
+.selectVisit { display: flex; align-items: center; gap: 10px; min-height: 44px; font-size: 14px; cursor: pointer; }
+.selectVisit:has(input:disabled) { cursor: default; }
+.selectVisit input { flex: none; width: 22px; height: 22px; accent-color: var(--bluing); cursor: inherit; }
+.selectVisit input:focus-visible { outline: 2px solid var(--bluing); outline-offset: 3px; }
+.visitHeading { align-items: center; }
+.visitSelected { background: var(--bluing-soft); outline: 2px solid var(--bluing); outline-offset: -2px; }
+.assignmentDock {
+  position: sticky;
+  bottom: 16px;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 14px 16px;
+  border: 1px solid var(--bluing-border);
+  border-radius: var(--radius-l);
+  background: var(--surface);
+  box-shadow: 0 -4px 20px rgb(15 23 42 / 8%);
+}
+.dockSummary { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 16px; font-size: 14px; }
+.dockSummary strong { color: var(--bluing); font-variant-numeric: tabular-nums; }
+.dockSummary button { min-height: 44px; }
+.dockActions { display: flex; align-items: flex-end; gap: 10px; min-width: 0; }
+.dockActions > button { min-height: 44px; }
+.batchDriver { display: flex; flex-direction: column; gap: 5px; min-width: 0; font-size: 12px; color: var(--text-3); }
+.batchDriver select { width: 100%; min-width: 0; max-width: 320px; min-height: 44px; padding: 8px 12px; border: 1px solid var(--border); border-radius: var(--radius-s); background: var(--surface); color: var(--text); font-size: 14px; }
+.batchDriver select:focus-visible { outline: 2px solid var(--bluing); outline-offset: 2px; }
 @media (max-width: 600px) {
-  .batchPanel .driverFilter { flex-direction: column; align-items: stretch; width: 100%; }
+  .batchIntro { flex-wrap: wrap; gap: 8px; }
+  .assignmentDock { bottom: 0; flex-direction: column; align-items: stretch; gap: 8px; padding: 12px 14px calc(12px + env(safe-area-inset-bottom)); }
+  .dockSummary { justify-content: space-between; }
+  .dockActions { flex-direction: column; align-items: stretch; }
+  .batchDriver select { max-width: none; }
 }
