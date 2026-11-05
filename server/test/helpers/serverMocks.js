@@ -61,18 +61,6 @@ function loginOwner() { return auth.login('boss', 'boss-pass').token; }
 function loginWorker() { return auth.login('worker1', 'worker-pass').token; }
 function loginDriver() { return auth.login('driver1', 'driver-pass').token; }
 
-// Фикстура развоза с явным назначением: старые сценарии проверяют работу
-// водителя на своей точке, а не прежний общий доступ ко всем визитам.
-function addAssignedVisit(ctx, owner, clientId, date, ord) {
-  const result = ctx.api.addDeliveryVisit(owner, clientId, date, ord);
-  if (!result.ok) return result;
-  const session = auth.requireRole_(owner, ['owner']);
-  const driverId = session.laundryId === '2' ? 'usr_d2' : 'usr_d1';
-  const assigned = ctx.api.assignDeliveryDriver(owner, result.visit.id, driverId);
-  if (!assigned.ok) throw new Error(assigned.error);
-  return assigned;
-}
-
 // Вторая прачка для тестов изоляции: справочник + работник/водитель напрямую в БД.
 function seedLaundry2() {
   db.appendRow_('Laundries', { id: '2', name: 'Прачка 2', active: 'да' });
@@ -84,4 +72,4 @@ function seedLaundry2() {
 function loginWorker2() { return auth.login('worker2', 'worker2-pass').token; }
 function loginDriver2() { return auth.login('driver2', 'driver2-pass').token; }
 
-module.exports = { makeCtx, seedUser, loginOwner, loginWorker, loginDriver, addAssignedVisit, seedLaundry2, loginWorker2, loginDriver2, TODAY, TOMORROW, FIXED_NOW };
+module.exports = { makeCtx, seedUser, loginOwner, loginWorker, loginDriver, seedLaundry2, loginWorker2, loginDriver2, TODAY, TOMORROW, FIXED_NOW };

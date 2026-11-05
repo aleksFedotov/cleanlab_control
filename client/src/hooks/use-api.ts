@@ -37,7 +37,6 @@ export function useDeliveryVisits(date: string) {
     queryKey: qk.deliveryVisits(date),
     queryFn: () => api<DeliveryVisitsRes>('getDeliveryVisits', token(), date),
     enabled: !!token(),
-    refetchInterval: 15_000,
   });
 }
 
@@ -100,10 +99,9 @@ export function useLaundries() {
 
 export function useDriverRoute(date: string) {
   return useQuery({
-    queryKey: [...qk.driverRoute(date), token()],
+    queryKey: qk.driverRoute(date),
     queryFn: () => api<DriverRouteRes>('getDriverRoute', token(), date),
     enabled: !!token(),
-    refetchInterval: 15_000,
   });
 }
 

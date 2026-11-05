@@ -70,7 +70,7 @@ const API_ROLES = {
   // api/laundries.js (getTvData — без проверки)
   listLaundries: OWNER, createLaundry: OWNER, updateLaundry: OWNER, deactivateLaundry: OWNER,
   // deliveries.js (legacy: token-first, requireRole_ остался в телах)
-  getDeliveryVisits: OWNER, addDeliveryVisit: OWNER, moveDeliveryVisit: OWNER, assignDeliveryDriver: OWNER, assignDeliveryDrivers: OWNER,
+  getDeliveryVisits: OWNER, addDeliveryVisit: OWNER, moveDeliveryVisit: OWNER,
   removeDeliveryVisit: OWNER, setPickupOnly: OWNER, getDriverRoute: DRIVER_OWNER,
   driverTakeAllClean: DRIVER_OWNER, driverTakeClean: DRIVER_OWNER, driverAction: DRIVER_OWNER, driverHandover: DRIVER_OWNER,
   setVisitLiftFloor: DRIVER_OWNER, correctVisit: DRIVER_OWNER, driverReturnClean: DRIVER_OWNER,
@@ -121,8 +121,6 @@ const api = {
   // Развозы и водитель (логика в deliveries.js)
   getDeliveryVisits: deliveries.getDeliveryVisits,
   addDeliveryVisit: deliveries.addDeliveryVisit,
-  assignDeliveryDriver: deliveries.assignDeliveryDriver,
-  assignDeliveryDrivers: deliveries.assignDeliveryDrivers,
   moveDeliveryVisit: deliveries.moveDeliveryVisit,
   removeDeliveryVisit: deliveries.removeDeliveryVisit,
   setPickupOnly: deliveries.setPickupOnly,

@@ -3,37 +3,6 @@ const test = require('node:test');
 const assert = require('node:assert');
 const db = require('../db');
 
-test('назначение водителя: существующая БД получает колонку без изменения истории', () => {
-  const fs = require('node:fs');
-  const path = require('node:path');
-  const os = require('node:os');
-  const Database = require('better-sqlite3');
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cleanlab-assignment-'));
-  const file = path.join(dir, 'old.sqlite');
-  let opened;
-  try {
-    const old = new Database(file);
-    old.exec('CREATE TABLE Deliveries (id TEXT, driver_id TEXT, status TEXT, laundry_id TEXT)');
-    old.prepare('INSERT INTO Deliveries VALUES (?, ?, ?, ?)').run('old', 'usr_d1', 'picked', '1');
-    old.close();
-    opened = db.openTest(file);
-    const row = opened.prepare('SELECT * FROM Deliveries WHERE id = ?').get('old');
-    assert.strictEqual(row.driver_id, 'usr_d1');
-    assert.strictEqual(row.status, 'picked');
-    assert.strictEqual(row.assigned_driver_id, null);
-    opened.close();
-    opened = db.openTest(file);
-    assert.strictEqual(opened.prepare('PRAGMA table_info(Deliveries)').all()
-      .filter(c => c.name === 'assigned_driver_id').length, 1);
-  } finally {
-    if (opened && opened.open) opened.close();
-    for (const suffix of ['', '-wal', '-shm']) {
-      if (fs.existsSync(file + suffix)) fs.unlinkSync(file + suffix);
-    }
-    fs.rmdirSync(dir);
-  }
-});
-
 function fresh() {
   const d = db.openTest(':memory:');
   db._setDbForTests(d);

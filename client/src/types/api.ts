@@ -116,8 +116,6 @@ export interface Visit {
   pickup_only: string; // '' | 'да'
   lift_floor: string; // этаж подъёма; пусто/1/2 = без доплаты
   driver_id?: string; // водитель, закрывший точку; пусто у старых визитов
-  assigned_driver_id?: string; // назначенный владельцем водитель (план)
-  assigned_driver_name?: string;
   laundry_id: string;
 }
 
@@ -217,7 +215,6 @@ export interface DeliveryVisitsRes {
   visits: DecoratedVisit[];
   notReady: NotReady[];
   clients: Client[];
-  drivers?: Array<{ id: string; name: string }>;
 }
 
 export interface WeekPlanRes {
@@ -591,9 +588,4 @@ export interface ExtraWorkListItem {
 export interface ExtraWorksListRes {
   ok: true;
   extraWorks: ExtraWorkListItem[];
-}
-
-export interface AssignDeliveryDriversRes {
-  ok: true;
-  assigned: number;
 }

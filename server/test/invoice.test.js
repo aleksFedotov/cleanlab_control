@@ -1,4 +1,3 @@
-const { addAssignedVisit } = require('./helpers/serverMocks');
 // Тесты авторасчёта счетов (P2, docs/tickets.md): buildInvoice_ + API прайса.
 // Эталонные счёта из тикета воспроизводятся строка в строку.
 const { test } = require('node:test');
@@ -710,12 +709,12 @@ test('driverAction принимает этаж подъёма; пусто/1/2 �
   addClient(ctx, 'cli_d');
   const driver = loginDriver();
 
-  const v1 = addAssignedVisit(ctx, owner, 'cli_d', '2026-08-05').visit.id;
+  const v1 = ctx.api.addDeliveryVisit(owner, 'cli_d', '2026-08-05').visit.id;
   const r1 = ctx.api.driverAction(driver, v1, 'pickup_dirty', 3);
   assert.ok(r1.ok, r1.error);
   assert.strictEqual(r1.visit.lift_floor, '3');
 
-  const v2 = addAssignedVisit(ctx, owner, 'cli_d', '2026-08-06').visit.id;
+  const v2 = ctx.api.addDeliveryVisit(owner, 'cli_d', '2026-08-06').visit.id;
   const r2 = ctx.api.driverAction(driver, v2, 'pickup_dirty', 2);
   assert.ok(r2.ok, r2.error);
   assert.strictEqual(r2.visit.lift_floor, '', '1–2 этаж — без доплаты');
@@ -734,9 +733,9 @@ test('getDriverRoute: статистика дня — посещённые то�
   const driver = loginDriver();
   const d = '2026-08-05';
   // На одну дату у клиента может быть только один визит — три разных клиента
-  const v1 = addAssignedVisit(ctx, owner, 'cli_v1', d).visit.id;
-  const v2 = addAssignedVisit(ctx, owner, 'cli_v2', d).visit.id;
-  addAssignedVisit(ctx, owner, 'cli_v3', d); // остаётся planned — не посещена
+  const v1 = ctx.api.addDeliveryVisit(owner, 'cli_v1', d).visit.id;
+  const v2 = ctx.api.addDeliveryVisit(owner, 'cli_v2', d).visit.id;
+  ctx.api.addDeliveryVisit(owner, 'cli_v3', d); // остаётся planned — не посещена
   ctx.api.driverAction(driver, v1, 'pickup_dirty', 5); // (5−2) × 200 = 600
   ctx.api.driverAction(driver, v2, 'pickup_dirty', 3); // (3−2) × 200 = 200
 

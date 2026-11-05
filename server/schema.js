@@ -1,7 +1,7 @@
 // Схема данных CleanLab Control — порт src/Schema.gs.
 // Таблицы SQLite = листам Sheets, колонки = HEADERS. Все значения храним как TEXT
 // (даты — строками формата схемы), как и в Sheets.
-const SCHEMA_VERSION = 13;
+const SCHEMA_VERSION = 12;
 
 const SHEETS = {
   SETTINGS: 'Settings',
@@ -52,10 +52,9 @@ const HEADERS = {
   // lift_floor — этаж, на который поднимался водитель (пусто/1/2 = без доплаты).
   // driver_id — водитель, выполнивший визит (проставляется в driverAction);
   // пусто у старых визитов — они считаются общими для всех водителей.
-  // assigned_driver_id — предварительное назначение владельцем; исполнителя не заменяет.
   Deliveries: ['id', 'date', 'client_id', 'ord', 'status',
     'delivered_at', 'pickup', 'driver_comment', 'created_by', 'created_at',
-    'clean_taken_at', 'clean_bags', 'picked_at', 'dirty_handed_at', 'pickup_only', 'lift_floor', 'driver_id', 'assigned_driver_id', 'laundry_id'],
+    'clean_taken_at', 'clean_bags', 'picked_at', 'dirty_handed_at', 'pickup_only', 'lift_floor', 'driver_id', 'laundry_id'],
   // visit_id — связь записи с визитом развоза (R4): уходит со склада/сдаётся
   // по конкретному визиту, откаты матчат по ней, а не по меткам времени.
   // bags — мешки чистого (P8): явные у ручных записей (без стирки); у записей

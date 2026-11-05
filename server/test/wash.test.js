@@ -1,4 +1,3 @@
-const { addAssignedVisit } = require('./helpers/serverMocks');
 // Тесты модуля жизненного цикла стирки (R3): бьём напрямую в require('../wash'),
 // минуя фасад api.js. Эффекты команд (WashItems/Storage/Shifts/Log) и атомарность
 // транзакций — контракт модуля.
@@ -174,7 +173,7 @@ test('deliver_clean: склад + стирки + визит в одной тра
   const worker = loginWorker();
   const driver = loginDriver();
   const clientId = seedClient(ctx);
-  const v = addAssignedVisit(ctx, owner, clientId, TODAY).visit;
+  const v = ctx.api.addDeliveryVisit(owner, clientId, TODAY).visit;
   const washId = washToStorage(ctx, owner, worker, clientId);
 
   assert.ok(ctx.api.driverAction(driver, v.id, 'take_clean').ok);
@@ -207,7 +206,7 @@ test('deliver_clean: сбой записи визита откатывает с�
   const worker = loginWorker();
   const driver = loginDriver();
   const clientId = seedClient(ctx);
-  const v = addAssignedVisit(ctx, owner, clientId, TODAY).visit;
+  const v = ctx.api.addDeliveryVisit(owner, clientId, TODAY).visit;
   const washId = washToStorage(ctx, owner, worker, clientId);
   assert.ok(ctx.api.driverAction(driver, v.id, 'take_clean').ok);
 
@@ -241,7 +240,7 @@ test('undo_deliver: стирки → stored, чистое → driver, визит
   const worker = loginWorker();
   const driver = loginDriver();
   const clientId = seedClient(ctx);
-  const v = addAssignedVisit(ctx, owner, clientId, TODAY).visit;
+  const v = ctx.api.addDeliveryVisit(owner, clientId, TODAY).visit;
   const washId = washToStorage(ctx, owner, worker, clientId);
   assert.ok(ctx.api.driverAction(driver, v.id, 'take_clean').ok);
   assert.ok(ctx.api.driverAction(driver, v.id, 'deliver_clean').ok);
@@ -263,7 +262,7 @@ test('undo_pickup: два визита одного клиента в один �
   const owner = loginOwner();
   const driver = loginDriver();
   const clientId = seedClient(ctx);
-  const v1 = addAssignedVisit(ctx, owner, clientId, TODAY).visit;
+  const v1 = ctx.api.addDeliveryVisit(owner, clientId, TODAY).visit;
   // Второй визит в тот же день — напрямую в БД (API дедупит визиты клиента на дату)
   ctx.db.appendRowTenant_(SHEETS.DELIVERIES, {
     id: 'del_dup', date: TODAY, client_id: clientId, ord: '2', status: 'planned',
@@ -272,7 +271,6 @@ test('undo_pickup: два визита одного клиента в один �
     picked_at: '', dirty_handed_at: '', pickup_only: '', lift_floor: ''
   }, '1');
   const v2 = visitRow(ctx, 'del_dup');
-  assert.ok(ctx.api.assignDeliveryDriver(owner, v2.id, 'usr_d1').ok);
 
   assert.ok(ctx.api.driverAction(driver, v1.id, 'pickup_dirty').ok);
   assert.ok(ctx.api.driverAction(driver, v2.id, 'pickup_dirty').ok);
@@ -298,13 +296,13 @@ test('driverReturnClean точечен: при двух визитах с чис
   const worker = loginWorker();
   const driver = loginDriver();
   const clientId = seedClient(ctx);
-  const v1 = addAssignedVisit(ctx, owner, clientId, TODAY).visit;
+  const v1 = ctx.api.addDeliveryVisit(owner, clientId, TODAY).visit;
   const wash1 = washToStorage(ctx, owner, worker, clientId);
   assert.ok(ctx.api.driverAction(driver, v1.id, 'take_clean').ok);
 
   // Второе чистое уходит со вторым визитом
   const wash2 = washToStorage(ctx, owner, worker, clientId);
-  const v2 = addAssignedVisit(ctx, owner, clientId, TOMORROW).visit;
+  const v2 = ctx.api.addDeliveryVisit(owner, clientId, TOMORROW).visit;
   assert.ok(ctx.api.driverAction(driver, v2.id, 'take_clean').ok);
   const atDriver = cleanStorage(ctx, clientId).filter(function (s) { return s.consumed_at === 'driver'; });
   assert.strictEqual(atDriver.length, 2);

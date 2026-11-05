@@ -1,4 +1,3 @@
-const { addAssignedVisit } = require('./helpers/serverMocks');
 // P2.4: access_note («как добраться») у клиента — сохранение, нормализация,
 // отдача водителю в getDriverRoute, идемпотентность мини-миграции схемы.
 const test = require('node:test');
@@ -50,8 +49,8 @@ test('getDriverRoute: у визита есть access_note клиента, пу�
   const driver = loginDriver();
   const c1 = ctx.api.saveClient(owner, { name: 'С подсказкой', access_note: 'арка со двора' }).client.id;
   const c2 = ctx.api.saveClient(owner, { name: 'Без подсказки' }).client.id;
-  addAssignedVisit(ctx, owner, c1, TODAY);
-  addAssignedVisit(ctx, owner, c2, TODAY);
+  ctx.api.addDeliveryVisit(owner, c1, TODAY);
+  ctx.api.addDeliveryVisit(owner, c2, TODAY);
 
   const r = ctx.api.getDriverRoute(driver, TODAY);
   assert.ok(r.ok, r.error);

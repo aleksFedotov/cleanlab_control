@@ -1,4 +1,3 @@
-const { addAssignedVisit } = require('./helpers/serverMocks');
 // Тесты driverReturnClean (P6.2, docs/Тикет P6.2 — возврат чистого на склад.md):
 // штатный возврат чистого на склад по конкретной точке — отдельное событие
 // clean_return в Log, статус визита и стирки не меняются.
@@ -44,7 +43,7 @@ test('возврат: склад открыт, поля визита очище�
   const worker = loginWorker();
   const driver = loginDriver();
   const clientId = seedClient(ctx, owner);
-  const v = addAssignedVisit(ctx, owner, clientId, TODAY).visit;
+  const v = ctx.api.addDeliveryVisit(owner, clientId, TODAY).visit;
   washToStorage(ctx, owner, worker, clientId, 3);
 
   assert.ok(ctx.api.driverAction(driver, v.id, 'take_clean').ok);
@@ -68,7 +67,7 @@ test('возврат из picked: статус picked сохранён, гряз
   const worker = loginWorker();
   const driver = loginDriver();
   const clientId = seedClient(ctx, owner);
-  const v = addAssignedVisit(ctx, owner, clientId, TODAY).visit;
+  const v = ctx.api.addDeliveryVisit(owner, clientId, TODAY).visit;
   washToStorage(ctx, owner, worker, clientId, 2);
 
   assert.ok(ctx.api.driverAction(driver, v.id, 'take_clean').ok);
@@ -92,7 +91,7 @@ test('запреты: без взятия → «не взято»; после в
   const worker = loginWorker();
   const driver = loginDriver();
   const clientId = seedClient(ctx, owner);
-  const v = addAssignedVisit(ctx, owner, clientId, TODAY).visit;
+  const v = ctx.api.addDeliveryVisit(owner, clientId, TODAY).visit;
   washToStorage(ctx, owner, worker, clientId, 2);
 
   // Без взятия
@@ -116,7 +115,7 @@ test('стирки не тронуты: done/stored, issued_at пуст, WashIte
   const worker = loginWorker();
   const driver = loginDriver();
   const clientId = seedClient(ctx, owner);
-  const v = addAssignedVisit(ctx, owner, clientId, TODAY).visit;
+  const v = ctx.api.addDeliveryVisit(owner, clientId, TODAY).visit;
   const washId = washToStorage(ctx, owner, worker, clientId, 2);
 
   assert.ok(ctx.api.driverAction(driver, v.id, 'take_clean').ok);
@@ -138,7 +137,7 @@ test('Log: clean_return с bags; visit_correct отсутствует', () => {
   const worker = loginWorker();
   const driver = loginDriver();
   const clientId = seedClient(ctx, owner);
-  const v = addAssignedVisit(ctx, owner, clientId, TODAY).visit;
+  const v = ctx.api.addDeliveryVisit(owner, clientId, TODAY).visit;
   washToStorage(ctx, owner, worker, clientId, 4);
 
   assert.ok(ctx.api.driverAction(driver, v.id, 'take_clean').ok);
@@ -160,7 +159,7 @@ test('cargo: clean_points/clean_bags уменьшились на точку', ()
   const worker = loginWorker();
   const driver = loginDriver();
   const clientId = seedClient(ctx, owner);
-  const v = addAssignedVisit(ctx, owner, clientId, TODAY).visit;
+  const v = ctx.api.addDeliveryVisit(owner, clientId, TODAY).visit;
   washToStorage(ctx, owner, worker, clientId, 5);
 
   assert.ok(ctx.api.driverAction(driver, v.id, 'take_clean').ok);
@@ -178,7 +177,7 @@ test('права: worker → «Нет доступа»; чужая прачка 
   const worker = loginWorker();
   const driver = loginDriver();
   const clientId = seedClient(ctx, owner);
-  const v = addAssignedVisit(ctx, owner, clientId, TODAY).visit;
+  const v = ctx.api.addDeliveryVisit(owner, clientId, TODAY).visit;
   washToStorage(ctx, owner, worker, clientId, 2);
   assert.ok(ctx.api.driverAction(driver, v.id, 'take_clean').ok);
 
@@ -198,7 +197,7 @@ test('идемпотентность: повторный возврат → ош
   const worker = loginWorker();
   const driver = loginDriver();
   const clientId = seedClient(ctx, owner);
-  const v = addAssignedVisit(ctx, owner, clientId, TODAY).visit;
+  const v = ctx.api.addDeliveryVisit(owner, clientId, TODAY).visit;
   washToStorage(ctx, owner, worker, clientId, 2);
   const openBefore = cleanStorage(ctx, clientId).filter(function (s) { return !s.consumed_at; }).length;
 
