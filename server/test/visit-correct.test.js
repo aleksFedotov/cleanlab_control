@@ -1,3 +1,4 @@
+const { addAssignedVisit } = require('./helpers/serverMocks');
 // Тесты correctVisit (P6, docs/Тикет P6 — правка визита задним числом.md):
 // отмена действий водителя задним числом + setVisitLiftFloor водителем.
 // P6.1 (docs/Тикет P6.1): undo_pickup при сданном на складе грязном откатывает
@@ -40,7 +41,7 @@ test('undo_empty: empty → planned, поля чистые; дальше driverA
   const owner = loginOwner();
   const driver = loginDriver();
   const clientId = seedClient(ctx, owner);
-  const v = ctx.api.addDeliveryVisit(owner, clientId, TODAY).visit;
+  const v = addAssignedVisit(ctx, owner, clientId, TODAY).visit;
 
   assert.ok(ctx.api.driverAction(driver, v.id, 'empty').ok);
   assert.strictEqual(visitRow(ctx, v.id).status, 'empty');
@@ -65,7 +66,7 @@ test('undo_take_clean: чистое возвращается на склад; б
   const worker = loginWorker();
   const driver = loginDriver();
   const clientId = seedClient(ctx, owner);
-  const v = ctx.api.addDeliveryVisit(owner, clientId, TODAY).visit;
+  const v = addAssignedVisit(ctx, owner, clientId, TODAY).visit;
   washToStorage(ctx, owner, worker, clientId, 2);
 
   assert.ok(ctx.api.driverAction(driver, v.id, 'take_clean').ok);
@@ -93,7 +94,7 @@ test('undo_deliver: стирки → stored, чистое снова у води
   const worker = loginWorker();
   const driver = loginDriver();
   const clientId = seedClient(ctx, owner);
-  const v = ctx.api.addDeliveryVisit(owner, clientId, TODAY).visit;
+  const v = addAssignedVisit(ctx, owner, clientId, TODAY).visit;
   const washId = washToStorage(ctx, owner, worker, clientId, 2);
 
   assert.ok(ctx.api.driverAction(driver, v.id, 'take_clean').ok);
@@ -121,7 +122,7 @@ test('undo_deliver из both: статус → picked', () => {
   const worker = loginWorker();
   const driver = loginDriver();
   const clientId = seedClient(ctx, owner);
-  const v = ctx.api.addDeliveryVisit(owner, clientId, TODAY).visit;
+  const v = addAssignedVisit(ctx, owner, clientId, TODAY).visit;
   washToStorage(ctx, owner, worker, clientId, 1);
 
   assert.ok(ctx.api.driverAction(driver, v.id, 'take_clean').ok);
@@ -142,7 +143,7 @@ test('undo_deliver: стирки не найдены — визит отката
   const worker = loginWorker();
   const driver = loginDriver();
   const clientId = seedClient(ctx, owner);
-  const v = ctx.api.addDeliveryVisit(owner, clientId, TODAY).visit;
+  const v = addAssignedVisit(ctx, owner, clientId, TODAY).visit;
   const washId = washToStorage(ctx, owner, worker, clientId, 1);
 
   assert.ok(ctx.api.driverAction(driver, v.id, 'take_clean').ok);
@@ -172,7 +173,7 @@ test('undo_pickup: picked → planned, both → delivered', () => {
   const owner = loginOwner();
   const driver = loginDriver();
   const clientId = seedClient(ctx, owner);
-  const v = ctx.api.addDeliveryVisit(owner, clientId, TODAY).visit;
+  const v = addAssignedVisit(ctx, owner, clientId, TODAY).visit;
 
   assert.ok(ctx.api.driverAction(driver, v.id, 'pickup_dirty').ok);
   assert.strictEqual(visitRow(ctx, v.id).status, 'picked');
@@ -208,7 +209,7 @@ test('undo_pickup: грязное сдано, запись открыта → з
   const owner = loginOwner();
   const driver = loginDriver();
   const clientId = seedClient(ctx, owner);
-  const v = ctx.api.addDeliveryVisit(owner, clientId, TODAY).visit;
+  const v = addAssignedVisit(ctx, owner, clientId, TODAY).visit;
 
   assert.ok(ctx.api.driverAction(driver, v.id, 'pickup_dirty').ok);
   assert.ok(ctx.api.driverHandover(driver).ok);
@@ -237,8 +238,8 @@ test('undo_pickup: 2 записи при массовой сдаче → уда�
   const clientId = seedClient(ctx, owner);
   // Два визита одного клиента (разные дни), сдача разом → записи с одним created_at,
   // но со своим visit_id каждая (R4): откат визита удаляет именно свою запись.
-  const v1 = ctx.api.addDeliveryVisit(owner, clientId, '2026-08-12').visit;
-  const v2 = ctx.api.addDeliveryVisit(owner, clientId, '2026-08-13').visit;
+  const v1 = addAssignedVisit(ctx, owner, clientId, '2026-08-12').visit;
+  const v2 = addAssignedVisit(ctx, owner, clientId, '2026-08-13').visit;
   assert.ok(ctx.api.driverAction(driver, v1.id, 'pickup_dirty').ok);
   assert.ok(ctx.api.driverAction(driver, v2.id, 'pickup_dirty').ok);
   assert.ok(ctx.api.driverHandover(driver).ok);
@@ -265,7 +266,7 @@ test('undo_pickup: партия в стирке → ошибка с номеро
   const worker = loginWorker();
   const driver = loginDriver();
   const clientId = seedClient(ctx, owner);
-  const v = ctx.api.addDeliveryVisit(owner, clientId, TODAY).visit;
+  const v = addAssignedVisit(ctx, owner, clientId, TODAY).visit;
   assert.ok(ctx.api.driverAction(driver, v.id, 'pickup_dirty').ok);
   assert.ok(ctx.api.driverHandover(driver).ok);
 
@@ -293,7 +294,7 @@ test('цепочка: startWash → cancelWash возвращает записи
   const worker = loginWorker();
   const driver = loginDriver();
   const clientId = seedClient(ctx, owner);
-  const v = ctx.api.addDeliveryVisit(owner, clientId, TODAY).visit;
+  const v = addAssignedVisit(ctx, owner, clientId, TODAY).visit;
   assert.ok(ctx.api.driverAction(driver, v.id, 'pickup_dirty').ok);
   assert.ok(ctx.api.driverHandover(driver).ok);
   const washId = ctx.api.addToDelivery(owner, clientId, TODAY, TODAY).wash.id;
@@ -319,7 +320,7 @@ test('undo_pickup: запись не найдена → визит откаче�
   const owner = loginOwner();
   const driver = loginDriver();
   const clientId = seedClient(ctx, owner);
-  const v = ctx.api.addDeliveryVisit(owner, clientId, TODAY).visit;
+  const v = addAssignedVisit(ctx, owner, clientId, TODAY).visit;
   assert.ok(ctx.api.driverAction(driver, v.id, 'pickup_dirty').ok);
   assert.ok(ctx.api.driverHandover(driver).ok);
 
@@ -364,7 +365,7 @@ test('setVisitLiftFloor водителем: 5 → "5", 2 → ""; счёт и н�
   const lift = items.find(function (i) { return i.kind === 'lift'; });
   assert.ok(ctx.api.saveTariff(owner, '', lift.id, 300).ok);
 
-  const v = ctx.api.addDeliveryVisit(owner, clientId, TODAY).visit;
+  const v = addAssignedVisit(ctx, owner, clientId, TODAY).visit;
   assert.ok(ctx.api.driverAction(driver, v.id, 'pickup_dirty').ok); // закрытый визит
 
   const r = ctx.api.setVisitLiftFloor(driver, v.id, 5);
@@ -390,7 +391,7 @@ test('права: worker/client → «Нет доступа»; чужой виз
   const ctx = makeCtx();
   const owner = loginOwner();
   const clientId = seedClient(ctx, owner);
-  const v = ctx.api.addDeliveryVisit(owner, clientId, TODAY).visit;
+  const v = addAssignedVisit(ctx, owner, clientId, TODAY).visit;
   seedUser('usr_c1', '1', 'Клиент', 'client', 'client1', 'client-pass');
   const clientTok = auth.login('client1', 'client-pass').token;
   const worker = loginWorker();

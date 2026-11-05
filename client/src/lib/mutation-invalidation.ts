@@ -19,6 +19,7 @@ export const MUTATION_INVALIDATES = {
   driverReturnClean: OPERATIONAL, driverTakeAllClean: OPERATIONAL, driverTakeClean: OPERATIONAL,
   driverHandover: OPERATIONAL,
   addDeliveryVisit: OPERATIONAL, removeDeliveryVisit: OPERATIONAL, setPickupOnly: OPERATIONAL,
+  assignDeliveryDriver: OPERATIONAL, assignDeliveryDrivers: OPERATIONAL,
   addWeekCard: OPERATIONAL, moveWeekCard: OPERATIONAL, removeWeekCard: OPERATIONAL,
   // --- refs (+operational) ---
   saveItemType: REFS_AND_OPERATIONAL, deleteItemType: REFS_AND_OPERATIONAL,

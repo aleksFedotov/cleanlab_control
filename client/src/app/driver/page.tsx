@@ -207,7 +207,7 @@ export default function DriverPage() {
             </MobileSection>
           )}
 
-          {!route.visits.length && <Empty title="Адресов нет" hint={`На ${formatDateRu(date, false)} развоза нет`} />}
+          {!route.visits.length && <Empty title="Нет назначенных точек" hint={`На ${formatDateRu(date, false)} вам пока не назначен развоз. Уточните маршрут у владельца.`} />}
 
 
           {planned.length > 0 && (

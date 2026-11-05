@@ -6,6 +6,35 @@
   gap: var(--gap);
 }
 
+.driverFilter,
+.driverAssignment {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.driverAssignment { margin-top: 8px; }
+
+.driverFilter select,
+.driverAssignment select {
+  max-width: 100%;
+  min-width: 0;
+  min-height: 36px;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-s);
+  background: var(--surface);
+  color: var(--text);
+}
+
+.driverAssignment select { flex: 1; }
+
+.driverFilter select:focus-visible,
+.driverAssignment select:focus-visible { outline: 2px solid var(--bluing); }
+
 /* --- Сводка / фильтры --- */
 
 .skelStats {
@@ -55,7 +84,7 @@
 
 .grid {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--gap);
 }
 
@@ -95,6 +124,7 @@
 .visitName {
   font-size: 14px;
   font-weight: 700;
+  overflow-wrap: anywhere;
 }
 
 .visitDetails {
@@ -223,9 +253,47 @@
 
 @media (max-width: 1023px) {
   .grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
   .skelStats {
     grid-template-columns: repeat(2, 1fr);
   }
+}
+
+@media (max-width: 600px) {
+  .visit {
+    display: grid;
+    grid-template-columns: 52px minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .timeChip { grid-row: 1 / span 2; }
+
+  .visitSide {
+    grid-column: 2;
+    flex-wrap: wrap;
+  }
+
+  .driverAssignment {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 4px;
+  }
+
+  .driverAssignment select { width: 100%; }
+}
+
+.batchPanel {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+.batchPanel > * { min-width: 0; max-width: 100%; }
+.batchPanel select { min-width: 0; max-width: 100%; }
+.selectVisit { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+.selectVisit input { width: 20px; height: 20px; accent-color: var(--bluing); }
+.selectVisit input:focus-visible { outline: 2px solid var(--bluing); outline-offset: 2px; }
+@media (max-width: 600px) {
+  .batchPanel .driverFilter { flex-direction: column; align-items: stretch; width: 100%; }
 }

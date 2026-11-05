@@ -53,6 +53,75 @@ function findTenantVisit_(visitId, laundryId) {
   return found;
 }
 
+// Назначение — план, driver_id — факт выполнения. Старую историю и груз
+// с известным исполнителем сохраняем за ним до появления назначения.
+function canAccessVisit_(session, visit) {
+  return session.role === 'owner' ||
+    (visit.status !== 'cancelled' &&
+      String(visit.assigned_driver_id || visit.driver_id || '') === String(session.userId));
+}
+
+function assignDeliveryDrivers(token, visitIds, driverId) {
+  const session = requireRole_(token, ['owner']);
+  if (!session) return err_('Нет доступа');
+  if (!Array.isArray(visitIds) || !visitIds.length ||
+      visitIds.some(id => typeof id !== 'string' || !id) ||
+      typeof driverId !== 'string' || !driverId) return err_('Выберите точки и водителя');
+  return db.transaction_(function () {
+    const driver = db.findById_(SHEETS.USERS, driverId);
+    if (!driver || driver.obj.laundry_id !== String(session.laundryId) ||
+        driver.obj.role !== 'driver' || driver.obj.active !== 'да') {
+      return err_('Выберите активного водителя этой прачки');
+    }
+    const visits = [...new Set(visitIds)].map(id => findTenantVisit_(id, session.laundryId));
+    // Validate the entire batch before writing: returning err_ does not roll back a transaction.
+    if (visits.some(found => !found || found.obj.status !== 'planned' ||
+        found.obj.clean_taken_at || found.obj.picked_at || found.obj.delivered_at)) {
+      return err_('Одна из точек недоступна или уже в работе. Обновите список и выберите точки заново');
+    }
+    visits.forEach(found => {
+      const v = found.obj;
+      const previous = v.assigned_driver_id || '';
+      v.assigned_driver_id = driverId;
+      db.updateRow_(SHEETS.DELIVERIES, found.rowNumber, v);
+      logEvent(actorOf_(session), 'visit_assign_driver', v.id, { from: previous, to: driverId }, session.laundryId);
+    });
+    return ok_({ assigned: visits.length });
+  });
+}
+
+function assignDeliveryDriver(token, visitId, driverId) {
+  const session = requireRole_(token, ['owner']);
+  if (!session) return err_('Нет доступа');
+  if (typeof driverId !== 'string') return err_('Укажите водителя');
+  return db.transaction_(function () {
+    const found = findTenantVisit_(visitId, session.laundryId);
+    if (!found || found.obj.status === 'cancelled') return err_('Визит не найден');
+    const v = found.obj;
+    if (driverId) {
+      const driver = db.findById_(SHEETS.USERS, driverId);
+      if (!driver || driver.obj.laundry_id !== String(session.laundryId) ||
+          driver.obj.role !== 'driver' || driver.obj.active !== 'да') {
+        return err_('Выберите активного водителя этой прачки');
+      }
+    }
+    if ((v.assigned_driver_id || '') === driverId) return ok_({ visit: v });
+    const started = v.status !== 'planned' || v.clean_taken_at || v.picked_at || v.delivered_at;
+    // Исключение для старого груза без назначения: владелец указывает его
+    // текущего держателя. Завершённые визиты и известного исполнителя не меняем.
+    const legacyCargo = !v.assigned_driver_id && driverId && v.status === 'planned' &&
+      (!v.driver_id || v.driver_id === driverId);
+    if (started && !legacyCargo) {
+      return err_('Точка уже в работе. Сначала верните чистое на склад и отмените действия по точке');
+    }
+    const previous = v.assigned_driver_id || '';
+    v.assigned_driver_id = driverId;
+    db.updateRow_(SHEETS.DELIVERIES, found.rowNumber, v);
+    logEvent(actorOf_(session), 'visit_assign_driver', v.id, { from: previous, to: driverId }, session.laundryId);
+    return ok_({ visit: v });
+  });
+}
+
 // --- API ---
 
 function getDeliveryVisits(token, date) {
@@ -63,9 +132,18 @@ function getDeliveryVisits(token, date) {
   const clients = {};
   db.getClients_(laundryId).forEach(function (c) { clients[c.id] = c; });
   const storage = storageSummaryByClient_(laundryId);
+  const drivers = db.readAll_(SHEETS.USERS).filter(function (u) {
+    return u.laundry_id === String(laundryId) && u.role === 'driver';
+  });
+  const names = new Map(drivers.map(function (u) { return [u.id, u.name]; }));
   return ok_({
     date: date,
-    visits: getVisitsByDate_(date, laundryId).map(function (v) { return decorateVisit_(v, clients, storage); }),
+    visits: getVisitsByDate_(date, laundryId).map(function (v) {
+      v.assigned_driver_name = names.get(v.assigned_driver_id || v.driver_id) || '';
+      return decorateVisit_(v, clients, storage);
+    }),
+    drivers: drivers.filter(function (u) { return u.active === 'да'; })
+      .map(function (u) { return { id: u.id, name: u.name }; }),
     notReady: notReadyForDelivery_(date, laundryId),
     clients: db.getClients_(laundryId).filter(function (c) { return c.active === 'да'; })
   });
@@ -143,10 +221,10 @@ function setPickupOnly(token, visitId, flag) {
 
 // Груз водителя по ВСЕМ визитам прачки (любая дата): чистое взятое, но не отданное;
 // грязное забранное, но не сданное на склад. Мешки грязного не считаем — по точкам.
-function driverCargo_(laundryId) {
+function driverCargo_(laundryId, session) {
   const cargo = { clean_bags: 0, clean_points: 0, dirty_points: 0 };
   db.findRowsByTenant_(SHEETS.DELIVERIES, function (v) {
-    return v.status !== 'cancelled' &&
+    return (!session || canAccessVisit_(session, v)) && v.status !== 'cancelled' &&
       ((v.clean_taken_at && v.status !== 'delivered' && v.status !== 'both') ||
        (v.picked_at && !v.dirty_handed_at));
   }, 2000, laundryId).forEach(function (r) {
@@ -214,11 +292,11 @@ function getDriverRoute(token, date) {
   const clients = {};
   db.getClients_(laundryId).forEach(function (c) { clients[c.id] = c; });
   const storage = storageSummaryByClient_(laundryId);
-  const visits = getVisitsByDate_(date, laundryId);
+  const visits = getVisitsByDate_(date, laundryId).filter(function (v) { return canAccessVisit_(session, v); });
   return ok_({
     date: date,
     laundryName: db.getSettings_(laundryId).LAUNDRY_NAME || 'CleanLab Pro',
-    cargo: driverCargo_(laundryId),
+    cargo: driverCargo_(laundryId, session),
     stats: driverDayStats_(visits, laundryId, session),
     visits: visits.map(function (v) {
       const c = clients[v.client_id] || {};
@@ -298,7 +376,7 @@ function driverTakeAllClean(token, date) {
   date = date || todayStr_();
   return db.transaction_(function () {
     const rows = db.findRowsByTenant_(SHEETS.DELIVERIES, function (v) {
-      return v.date === date && v.status === 'planned' && !v.clean_taken_at;
+      return canAccessVisit_(session, v) && v.date === date && v.status === 'planned' && !v.clean_taken_at;
     }, 1000, laundryId);
     const res = takeCleanForVisits_(rows, laundryId);
     logEvent(actorOf_(session), 'take_all_clean', date, { points: res.taken, bags: res.bags }, laundryId);
@@ -318,7 +396,7 @@ function driverTakeClean(token, visitIds) {
     const rows = [];
     visitIds.forEach(function (id) {
       const found = findTenantVisit_(id, laundryId);
-      if (!found) return; // чужой/несуществующий — пропуск
+      if (!found || !canAccessVisit_(session, found.obj)) return; // чужой/несуществующий — пропуск
       const v = found.obj;
       if (v.status !== 'planned' || v.clean_taken_at) return; // не подходит — пропуск
       rows.push(found);
@@ -339,7 +417,7 @@ function driverAction(token, visitId, action, liftFloor) {
   // Вся операция — одна транзакция: склад + стирки + запись визита атомарны (R4)
   return db.transaction_(function () {
     const found = findTenantVisit_(visitId, laundryId);
-    if (!found) return err_('Визит не найден');
+    if (!found || !canAccessVisit_(session, found.obj)) return err_('Визит не найден');
     const v = found.obj;
     if (VISIT_FINAL.indexOf(v.status) !== -1) return err_('Визит уже закрыт');
 
@@ -381,14 +459,15 @@ function driverAction(token, visitId, action, liftFloor) {
     }
 
     // Закрывающие действия привязывают точку к исполнителю (зарплата/статистика)
-    if (action !== 'take_clean') v.driver_id = String(session.userId);
+    if (action !== 'take_clean') v.driver_id = session.role === 'driver'
+      ? String(session.userId) : (v.assigned_driver_id || v.driver_id || '');
 
     db.updateRow_(SHEETS.DELIVERIES, found.rowNumber, v);
     logEvent(actorOf_(session), 'visit_' + action, visitId, { client_id: v.client_id, date: v.date }, laundryId);
     if (liftFloor !== undefined) {
       logEvent(actorOf_(session), 'visit_lift', visitId, { floor: v.lift_floor || '—' }, laundryId);
     }
-    return ok_({ visit: v, cargo: driverCargo_(laundryId) });
+    return ok_({ visit: v, cargo: driverCargo_(laundryId, session) });
   });
 }
 
@@ -400,7 +479,7 @@ function setVisitLiftFloor(token, visitId, floor) {
   const laundryId = session.laundryId;
   return withLock_(function () {
     const found = findTenantVisit_(visitId, laundryId);
-    if (!found) return err_('Визит не найден');
+    if (!found || !canAccessVisit_(session, found.obj)) return err_('Визит не найден');
     found.obj.lift_floor = normalizeLiftFloor_(floor);
     db.updateRow_(SHEETS.DELIVERIES, found.rowNumber, found.obj);
     logEvent(actorOf_(session), 'visit_lift', visitId, { floor: found.obj.lift_floor || '—' }, laundryId);
@@ -422,7 +501,7 @@ function correctVisit(token, visitId, op) {
   // Вся правка — одна транзакция: склад + стирки + запись визита атомарны (R4)
   return db.transaction_(function () {
     const found = findTenantVisit_(visitId, laundryId);
-    if (!found) return err_('Визит не найден');
+    if (!found || !canAccessVisit_(session, found.obj)) return err_('Визит не найден');
     const v = found.obj;
     const snap_ = function () {
       return {
@@ -502,7 +581,7 @@ function correctVisit(token, visitId, op) {
     if (warn) details.warn = warn;
     if (extra) Object.keys(extra).forEach(function (k) { details[k] = extra[k]; });
     logEvent(actorOf_(session), 'visit_correct', visitId, details, laundryId);
-    return ok_({ visit: v, cargo: driverCargo_(laundryId) });
+    return ok_({ visit: v, cargo: driverCargo_(laundryId, session) });
   });
 }
 
@@ -516,14 +595,14 @@ function driverReturnClean(token, visitId) {
   const laundryId = session.laundryId;
   return db.transaction_(function () {
     const found = findTenantVisit_(visitId, laundryId);
-    if (!found) return err_('Визит не найден');
+    if (!found || !canAccessVisit_(session, found.obj)) return err_('Визит не найден');
     const v = found.obj;
     if (!v.clean_taken_at) return err_('Чистое по точке не взято');
     if (v.delivered_at) return err_('Чистое уже выдано — сначала отмените выдачу');
     const bags = returnCleanForVisit_(v, laundryId);
     db.updateRow_(SHEETS.DELIVERIES, found.rowNumber, v);
     logEvent(actorOf_(session), 'clean_return', visitId, { client_id: v.client_id, date: v.date, bags: bags }, laundryId);
-    return ok_({ visit: v, cargo: driverCargo_(laundryId), returnedBags: bags });
+    return ok_({ visit: v, cargo: driverCargo_(laundryId, session), returnedBags: bags });
   });
 }
 
@@ -532,9 +611,9 @@ function driverHandover(token) {
   const session = requireRole_(token, ['driver', 'owner']);
   if (!session) return err_('Нет доступа');
   const laundryId = session.laundryId;
-  return withLock_(function () {
+  return db.transaction_(function () {
     const rows = db.findRowsByTenant_(SHEETS.DELIVERIES, function (v) {
-      return v.status !== 'cancelled' && v.picked_at && !v.dirty_handed_at;
+      return canAccessVisit_(session, v) && v.status !== 'cancelled' && v.picked_at && !v.dirty_handed_at;
     }, 1000, laundryId);
     rows.forEach(function (r) {
       addStorageEntry_(r.obj.client_id, 'dirty', { visit_id: r.obj.id }, laundryId);
@@ -542,7 +621,7 @@ function driverHandover(token) {
       db.updateRow_(SHEETS.DELIVERIES, r.rowNumber, r.obj);
     });
     if (rows.length) logEvent(actorOf_(session), 'visit_handover', '-', { visits: rows.length }, laundryId);
-    return ok_({ handed: rows.length, cargo: driverCargo_(laundryId) });
+    return ok_({ handed: rows.length, cargo: driverCargo_(laundryId, session) });
   });
 }
 
@@ -600,7 +679,7 @@ function migrateWashesToVisits() {
 
 module.exports = {
   VISIT_FINAL, isOpenVisit_, getVisitsByDate_, getVisitsByWeek_, decorateVisit_, ensureVisit_,
-  getDeliveryVisits, addDeliveryVisit, moveDeliveryVisit, removeDeliveryVisit, setPickupOnly,
+  getDeliveryVisits, addDeliveryVisit, moveDeliveryVisit, removeDeliveryVisit, setPickupOnly, assignDeliveryDriver, assignDeliveryDrivers,
   driverCargo_, getDriverRoute, takeCleanForVisit_, takeCleanForVisits_, driverTakeAllClean,
   driverTakeClean, driverAction, driverHandover, setVisitLiftFloor, correctVisit, driverReturnClean, normalizeLiftFloor_,
   migrateWashesToVisits, migrateIssueDatesToVisits
