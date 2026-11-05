@@ -61,6 +61,17 @@ for (const width of [1280, 390]) {
     await expect(page.getByRole('status').filter({ hasText: 'Выбрано: 2' })).toBeVisible();
     await page.getByRole('combobox', { name: 'Водитель для выбранных точек', exact: true }).selectOption(drivers[0].id);
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+    const dock = page.getByRole('region', { name: 'Назначение выбранных точек', exact: true });
+    const assertDockInViewport = async () => {
+      const bounds = await dock.boundingBox();
+      expect(bounds).not.toBeNull();
+      expect(bounds!.y).toBeGreaterThanOrEqual(0);
+      expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(901);
+    };
+    await assertDockInViewport();
+    await page.screenshot({ path: testInfo.outputPath('bulk-selection.png'), fullPage: false });
+    await page.getByRole('button', { name: /Добавить в сегодняшний развоз/ }).scrollIntoViewIfNeeded();
+    await assertDockInViewport();
     await page.getByRole('button', { name: 'Назначить', exact: true }).click();
     await expect(page.getByLabel(`Водитель: ${visits[1].name}`, { exact: true })).toHaveValue(drivers[0].id);
     await expect(page.getByLabel(`Выбрать точку: ${visits[0].name}`, { exact: true })).not.toBeChecked();

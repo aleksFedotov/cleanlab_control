@@ -235,29 +235,23 @@ export default function TodayPage() {
       />
 
       {res.drivers && (
-        <div className={styles.batchPanel} aria-label="Массовое назначение">
+        <section className={styles.batchPanel} aria-label="Массовое назначение">
+          <div className={styles.batchIntro}>
+            <div>
+              <h2>Распределение точек</h2>
+              <p>{eligible.length ? 'Выберите точки и назначьте водителя' : 'Нет доступных для назначения точек в этом списке'}</p>
+            </div>
+            <span className={styles.availableCount}>Доступно: {eligible.length}</span>
+          </div>
           <label className={styles.selectVisit}>
             <input type="checkbox" aria-label="Выбрать все"
               checked={eligible.length > 0 && selected.length === eligible.length}
               ref={node => { if (node) node.indeterminate = selected.length > 0 && selected.length < eligible.length; }}
               disabled={assignmentBusy || !eligible.length}
               onChange={event => setSelection({ key: selectionKey, ids: event.target.checked ? eligible.map(v => v.id) : [] })} />
-            Выбрать все
+            Выбрать все точки
           </label>
-          {selected.length > 0 && <>
-            <span role="status">Выбрано: {selected.length}</span>
-            <label className={styles.driverFilter}>
-              Водитель для выбранных точек
-              <select value={batchDriver} disabled={assignmentBusy} onChange={event => setBatchDriver(event.target.value)}>
-                <option value="">Выберите водителя</option>
-                {res.drivers.map(driver => <option key={driver.id} value={driver.id}>{driver.name}</option>)}
-              </select>
-            </label>
-            <Button variant="primary" busy={batchMut.isPending}
-              disabled={assignmentBusy || !res.drivers.some(d => d.id === batchDriver)} onClick={assignSelected}>Назначить</Button>
-            <Button variant="ghost" disabled={assignmentBusy} onClick={clearSelection}>Снять выбор</Button>
-          </>}
-        </div>
+        </section>
       )}
 
       {notReady.length > 0 && (
@@ -303,23 +297,22 @@ export default function TodayPage() {
                 key={v.id}
                 interactive={isClosed}
                 onClick={isClosed ? () => setEditId(v.id) : undefined}
-                className={`${styles.visit} ${st.overdue ? styles.visitLate : ''}`}
+                className={`${styles.visit} ${st.overdue ? styles.visitLate : ''} ${selected.includes(v.id) ? styles.visitSelected : ''}`}
               >
                 <div className={`mono ${styles.timeChip}`}>
                   <span title={pickupOnly ? undefined : 'Забрал чистое со склада'}>{t1 || '—'}</span>
                   <span title={pickupOnly ? 'Забрал грязное' : 'Доставил чистое'}>{t2 || '—'}</span>
                 </div>
                 <div className={styles.visitMain}>
-                  {res.drivers && eligible.some(visit => visit.id === v.id) && (
-                    <label className={styles.selectVisit}>
+                  {res.drivers && eligible.some(visit => visit.id === v.id) ? (
+                    <label className={`${styles.selectVisit} ${styles.visitHeading}`}>
                       <input type="checkbox" aria-label={`Выбрать точку: ${v.client_name}`}
                         checked={selected.includes(v.id)} disabled={assignmentBusy}
                         onChange={event => setSelection({ key: selectionKey, ids: event.target.checked
                           ? [...selected, v.id] : selected.filter(id => id !== v.id) })} />
-                      Выбрать точку
+                      <span className={styles.visitName}>{v.client_name}</span>
                     </label>
-                  )}
-                  <div className={styles.visitName}>{v.client_name}</div>
+                  ) : <div className={styles.visitName}>{v.client_name}</div>}
                   {res.drivers && (
                     <label className={styles.driverAssignment} onClick={event => event.stopPropagation()}>
                       Водитель
@@ -392,6 +385,26 @@ export default function TodayPage() {
           ? 'Добавить в сегодняшний развоз'
           : `Добавить в развоз на ${formatDateRu(date)}`}
       </Button>
+
+      {res.drivers && selected.length > 0 && (
+        <section className={styles.assignmentDock} aria-label="Назначение выбранных точек">
+          <div className={styles.dockSummary}>
+            <span role="status">Выбрано: <strong>{selected.length}</strong></span>
+            <Button variant="ghost" size="sm" disabled={assignmentBusy} onClick={clearSelection}>Снять выбор</Button>
+          </div>
+          <div className={styles.dockActions}>
+            <label className={styles.batchDriver}>
+              <span>Водитель для выбранных точек</span>
+              <select value={batchDriver} disabled={assignmentBusy} onChange={event => setBatchDriver(event.target.value)}>
+                <option value="">Выберите водителя</option>
+                {res.drivers.map(driver => <option key={driver.id} value={driver.id}>{driver.name}</option>)}
+              </select>
+            </label>
+            <Button variant="primary" busy={batchMut.isPending}
+              disabled={assignmentBusy || !res.drivers.some(d => d.id === batchDriver)} onClick={assignSelected}>Назначить</Button>
+          </div>
+        </section>
+      )}
 
       <AddVisitModal
         open={addOpen}
