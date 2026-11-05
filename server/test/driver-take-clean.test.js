@@ -1,3 +1,4 @@
+const { addAssignedVisit } = require('./helpers/serverMocks');
 // Тесты driverTakeClean (R9, docs/Тикет R9 — единая команда забора чистого водителем.md):
 // выборочный забор чистого по списку визитов — один вызов API, одна серверная
 // транзакция на весь список. Точки без чистого и неподходящие id пропускаются
@@ -45,8 +46,8 @@ test('забор по списку: склад помечен driver + visit_id,
   const driver = loginDriver();
   const clientA = seedClient(ctx, owner, 'Отель А');
   const clientB = seedClient(ctx, owner, 'Отель Б');
-  const vA = ctx.api.addDeliveryVisit(owner, clientA, TODAY).visit;
-  const vB = ctx.api.addDeliveryVisit(owner, clientB, TODAY).visit;
+  const vA = addAssignedVisit(ctx, owner, clientA, TODAY).visit;
+  const vB = addAssignedVisit(ctx, owner, clientB, TODAY).visit;
   washToStorage(ctx, owner, worker, clientA, 3);
   washToStorage(ctx, owner, worker, clientB, 2);
 
@@ -75,7 +76,7 @@ test('Log: take_clean_batch со списком id и итогами', () => {
   const worker = loginWorker();
   const driver = loginDriver();
   const clientId = seedClient(ctx, owner);
-  const v = ctx.api.addDeliveryVisit(owner, clientId, TODAY).visit;
+  const v = addAssignedVisit(ctx, owner, clientId, TODAY).visit;
   washToStorage(ctx, owner, worker, clientId, 4);
 
   assert.ok(ctx.api.driverTakeClean(driver, [v.id]).ok);
@@ -95,8 +96,8 @@ test('точка без чистого на складе — skipped, остал
   const driver = loginDriver();
   const clientA = seedClient(ctx, owner, 'Отель А');
   const clientB = seedClient(ctx, owner, 'Отель Б');
-  const vA = ctx.api.addDeliveryVisit(owner, clientA, TODAY).visit;
-  const vB = ctx.api.addDeliveryVisit(owner, clientB, TODAY).visit; // чистого нет
+  const vA = addAssignedVisit(ctx, owner, clientA, TODAY).visit;
+  const vB = addAssignedVisit(ctx, owner, clientB, TODAY).visit; // чистого нет
   washToStorage(ctx, owner, worker, clientA, 2);
 
   const r = ctx.api.driverTakeClean(driver, [vA.id, vB.id]);
@@ -114,14 +115,14 @@ test('чужой id / закрытый визит / уже взятый — пр
   const worker = loginWorker();
   const driver = loginDriver();
   const clientOwn = seedClient(ctx, owner, 'Отель А');
-  const vOwn = ctx.api.addDeliveryVisit(owner, clientOwn, TODAY).visit;
+  const vOwn = addAssignedVisit(ctx, owner, clientOwn, TODAY).visit;
   // Отдельные клиенты: дедуп ensureVisit_ — один клиент, один визит на дату
   const clientClosed = seedClient(ctx, owner, 'Отель Б');
-  const vClosed = ctx.api.addDeliveryVisit(owner, clientClosed, TODAY).visit;
+  const vClosed = addAssignedVisit(ctx, owner, clientClosed, TODAY).visit;
   const clientTaken = seedClient(ctx, owner, 'Отель В');
-  const vTaken = ctx.api.addDeliveryVisit(owner, clientTaken, TODAY).visit;
+  const vTaken = addAssignedVisit(ctx, owner, clientTaken, TODAY).visit;
   const clientEmpty = seedClient(ctx, owner, 'Отель Г');
-  const vEmpty = ctx.api.addDeliveryVisit(owner, clientEmpty, TODAY).visit;
+  const vEmpty = addAssignedVisit(ctx, owner, clientEmpty, TODAY).visit;
   washToStorage(ctx, owner, worker, clientClosed, 2);
   washToStorage(ctx, owner, worker, clientTaken, 2);
 
@@ -157,8 +158,8 @@ test('атомарность: сбой посередине пакета отк�
   const driver = loginDriver();
   const clientA = seedClient(ctx, owner, 'Отель А');
   const clientB = seedClient(ctx, owner, 'Отель Б');
-  const vA = ctx.api.addDeliveryVisit(owner, clientA, TODAY).visit;
-  const vB = ctx.api.addDeliveryVisit(owner, clientB, TODAY).visit;
+  const vA = addAssignedVisit(ctx, owner, clientA, TODAY).visit;
+  const vB = addAssignedVisit(ctx, owner, clientB, TODAY).visit;
   washToStorage(ctx, owner, worker, clientA, 2);
   washToStorage(ctx, owner, worker, clientB, 2);
 
@@ -199,8 +200,8 @@ test('regression driverTakeAllClean: ответ с skipped, поведение �
   const driver = loginDriver();
   const clientA = seedClient(ctx, owner, 'Отель А');
   const clientB = seedClient(ctx, owner, 'Отель Б');
-  ctx.api.addDeliveryVisit(owner, clientA, TODAY).visit;
-  ctx.api.addDeliveryVisit(owner, clientB, TODAY).visit; // чистого нет — skipped
+  addAssignedVisit(ctx, owner, clientA, TODAY).visit;
+  addAssignedVisit(ctx, owner, clientB, TODAY).visit; // чистого нет — skipped
   washToStorage(ctx, owner, worker, clientA, 3);
 
   const r = ctx.api.driverTakeAllClean(driver, TODAY);
