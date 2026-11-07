@@ -64,6 +64,10 @@ function loginDriver() { return auth.login('driver1', 'driver-pass').token; }
 // Фикстура развоза с явным назначением: старые сценарии проверяют работу
 // водителя на своей точке, а не прежний общий доступ ко всем визитам.
 function addAssignedVisit(ctx, owner, clientId, date, ord) {
+  if (ctx.api.getDeliveryVisits(owner, date).mode !== 'assigned') {
+    const mode = ctx.api.setDeliveryMode(owner, date, 'assigned');
+    if (!mode.ok) throw new Error(mode.error);
+  }
   const result = ctx.api.addDeliveryVisit(owner, clientId, date, ord);
   if (!result.ok) return result;
   const session = auth.requireRole_(owner, ['owner']);

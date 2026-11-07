@@ -71,6 +71,7 @@ const API_ROLES = {
   listLaundries: OWNER, createLaundry: OWNER, updateLaundry: OWNER, deactivateLaundry: OWNER,
   // deliveries.js (legacy: token-first, requireRole_ остался в телах)
   getDeliveryVisits: OWNER, addDeliveryVisit: OWNER, moveDeliveryVisit: OWNER, assignDeliveryDriver: OWNER, assignDeliveryDrivers: OWNER,
+  setDeliveryMode: OWNER, setDefaultDeliveryMode: OWNER,
   removeDeliveryVisit: OWNER, setPickupOnly: OWNER, getDriverRoute: DRIVER_OWNER,
   driverTakeAllClean: DRIVER_OWNER, driverTakeClean: DRIVER_OWNER, driverAction: DRIVER_OWNER, driverHandover: DRIVER_OWNER,
   setVisitLiftFloor: DRIVER_OWNER, correctVisit: DRIVER_OWNER, driverReturnClean: DRIVER_OWNER,
@@ -123,6 +124,8 @@ const api = {
   addDeliveryVisit: deliveries.addDeliveryVisit,
   assignDeliveryDriver: deliveries.assignDeliveryDriver,
   assignDeliveryDrivers: deliveries.assignDeliveryDrivers,
+  setDeliveryMode: require('./delivery-mode').setDeliveryMode,
+  setDefaultDeliveryMode: require('./delivery-mode').setDefaultDeliveryMode,
   moveDeliveryVisit: deliveries.moveDeliveryVisit,
   removeDeliveryVisit: deliveries.removeDeliveryVisit,
   setPickupOnly: deliveries.setPickupOnly,

@@ -5,6 +5,98 @@ type TestSession = { token: string; role: string; laundryId: string };
 test.use({ timezoneId: 'Europe/Moscow' });
 
 for (const width of [1280, 390]) {
+  test(`общий развоз, режим даты и отдельный дефолт (${width}px)`, async ({ page, browser, request }, testInfo) => {
+    const call = async (method: string, ...args: unknown[]) => {
+      const response = await request.post(`http://localhost:3101/api/${method}`, { data: { args } });
+      expect(response.ok()).toBeTruthy();
+      const result = await response.json();
+      expect(result.ok, result.error).toBeTruthy();
+      return result;
+    };
+    const open = async (target: Page, session: TestSession, path: string) => {
+      await target.addInitScript(s => {
+        localStorage.setItem('cl_token', s.token);
+        localStorage.setItem('cl_role', s.role);
+        localStorage.setItem('cl_laundry', s.laundryId);
+      }, session);
+      await target.route('**/api/**', async route => {
+        const path = new URL(route.request().url()).pathname;
+        await route.fulfill({ response: await route.fetch({ url: `http://localhost:3101${path}` }) });
+      });
+      await target.goto(path);
+    };
+    const owner = await call('login', 'boss', 'boss-pass');
+    const dateObj = new Date();
+    dateObj.setUTCDate(dateObj.getUTCDate() + (width === 1280 ? 14 : 15));
+    const date = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Europe/Moscow' }).format(dateObj);
+    const suffix = `modes-${width}-${Date.now()}`;
+    const created = await call('createUser', owner.token, {
+      name: suffix, role: 'driver', laundryId: owner.laundryId, login: suffix, password: 'driver-test-pass',
+    });
+    const driver = await call('login', suffix, 'driver-test-pass');
+    const client = await call('saveClient', owner.token, { name: `Клиент ${suffix}`, type: 'отель' });
+    const visit = (await call('addDeliveryVisit', owner.token, client.client.id, date)).visit;
+    await call('setPickupOnly', owner.token, visit.id, true);
+    await page.setViewportSize({ width, height: 900 });
+    await open(page, owner, '/delivery');
+    await page.locator('input[type="date"]').fill(date);
+    await expect(page.getByText(client.client.name, { exact: true })).toBeVisible();
+    const modeSelect = page.getByRole('combobox', { name: 'Режим на выбранную дату', exact: true });
+    await expect(modeSelect).toHaveValue('shared');
+    await expect(page.getByLabel('Выбрать все', { exact: true })).toHaveCount(0);
+    await expect(page.getByRole('combobox', { name: 'Водитель', exact: true })).toHaveCount(0);
+
+    const driverContext = await browser.newContext({ viewport: { width: 390, height: 900 }, timezoneId: 'Europe/Moscow' });
+    try {
+      const driverPage = await driverContext.newPage();
+      await open(driverPage, driver, '/driver');
+      await driverPage.locator('input[type="date"]').fill(date);
+      await expect(driverPage.getByText(client.client.name, { exact: true })).toBeVisible();
+      await expect(driverPage.getByText('Режим: Общий развоз', { exact: true })).toBeVisible();
+
+      await modeSelect.selectOption('assigned');
+      await page.getByLabel(`Водитель: ${client.client.name}`, { exact: true }).selectOption(created.user.id);
+      await expect(page.getByLabel(`Водитель: ${client.client.name}`, { exact: true })).toBeEnabled();
+      await page.getByLabel(`Выбрать точку: ${client.client.name}`, { exact: true }).check();
+      await modeSelect.selectOption('shared');
+      await expect(page.getByRole('region', { name: 'Назначение выбранных точек' })).toHaveCount(0);
+      await expect(page.getByLabel(`Водитель: ${client.client.name}`, { exact: true })).toHaveCount(0);
+      await modeSelect.selectOption('assigned');
+      await expect(page.getByLabel(`Выбрать точку: ${client.client.name}`, { exact: true })).not.toBeChecked();
+      await expect(page.getByLabel(`Водитель: ${client.client.name}`, { exact: true })).toHaveValue(created.user.id);
+
+      await page.getByText('Изменить режим по умолчанию', { exact: true }).click();
+      const defaultSelect = page.getByRole('combobox', { name: 'Режим прачечной по умолчанию', exact: true });
+      await defaultSelect.selectOption('assigned');
+      await expect(defaultSelect).toBeEnabled();
+      await page.getByRole('button', { name: 'Вперёд', exact: true }).click();
+      await expect(modeSelect).toHaveValue('assigned');
+      await page.getByRole('button', { name: 'Назад', exact: true }).click();
+      await expect(page.getByText(client.client.name, { exact: true })).toBeVisible();
+      await expect(modeSelect).toHaveValue('assigned');
+      if (!(await defaultSelect.isVisible())) await page.getByText('Изменить режим по умолчанию', { exact: true }).click();
+      await defaultSelect.selectOption('shared');
+      await expect(defaultSelect).toBeEnabled();
+      await expect(modeSelect).toHaveValue('assigned'); // separate override
+      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+      await page.screenshot({ path: testInfo.outputPath('delivery-modes.png'), fullPage: true });
+
+      // The action reaches the real API; polling shows the lock without reloading.
+      await driverPage.locator('input[type="date"]').fill(date);
+      await call('driverAction', driver.token, visit.id, 'pickup_dirty');
+      await expect(modeSelect).toBeDisabled({ timeout: 20_000 });
+      await expect(page.getByText('Развоз уже начат — режим дня зафиксирован', { exact: true })).toBeVisible();
+      await call('correctVisit', owner.token, visit.id, 'undo_pickup');
+      await page.reload();
+      await page.locator('input[type="date"]').fill(date);
+      await expect(modeSelect).toBeDisabled();
+    } finally {
+      await driverContext.close();
+    }
+  });
+}
+
+for (const width of [1280, 390]) {
   test(`владелец распределяет развоз между двумя водителями (${width}px)`, async ({ page, browser, request }, testInfo) => {
     const call = async (method: string, ...args: unknown[]) => {
       const response = await request.post(`http://localhost:3101/api/${method}`, { data: { args } });
@@ -48,6 +140,9 @@ for (const width of [1280, 390]) {
     }
     await page.setViewportSize({ width, height: 900 });
     await open(page, owner, '/delivery');
+    if ((await call('getDeliveryVisits', owner.token, date)).mode !== 'assigned') {
+      await page.getByRole('combobox', { name: 'Режим на выбранную дату', exact: true }).selectOption('assigned');
+    }
     await page.getByLabel(`Водитель: ${visits[0].name}`, { exact: true }).selectOption(drivers[0].id);
     await expect(page.getByLabel(`Водитель: ${visits[0].name}`, { exact: true })).toBeEnabled();
     await page.getByLabel(`Водитель: ${visits[1].name}`, { exact: true }).selectOption(drivers[1].id);

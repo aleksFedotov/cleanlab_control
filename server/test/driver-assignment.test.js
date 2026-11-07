@@ -55,6 +55,7 @@ test('массовое назначение атомарно, изолирова
 function fixture() {
   const ctx = makeCtx();
   const owner = loginOwner();
+  assert.ok(ctx.api.setDeliveryMode(owner, TODAY, 'assigned').ok);
   const first = loginDriver();
   seedUser('usr_d3', '1', 'Второй водитель', 'driver', 'driver3', 'driver-pass');
   const second = ctx.auth.login('driver3', 'driver-pass').token;

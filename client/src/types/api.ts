@@ -211,6 +211,16 @@ export interface DayListRes {
   itemTypes: ItemType[];
 }
 
+export type DeliveryMode = 'shared' | 'assigned';
+
+export interface DeliveryModeRes {
+  ok: true;
+  mode: DeliveryMode;
+  default_mode: DeliveryMode;
+  mode_override: boolean;
+  mode_locked: boolean;
+}
+
 export interface DeliveryVisitsRes {
   ok: true;
   date: string;
@@ -218,6 +228,10 @@ export interface DeliveryVisitsRes {
   notReady: NotReady[];
   clients: Client[];
   drivers?: Array<{ id: string; name: string }>;
+  mode?: DeliveryMode;
+  default_mode?: DeliveryMode;
+  mode_override?: boolean;
+  mode_locked?: boolean;
 }
 
 export interface WeekPlanRes {
@@ -306,6 +320,11 @@ export interface LaundriesRes {
 
 export interface DriverRouteRes {
   ok: true;
+  mode?: DeliveryMode;
+  // Included for owners only.
+  default_mode?: DeliveryMode;
+  mode_override?: boolean;
+  mode_locked?: boolean;
   date: string;
   laundryName: string;
   cargo: { clean_bags: number; clean_points: number; dirty_points: number };

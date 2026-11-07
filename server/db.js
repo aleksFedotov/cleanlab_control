@@ -31,6 +31,7 @@ function open(dbPath = DB_PATH) {
   migrateToV7_(db);
   migrateToV9_(db);
   migrateToV12_(db);
+  migrateDeliveryModes_(db);
   return db;
 }
 
@@ -46,7 +47,31 @@ function openTest(dbPath = ':memory:') {
   migrateToV7_(testDb);
   migrateToV9_(testDb);
   migrateToV12_(testDb);
+  migrateDeliveryModes_(testDb);
   return testDb;
+}
+
+// Existing assignment installations keep started days in assigned mode. Older
+// shared-route installations have no assigned_driver_id and retain shared mode.
+function migrateDeliveryModes_(d) {
+  const marker = 'DELIVERY_MODES_INITIALIZED';
+  if (d.prepare('SELECT 1 FROM Settings WHERE key = ?').get(marker)) return;
+  d.transaction(() => {
+    const days = d.prepare(`SELECT laundry_id, date,
+      MAX(CASE WHEN COALESCE(assigned_driver_id, '') <> '' THEN 1 ELSE 0 END) AS assigned,
+      MAX(CASE WHEN COALESCE(clean_taken_at, '') <> '' OR COALESCE(picked_at, '') <> ''
+        OR COALESCE(delivered_at, '') <> '' OR COALESCE(dirty_handed_at, '') <> ''
+        OR status IN ('delivered','picked','both','empty') THEN 1 ELSE 0 END) AS started
+      FROM Deliveries GROUP BY laundry_id, date`).all();
+    days.filter(day => day.started && day.laundry_id && day.date).forEach(day => {
+      const key = 'DELIVERY_MODE_DAY_' + day.date;
+      if (!d.prepare('SELECT 1 FROM Settings WHERE key = ? AND laundry_id = ?').get(key, day.laundry_id)) {
+        setTenantSetting_(day.laundry_id, key,
+          JSON.stringify({ mode: day.assigned ? 'assigned' : 'shared', locked: true, explicit: false }), d);
+      }
+    });
+    appendRow_('Settings', { key: marker, value: '1', laundry_id: '' }, d);
+  })();
 }
 
 function createTables_(d) {
@@ -511,6 +536,6 @@ module.exports = {
   readAll_, readTail_, appendRow_, nextId_, findRowsBy_, findById_,
   updateRow_, deleteRow_, parseJsonList_,
   readAllByTenant_, readTailByTenant_, findRowsByTenant_, appendRowTenant_,
-  setTenantSetting_, migrateToV2_, migrateToV3_, migrateToV4_, migrateToV6_, migrateToV7_, migrateToV9_, migrateToV12_,
+  setTenantSetting_, migrateToV2_, migrateToV3_, migrateToV4_, migrateToV6_, migrateToV7_, migrateToV9_, migrateToV12_, migrateDeliveryModes_,
   invalidateRefCache_, getSettings_, getClients_, getItemTypes_, transaction_
 };

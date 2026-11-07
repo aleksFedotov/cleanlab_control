@@ -18,6 +18,15 @@
 
 .driverAssignment { margin-top: 8px; }
 
+.modePanel { padding: 16px; border: 1px solid var(--border); border-radius: var(--radius-l); background: var(--surface); }
+.modeLabel { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; font-size: 14px; font-weight: 600; }
+.modeLabel select { width: 100%; max-width: 360px; min-width: 0; min-height: 44px; padding: 8px 12px; border: 1px solid var(--border); border-radius: var(--radius-s); background: var(--surface); color: var(--text); font-size: 14px; font-weight: 400; }
+.modeLabel select:focus-visible, .modeDefault summary:focus-visible { outline: 2px solid var(--bluing); outline-offset: 2px; }
+.modeLabel select:disabled { opacity: .65; cursor: not-allowed; }
+.modeHint { margin: 8px 0 0; color: var(--text-3); font-size: 13px; }
+.modeDefault { display: flex; flex-direction: column; gap: 8px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); font-size: 13px; }
+.modeDefault summary { cursor: pointer; color: var(--bluing); min-height: 44px; padding: 12px 0; }
+
 .driverFilter select,
 .driverAssignment select {
   max-width: 100%;

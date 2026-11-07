@@ -257,11 +257,11 @@ const API_SNAPSHOT = [
   'moveWeekCard', 'purgeClient', 'reactivateUser', 'rememberClientItemType',
   'removeDeliveryVisit', 'removeWeekCard', 'resetUserPassword', 'saveBillingItem',
   'saveClient', 'saveClientItemBilling', 'saveItemType', 'savePayAdjustment', 'savePayRate',
-  'savePaySettings', 'saveTariff', 'setPickupOnly', 'setVisitLiftFloor', 'setWorkHours',
+  'savePaySettings', 'saveTariff', 'setDefaultDeliveryMode', 'setDeliveryMode', 'setPickupOnly', 'setVisitLiftFloor', 'setWorkHours',
   'startWash', 'switchLaundry', 'updateIssueDate', 'updateLaundry', 'updateUser'
 ];
 
-test('снапшот публичного api: 89 методов с назначением водителя', () => {
+test('снапшот публичного api: 91 метод с режимами развоза', () => {
   const api = require('../api').api;
   assert.deepStrictEqual(Object.keys(api).sort(), API_SNAPSHOT);
 });

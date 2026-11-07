@@ -13,6 +13,7 @@ const { addStorageEntry_, openStorage_, storageSummaryByClient_, storageBagsOf_ 
 const { resolveRate_ } = require('./payroll');
 const { notReadyForDelivery_, issueForVisit_, unissueForVisit_ } = require('./wash');
 const { isOpenVisit_, getVisitsByDate_, ensureVisit_ } = require('./visits');
+const { deliveryMode_, lockDeliveryMode_ } = require('./delivery-mode');
 
 // LockService в GAS; в однопроцессном Node с синхронным better-sqlite3 не нужен.
 function withLock_(fn) { return fn(); }
@@ -57,8 +58,8 @@ function findTenantVisit_(visitId, laundryId) {
 // с известным исполнителем сохраняем за ним до появления назначения.
 function canAccessVisit_(session, visit) {
   return session.role === 'owner' ||
-    (visit.status !== 'cancelled' &&
-      String(visit.assigned_driver_id || visit.driver_id || '') === String(session.userId));
+    (visit.status !== 'cancelled' && (deliveryMode_(session.laundryId, visit.date).mode === 'shared' ||
+      String(visit.assigned_driver_id || visit.driver_id || '') === String(session.userId)));
 }
 
 function assignDeliveryDrivers(token, visitIds, driverId) {
@@ -138,6 +139,7 @@ function getDeliveryVisits(token, date) {
   const names = new Map(drivers.map(function (u) { return [u.id, u.name]; }));
   return ok_({
     date: date,
+    ...deliveryMode_(laundryId, date),
     visits: getVisitsByDate_(date, laundryId).map(function (v) {
       v.assigned_driver_name = names.get(v.assigned_driver_id || v.driver_id) || '';
       return decorateVisit_(v, clients, storage);
@@ -177,6 +179,7 @@ function moveDeliveryVisit(token, visitId, newDate) {
     const found = findTenantVisit_(visitId, laundryId);
     if (!found) return err_('Визит не найден');
     if (!isOpenVisit_(found.obj)) return err_('Можно переносить только запланированные визиты');
+    if (found.obj.clean_taken_at || found.obj.picked_at || found.obj.delivered_at) return err_('Точка уже в работе — перенос недоступен');
     const old = found.obj.date;
     found.obj.date = newDate;
     db.updateRow_(SHEETS.DELIVERIES, found.rowNumber, found.obj);
@@ -295,6 +298,7 @@ function getDriverRoute(token, date) {
   const visits = getVisitsByDate_(date, laundryId).filter(function (v) { return canAccessVisit_(session, v); });
   return ok_({
     date: date,
+    ...(session.role === 'owner' ? deliveryMode_(laundryId, date) : { mode: deliveryMode_(laundryId, date).mode }),
     laundryName: db.getSettings_(laundryId).LAUNDRY_NAME || 'CleanLab Pro',
     cargo: driverCargo_(laundryId, session),
     stats: driverDayStats_(visits, laundryId, session),
@@ -341,8 +345,10 @@ function takeCleanForVisit_(v, laundryId) {
 function takeCleanForVisits_(visits, laundryId) {
   let taken = 0, bags = 0, skipped = 0;
   visits.forEach(function (r) {
+    const mode = deliveryMode_(laundryId, r.obj.date).mode;
     const b = takeCleanForVisit_(r.obj, laundryId);
     if (b === null) { skipped++; return; } // чистого нет — точку пропускаем
+    lockDeliveryMode_(laundryId, r.obj.date, mode);
     db.updateRow_(SHEETS.DELIVERIES, r.rowNumber, r.obj);
     taken++;
     bags += b;
@@ -420,6 +426,7 @@ function driverAction(token, visitId, action, liftFloor) {
     if (!found || !canAccessVisit_(session, found.obj)) return err_('Визит не найден');
     const v = found.obj;
     if (VISIT_FINAL.indexOf(v.status) !== -1) return err_('Визит уже закрыт');
+    const mode = deliveryMode_(laundryId, v.date).mode;
 
     // Этаж подъёма при подтверждении визита (P2): пусто/1/2 = без доплаты
     if (liftFloor !== undefined) v.lift_floor = normalizeLiftFloor_(liftFloor);
@@ -460,8 +467,9 @@ function driverAction(token, visitId, action, liftFloor) {
 
     // Закрывающие действия привязывают точку к исполнителю (зарплата/статистика)
     if (action !== 'take_clean') v.driver_id = session.role === 'driver'
-      ? String(session.userId) : (v.assigned_driver_id || v.driver_id || '');
+      ? String(session.userId) : ((mode === 'assigned' && v.assigned_driver_id) || v.driver_id || '');
 
+    lockDeliveryMode_(laundryId, v.date, mode);
     db.updateRow_(SHEETS.DELIVERIES, found.rowNumber, v);
     logEvent(actorOf_(session), 'visit_' + action, visitId, { client_id: v.client_id, date: v.date }, laundryId);
     if (liftFloor !== undefined) {
@@ -503,6 +511,7 @@ function correctVisit(token, visitId, op) {
     const found = findTenantVisit_(visitId, laundryId);
     if (!found || !canAccessVisit_(session, found.obj)) return err_('Визит не найден');
     const v = found.obj;
+    const mode = deliveryMode_(laundryId, v.date).mode;
     const snap_ = function () {
       return {
         status: v.status, delivered_at: v.delivered_at, picked_at: v.picked_at,
@@ -576,6 +585,7 @@ function correctVisit(token, visitId, op) {
     // если один трек остался закрыт, привязка сохраняется за его исполнителем.
     if (!v.delivered_at && !v.picked_at && v.status === 'planned') v.driver_id = '';
 
+    lockDeliveryMode_(laundryId, v.date, mode);
     db.updateRow_(SHEETS.DELIVERIES, found.rowNumber, v);
     const details = { op: op, before: before, after: snap_() };
     if (warn) details.warn = warn;
@@ -599,7 +609,9 @@ function driverReturnClean(token, visitId) {
     const v = found.obj;
     if (!v.clean_taken_at) return err_('Чистое по точке не взято');
     if (v.delivered_at) return err_('Чистое уже выдано — сначала отмените выдачу');
+    const mode = deliveryMode_(laundryId, v.date).mode;
     const bags = returnCleanForVisit_(v, laundryId);
+    lockDeliveryMode_(laundryId, v.date, mode);
     db.updateRow_(SHEETS.DELIVERIES, found.rowNumber, v);
     logEvent(actorOf_(session), 'clean_return', visitId, { client_id: v.client_id, date: v.date, bags: bags }, laundryId);
     return ok_({ visit: v, cargo: driverCargo_(laundryId, session), returnedBags: bags });
@@ -616,6 +628,7 @@ function driverHandover(token) {
       return canAccessVisit_(session, v) && v.status !== 'cancelled' && v.picked_at && !v.dirty_handed_at;
     }, 1000, laundryId);
     rows.forEach(function (r) {
+      lockDeliveryMode_(laundryId, r.obj.date, deliveryMode_(laundryId, r.obj.date).mode);
       addStorageEntry_(r.obj.client_id, 'dirty', { visit_id: r.obj.id }, laundryId);
       r.obj.dirty_handed_at = nowStr_();
       db.updateRow_(SHEETS.DELIVERIES, r.rowNumber, r.obj);
