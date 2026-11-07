@@ -1,3 +1,4 @@
+const { addAssignedVisit } = require('./helpers/serverMocks');
 // Тесты server/api.js поверх SQLite — поведенческие грани из tests/api.test.js (GAS).
 const test = require('node:test');
 const assert = require('node:assert');
@@ -84,7 +85,7 @@ test('deleteWash: запланированный визит развоза от�
   const ctx = makeCtx();
   const clientId = seedClient(ctx);
   const owner = loginOwner();
-  const visit = ctx.api.addDeliveryVisit(owner, clientId, TOMORROW).visit;
+  const visit = addAssignedVisit(ctx, owner, clientId, TOMORROW).visit;
   const washId = ctx.api.addToDelivery(owner, clientId, TODAY, TOMORROW).wash.id;
 
   assert.ok(ctx.api.deleteWash(owner, washId).ok);
@@ -186,7 +187,7 @@ test('deferWash из planned: выдача и визит развоза едут
   const ctx = makeCtx();
   const clientId = seedClient(ctx);
   const owner = loginOwner();
-  const visit = ctx.api.addDeliveryVisit(owner, clientId, TOMORROW).visit;
+  const visit = addAssignedVisit(ctx, owner, clientId, TOMORROW).visit;
   const washId = ctx.api.addToDelivery(owner, clientId, TODAY, TOMORROW).wash.id;
   const def = ctx.api.deferWash(owner, washId, '2026-08-14', 'нет места');
   assert.ok(def.ok);
@@ -207,7 +208,7 @@ test('deferWash из partial: стирка → planned на новую дату,
   const clientId = seedClient(ctx);
   const owner = loginOwner();
   const worker = loginWorker();
-  const visit = ctx.api.addDeliveryVisit(owner, clientId, TOMORROW).visit;
+  const visit = addAssignedVisit(ctx, owner, clientId, TOMORROW).visit;
   const washId = ctx.api.addToDelivery(owner, clientId, TODAY, TOMORROW).wash.id;
   ctx.api.startWash(worker, washId);
   const part = ctx.api.completeWash(worker, washId, [{ item_type_id: 'itm_1', qty: 4 }], 6.5, 'partial', 1);
@@ -239,7 +240,7 @@ test('deferWash из partial: визит в финальном статусе н
   const owner = loginOwner();
   const worker = loginWorker();
   const driver = loginDriver();
-  const visit = ctx.api.addDeliveryVisit(owner, clientId, TOMORROW).visit;
+  const visit = addAssignedVisit(ctx, owner, clientId, TOMORROW).visit;
   const washId = ctx.api.addToDelivery(owner, clientId, TODAY, TOMORROW).wash.id;
   ctx.api.startWash(worker, washId);
   ctx.api.completeWash(worker, washId, [{ item_type_id: 'itm_1', qty: 4 }], 6.5, 'partial', 1);
@@ -354,7 +355,7 @@ test('notReady: обслуженные точки (выдано/чистое у 
   const driver = loginDriver();
   // Клиент 1: чистое выдано — визит закрыт
   const c1 = seedClient(ctx);
-  const v1 = ctx.api.addDeliveryVisit(owner, c1, TOMORROW).visit;
+  const v1 = addAssignedVisit(ctx, owner, c1, TOMORROW).visit;
   const w1 = ctx.api.addToDelivery(owner, c1, TODAY, TOMORROW).wash.id;
   ctx.api.startWash(worker, w1);
   ctx.api.completeWash(worker, w1, [{ item_type_id: 'itm_1', qty: 2 }], 5, null, 1);
@@ -362,14 +363,14 @@ test('notReady: обслуженные точки (выдано/чистое у 
   assert.ok(ctx.api.driverAction(driver, v1.id, 'deliver_clean').ok);
   // Клиент 2: чистое у водителя, визит ещё открыт
   const c2 = seedClient(ctx);
-  const v2 = ctx.api.addDeliveryVisit(owner, c2, TOMORROW).visit;
+  const v2 = addAssignedVisit(ctx, owner, c2, TOMORROW).visit;
   const w2 = ctx.api.addToDelivery(owner, c2, TODAY, TOMORROW).wash.id;
   ctx.api.startWash(worker, w2);
   ctx.api.completeWash(worker, w2, [{ item_type_id: 'itm_1', qty: 2 }], 5, null, 1);
   assert.ok(ctx.api.driverAction(driver, v2.id, 'take_clean').ok);
   // Клиент 3: чистого нет вообще — должен остаться в предупреждении
   const c3 = seedClient(ctx);
-  ctx.api.addDeliveryVisit(owner, c3, TOMORROW);
+  addAssignedVisit(ctx, owner, c3, TOMORROW);
 
   const notReady = ctx.api.getDeliveryVisits(owner, TOMORROW).notReady;
   const ids = notReady.map(function (n) { return n.client_id; });
@@ -382,7 +383,7 @@ test('setPickupOnly: подтверждённая точка «только за
   const ctx = makeCtx();
   const owner = loginOwner();
   const clientId = seedClient(ctx);
-  const visit = ctx.api.addDeliveryVisit(owner, clientId, TOMORROW).visit;
+  const visit = addAssignedVisit(ctx, owner, clientId, TOMORROW).visit;
 
   // Без чистого белья точка «не готова»
   let notReady = ctx.api.getDeliveryVisits(owner, TOMORROW).notReady;
@@ -407,7 +408,7 @@ test('ensureWashesFromDelivery_: визит на завтра → планова
   const ctx = makeCtx();
   const clientId = seedClient(ctx);
   const owner = loginOwner();
-  assert.ok(ctx.api.addDeliveryVisit(owner, clientId, TOMORROW).ok);
+  assert.ok(addAssignedVisit(ctx, owner, clientId, TOMORROW).ok);
   const day1 = ctx.api.getDayList(owner, TODAY);
   assert.strictEqual(day1.washes.length, 1);
   assert.strictEqual(day1.washes[0].created_by, 'auto');
@@ -427,7 +428,7 @@ test('ensureWashesFromDelivery_: чистое на складе не мешае�
   // Бельё постирано накануне: чистое лежит на складе (ручное внесение, P8)
   assert.ok(ctx.api.addManualClean(worker, clientId, 33, 64, 2, 'постирано накануне').ok);
   // Визит на завтра → авто-карточка всё равно создаётся: работник должен подтвердить склад
-  assert.ok(ctx.api.addDeliveryVisit(owner, clientId, TOMORROW).ok);
+  assert.ok(addAssignedVisit(ctx, owner, clientId, TOMORROW).ok);
   const day = ctx.api.getDayList(worker, TODAY);
   assert.strictEqual(day.washes.length, 1);
   assert.strictEqual(day.washes[0].created_by, 'auto');
@@ -624,7 +625,7 @@ test('getWeekPlan: новая неделя не копируется с прош
   const clientId = seedClient(ctx);
   const owner = loginOwner();
   // Прошлая неделя заполнена: понедельник 2026-08-03
-  assert.ok(ctx.api.addDeliveryVisit(owner, clientId, '2026-08-03').ok);
+  assert.ok(addAssignedVisit(ctx, owner, clientId, '2026-08-03').ok);
   const week = ctx.api.getWeekPlan(owner, '2026-08-10');
   assert.ok(week.ok);
   assert.strictEqual(week.monday, '2026-08-10');
@@ -656,7 +657,7 @@ test('экраны дня материализуют стирки из завт�
   const clientId = seedClient(ctx);
   const owner = loginOwner();
   // План развоза на завтра есть, экран «Стирка» никто не открывал
-  assert.ok(ctx.api.addDeliveryVisit(owner, clientId, TOMORROW).ok);
+  assert.ok(addAssignedVisit(ctx, owner, clientId, TOMORROW).ok);
   // Отчёт за день сам создаёт плановую стирку
   const rep = ctx.api.getDayReport(owner, TODAY);
   assert.ok(rep.ok);
@@ -665,7 +666,7 @@ test('экраны дня материализуют стирки из завт�
 
   // То же — через состояние закрытия смены (второй клиент)
   const clientId2 = seedClient(ctx, { name: 'Отель Б' });
-  assert.ok(ctx.api.addDeliveryVisit(owner, clientId2, TOMORROW).ok);
+  assert.ok(addAssignedVisit(ctx, owner, clientId2, TOMORROW).ok);
   const close = ctx.api.getShiftCloseState(loginOwner());
   assert.ok(close.ok);
   assert.strictEqual(close.blockers.length, 2); // обе стирки дня теперь существуют и открыты
@@ -678,7 +679,7 @@ test('materializeTodayAllLaundries_: стирки дня для всех акт�
   const owner = loginOwner();
   const c1 = seedClient(ctx);
   // Прачка 1: визит на завтра → стирка сегодня
-  assert.ok(ctx.api.addDeliveryVisit(owner, c1, TOMORROW).ok);
+  assert.ok(addAssignedVisit(ctx, owner, c1, TOMORROW).ok);
 
   ctx.api.materializeTodayAllLaundries_();
 

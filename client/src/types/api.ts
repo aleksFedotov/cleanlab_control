@@ -116,6 +116,8 @@ export interface Visit {
   pickup_only: string; // '' | 'да'
   lift_floor: string; // этаж подъёма; пусто/1/2 = без доплаты
   driver_id?: string; // водитель, закрывший точку; пусто у старых визитов
+  assigned_driver_id?: string; // назначенный владельцем водитель (план)
+  assigned_driver_name?: string;
   laundry_id: string;
 }
 
@@ -209,12 +211,27 @@ export interface DayListRes {
   itemTypes: ItemType[];
 }
 
+export type DeliveryMode = 'shared' | 'assigned';
+
+export interface DeliveryModeRes {
+  ok: true;
+  mode: DeliveryMode;
+  default_mode: DeliveryMode;
+  mode_override: boolean;
+  mode_locked: boolean;
+}
+
 export interface DeliveryVisitsRes {
   ok: true;
   date: string;
   visits: DecoratedVisit[];
   notReady: NotReady[];
   clients: Client[];
+  drivers?: Array<{ id: string; name: string }>;
+  mode?: DeliveryMode;
+  default_mode?: DeliveryMode;
+  mode_override?: boolean;
+  mode_locked?: boolean;
 }
 
 export interface WeekPlanRes {
@@ -303,6 +320,11 @@ export interface LaundriesRes {
 
 export interface DriverRouteRes {
   ok: true;
+  mode?: DeliveryMode;
+  // Included for owners only.
+  default_mode?: DeliveryMode;
+  mode_override?: boolean;
+  mode_locked?: boolean;
   date: string;
   laundryName: string;
   cargo: { clean_bags: number; clean_points: number; dirty_points: number };
@@ -588,4 +610,9 @@ export interface ExtraWorkListItem {
 export interface ExtraWorksListRes {
   ok: true;
   extraWorks: ExtraWorkListItem[];
+}
+
+export interface AssignDeliveryDriversRes {
+  ok: true;
+  assigned: number;
 }

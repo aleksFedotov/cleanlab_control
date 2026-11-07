@@ -5,11 +5,11 @@
 // Дата — из хедера (DateNav layout'а) через useSectionDate('delivery').
 import { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, Plus, Truck, X } from 'lucide-react';
-import type { DecoratedVisit } from '@/types/api';
+import type { AssignDeliveryDriversRes, DecoratedVisit } from '@/types/api';
 import { useDeliveryVisits, useApiMutation } from '@/hooks/use-api';
 import { useSectionDate } from '@/hooks/use-section-date';
 import { useUiStore } from '@/stores/ui';
-import { formatDateRu, isToday, timeOf } from '@/lib/dates';
+import { formatDateRu, isToday, timeOf, todayStr } from '@/lib/dates';
 import { bags } from '@/lib/format';
 import { StatRow } from '@/components/ui/StatRow';
 import { StatCard } from '@/components/ui/StatCard';
@@ -31,6 +31,20 @@ export default function TodayPage() {
   const toast = useUiStore((s) => s.toast);
 
   const [filter, setFilter] = useState('all');
+  const [driverFilter, setDriverFilter] = useState('all');
+  const mode = query.data?.mode || 'shared';
+  const assignmentEnabled = mode === 'assigned';
+  const [previousMode, setPreviousMode] = useState(mode);
+  if (previousMode !== mode) {
+    setPreviousMode(mode);
+    setDriverFilter('all');
+  }
+  const selectionKey = JSON.stringify([date, filter, driverFilter, mode]);
+  const [selection, setSelection] = useState<{ key: string; ids: string[] }>({ key: '', ids: [] });
+  const [batchDriver, setBatchDriver] = useState('');
+  if (selection.key !== selectionKey) {
+    setSelection({ key: selectionKey, ids: [] });
+  }
   const [addOpen, setAddOpen] = useState(false);
   const [removeTarget, setRemoveTarget] = useState<{ id: string; name: string } | null>(null);
   const [poTarget, setPoTarget] = useState<string | null>(null); // visitId для setPickupOnly(true)
@@ -45,6 +59,10 @@ export default function TodayPage() {
 
   const removeMut = useApiMutation('removeDeliveryVisit');
   const pickupOnlyMut = useApiMutation('setPickupOnly');
+  const assignMut = useApiMutation('assignDeliveryDriver');
+  const batchMut = useApiMutation<AssignDeliveryDriversRes>('assignDeliveryDrivers');
+  const modeMut = useApiMutation('setDeliveryMode');
+  const defaultModeMut = useApiMutation('setDefaultDeliveryMode');
 
   const res = query.data;
 
@@ -87,10 +105,32 @@ export default function TodayPage() {
     (res?.visits || []).forEach((v) => {
       const st = visitState(v, reasonByClient.get(v.client_id), date);
       if (st.category) c[st.category]++;
-      if (filter === 'all' || st.category === filter) list.push(v);
+      const driverId = v.assigned_driver_id || v.driver_id || '';
+      if ((filter === 'all' || st.category === filter) &&
+          (!assignmentEnabled || driverFilter === 'all' || driverId === (driverFilter === 'unassigned' ? '' : driverFilter))) list.push(v);
     });
     return { counts: c, filtered: list };
-  }, [res, reasonByClient, date, filter]);
+  }, [res, reasonByClient, date, filter, driverFilter, assignmentEnabled]);
+
+  const eligible = filtered.filter(v => v.status === 'planned' &&
+    !v.clean_taken_at && !v.picked_at && !v.delivered_at);
+  const selected = assignmentEnabled && selection.key === selectionKey
+    ? selection.ids.filter(id => eligible.some(v => v.id === id)) : [];
+  const assignmentBusy = assignMut.isPending || batchMut.isPending || modeMut.isPending || defaultModeMut.isPending;
+
+  function clearSelection() {
+    setSelection({ key: selectionKey, ids: [] });
+  }
+
+  function assignSelected() {
+    batchMut.mutate([selected, batchDriver], {
+      onSuccess: result => {
+        clearSelection();
+        toast(`Назначено точек: ${result.assigned}. Водитель: ${res?.drivers?.find(d => d.id === batchDriver)?.name || ''}`);
+      },
+      onError: () => { clearSelection(); void query.refetch(); },
+    });
+  }
 
   function confirmPickupOnly() {
     if (!poTarget) return;
@@ -178,6 +218,60 @@ export default function TodayPage() {
         />
       </StatRow>
 
+      {res.mode && (
+        <section className={styles.modePanel} aria-label="Режим развоза">
+          <label className={styles.modeLabel}>
+            <span>Режим на выбранную дату</span>
+            <select value={mode} disabled={assignmentBusy || res.mode_locked}
+              onChange={event => modeMut.mutate([date, event.target.value], {
+                onSuccess: () => toast('Режим дня сохранён'),
+                onError: () => { void query.refetch(); },
+              })}>
+              <option value="shared">Общий развоз</option>
+              <option value="assigned">По водителям</option>
+            </select>
+          </label>
+          <p className={styles.modeHint}>{res.mode_locked
+            ? 'Развоз уже начат — режим дня зафиксирован'
+            : res.mode_override ? 'Для этой даты выбран отдельный режим'
+            : date < todayStr() ? 'Для прошлой даты используется общий развоз'
+            : 'Используется режим по умолчанию'}</p>
+          <p className={styles.modeHint}>{assignmentEnabled
+            ? 'Водители видят только назначенные им точки. Неназначенные видны только владельцу.'
+            : 'Все водители видят все точки и работают без назначения.'}</p>
+          <div className={styles.modeDefault}>
+            <span>По умолчанию: <strong>{res.default_mode === 'assigned' ? 'По водителям' : 'Общий развоз'}</strong></span>
+            <details>
+              <summary>Изменить режим по умолчанию</summary>
+              <label className={styles.modeLabel}>
+                <span>Режим прачечной по умолчанию</span>
+                <select value={res.default_mode || 'shared'} disabled={assignmentBusy}
+                  onChange={event => defaultModeMut.mutate(event.target.value, {
+                    onSuccess: () => toast('Режим по умолчанию сохранён'),
+                  })}>
+                  <option value="shared">Общий развоз</option>
+                  <option value="assigned">По водителям</option>
+                </select>
+              </label>
+              <p className={styles.modeHint}>Применяется к сегодняшнему и будущим неначатым дням без отдельного режима.</p>
+            </details>
+          </div>
+        </section>
+      )}
+
+      {assignmentEnabled && res.drivers && (
+        <label className={styles.driverFilter}>
+          Водитель
+          <select value={driverFilter} onChange={(event) => setDriverFilter(event.target.value)}>
+            <option value="all">Все водители</option>
+            <option value="unassigned">Не назначен ({visits.filter(v => !v.assigned_driver_id && !v.driver_id).length})</option>
+            {res.drivers.map(driver => (
+              <option key={driver.id} value={driver.id}>{driver.name}</option>
+            ))}
+          </select>
+        </label>
+      )}
+
       <FilterPills
         active={filter}
         onChange={setFilter}
@@ -189,6 +283,26 @@ export default function TodayPage() {
           { key: 'late', label: 'Просрочены', count: counts.late },
         ]}
       />
+
+      {assignmentEnabled && res.drivers && (
+        <section className={styles.batchPanel} aria-label="Массовое назначение">
+          <div className={styles.batchIntro}>
+            <div>
+              <h2>Распределение точек</h2>
+              <p>{eligible.length ? 'Выберите точки и назначьте водителя' : 'Нет доступных для назначения точек в этом списке'}</p>
+            </div>
+            <span className={styles.availableCount}>Доступно: {eligible.length}</span>
+          </div>
+          <label className={styles.selectVisit}>
+            <input type="checkbox" aria-label="Выбрать все"
+              checked={eligible.length > 0 && selected.length === eligible.length}
+              ref={node => { if (node) node.indeterminate = selected.length > 0 && selected.length < eligible.length; }}
+              disabled={assignmentBusy || !eligible.length}
+              onChange={event => setSelection({ key: selectionKey, ids: event.target.checked ? eligible.map(v => v.id) : [] })} />
+            Выбрать все точки
+          </label>
+        </section>
+      )}
 
       {notReady.length > 0 && (
         <div className={styles.blockers}>
@@ -233,14 +347,47 @@ export default function TodayPage() {
                 key={v.id}
                 interactive={isClosed}
                 onClick={isClosed ? () => setEditId(v.id) : undefined}
-                className={`${styles.visit} ${st.overdue ? styles.visitLate : ''}`}
+                className={`${styles.visit} ${st.overdue ? styles.visitLate : ''} ${selected.includes(v.id) ? styles.visitSelected : ''}`}
               >
                 <div className={`mono ${styles.timeChip}`}>
                   <span title={pickupOnly ? undefined : 'Забрал чистое со склада'}>{t1 || '—'}</span>
                   <span title={pickupOnly ? 'Забрал грязное' : 'Доставил чистое'}>{t2 || '—'}</span>
                 </div>
                 <div className={styles.visitMain}>
-                  <div className={styles.visitName}>{v.client_name}</div>
+                  {assignmentEnabled && res.drivers && eligible.some(visit => visit.id === v.id) ? (
+                    <label className={`${styles.selectVisit} ${styles.visitHeading}`}>
+                      <input type="checkbox" aria-label={`Выбрать точку: ${v.client_name}`}
+                        checked={selected.includes(v.id)} disabled={assignmentBusy}
+                        onChange={event => setSelection({ key: selectionKey, ids: event.target.checked
+                          ? [...selected, v.id] : selected.filter(id => id !== v.id) })} />
+                      <span className={styles.visitName}>{v.client_name}</span>
+                    </label>
+                  ) : <div className={styles.visitName}>{v.client_name}</div>}
+                  {assignmentEnabled && res.drivers && (
+                    <label className={styles.driverAssignment} onClick={event => event.stopPropagation()}>
+                      Водитель
+                      <select
+                        aria-label={`Водитель: ${v.client_name}`}
+                        value={v.assigned_driver_id || v.driver_id || ''}
+                        disabled={assignmentBusy || v.status !== 'planned' ||
+                          (!!v.assigned_driver_id && !!(v.clean_taken_at || v.picked_at || v.delivered_at))}
+                        title={v.clean_taken_at ? 'Для переназначения сначала верните чистое на склад' : undefined}
+                        onChange={event => {
+                          const driverId = event.target.value;
+                          assignMut.mutate([v.id, driverId], {
+                            onSuccess: () => toast(driverId ? 'Водитель назначен' : 'Назначение снято'),
+                          });
+                        }}
+                      >
+                        <option value="">Не назначен</option>
+                        {(v.assigned_driver_id || v.driver_id) &&
+                          !res.drivers.some(driver => driver.id === (v.assigned_driver_id || v.driver_id)) && (
+                            <option value={v.assigned_driver_id || v.driver_id}>{v.assigned_driver_name || 'Неактивный водитель'}</option>
+                          )}
+                        {res.drivers.map(driver => <option key={driver.id} value={driver.id}>{driver.name}</option>)}
+                      </select>
+                    </label>
+                  )}
                   {details.length > 0 && (
                     <div className={styles.visitDetails}>{details.join(' · ')}</div>
                   )}
@@ -288,6 +435,26 @@ export default function TodayPage() {
           ? 'Добавить в сегодняшний развоз'
           : `Добавить в развоз на ${formatDateRu(date)}`}
       </Button>
+
+      {assignmentEnabled && res.drivers && selected.length > 0 && (
+        <section className={styles.assignmentDock} aria-label="Назначение выбранных точек">
+          <div className={styles.dockSummary}>
+            <span role="status">Выбрано: <strong>{selected.length}</strong></span>
+            <Button variant="ghost" size="sm" disabled={assignmentBusy} onClick={clearSelection}>Снять выбор</Button>
+          </div>
+          <div className={styles.dockActions}>
+            <label className={styles.batchDriver}>
+              <span>Водитель для выбранных точек</span>
+              <select value={batchDriver} disabled={assignmentBusy} onChange={event => setBatchDriver(event.target.value)}>
+                <option value="">Выберите водителя</option>
+                {res.drivers.map(driver => <option key={driver.id} value={driver.id}>{driver.name}</option>)}
+              </select>
+            </label>
+            <Button variant="primary" busy={batchMut.isPending}
+              disabled={assignmentBusy || !res.drivers.some(d => d.id === batchDriver)} onClick={assignSelected}>Назначить</Button>
+          </div>
+        </section>
+      )}
 
       <AddVisitModal
         open={addOpen}

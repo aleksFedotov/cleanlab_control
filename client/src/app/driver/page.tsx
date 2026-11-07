@@ -3,7 +3,7 @@
 // Экран водителя: маршрут дня, история, профиль.
 // Порт legacy renderDriver + openDriverVisit (server/public/index.html:1103-1301).
 import { useEffect, useMemo, useState } from 'react';
-import { Truck, History, User, MapPin, Phone, LogOut, KeyRound } from 'lucide-react';
+import { Truck, History, User, LogOut, KeyRound } from 'lucide-react';
 import type { DriverRouteRes } from '@/types/api';
 import { useDriverRoute, useApiMutation, useExtraWorks, useDeleteExtraWork } from '@/hooks/use-api';
 import { useRequireRole, useLogout } from '@/hooks/use-session';
@@ -161,6 +161,7 @@ export default function DriverPage() {
       {route && tab === 'route' && (
         <>
           <DateNav date={date} onChange={setDate} />
+          <p className={styles.meta}>Режим: {route.mode === 'assigned' ? 'По водителям' : 'Общий развоз'}</p>
           {/* Мой груз: бельё, которое физически у водителя (по всем дням) */}
           {(cargo.clean_points > 0 || cargo.dirty_points > 0) && (
             <MobileSection label="Мой груз">
@@ -207,7 +208,9 @@ export default function DriverPage() {
             </MobileSection>
           )}
 
-          {!route.visits.length && <Empty title="Адресов нет" hint={`На ${formatDateRu(date, false)} развоза нет`} />}
+          {!route.visits.length && <Empty title={route.mode === 'assigned' ? 'Нет назначенных точек' : 'Развоз пуст'}
+            hint={route.mode === 'assigned' ? `На ${formatDateRu(date, false)} вам пока не назначен развоз. Уточните маршрут у владельца.`
+              : `На ${formatDateRu(date, false)} точек развоза пока нет.`} />}
 
 
           {planned.length > 0 && (
